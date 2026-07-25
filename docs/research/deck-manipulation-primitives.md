@@ -43,7 +43,7 @@ UI surface; L = needs new interaction infra (selection, menus).
 |---|-----------|-----------|--------|-------|
 | A1 | **Group loose stack → deck** (hotkey `G` on hovered card) | `G` group | **S/M** | Everything needed exists: reuse the `resolveStackHeight` radius scan for membership, order by Y, `addDeck` at base-card XZ, delete loose card entities. Instantly gives piles draw-1 / count / return-to-top semantics for free. |
 | A2 | **Square-up on stack drop** — snap XZ to stack base | auto-align | **S** | Pure change in the drop commit; makes stacks read as intentional piles instead of drift. Optional small random jitter for feel. Holding `Alt` at release opts out (raw pointer XZ, rests on the felt), so cards can still be laid out deliberately next to each other. |
-| A3 | **Grab whole pile** (modifier-drag or long-press on a stack/deck) | RMB-drag / container drag | **M** | For decks: drag threshold on pointerdown — move = drag deck, click = draw (today drawing is the only possible outcome). |
+| A3 | **Grab whole pile** (modifier-drag or long-press on a stack/deck) | RMB-drag / container drag | **M** | *Shipped for decks.* Drag threshold on pointerdown — move = drag the whole deck (streams through the position throttle like cards), click = draw 1 to the felt in front of the deck. Loose stacks still wait on the selection model. |
 | A4 | **Split / take N** (drag off top with count, or cut at midpoint) | number+drag, Cut | **M** | Depends on A1 (needs real pile objects to split). |
 | A5 | **Re-settle stack Ys** when a mid-card is removed | gravity | **S** | Run the stack scan on pickup, not just drop. |
 | A6 | **Ungroup deck → loose stack** (hotkey `Shift+G` on a hovered deck) | unpack container | **S** | *Shipped.* The inverse of A1 and the only way back out of a `G` short of drawing one card at a time. `DeckDTO.cards` is already the full ordered list, so it's one patch: delete the deck, write the cards. `orderForDeck` is its own inverse, so the ordering convention survives the round trip. Own decks only (matches shuffle), and capped at `UNGROUP_MAX_CARDS` (40) so a 200-card deck can't carpet the felt. |
@@ -53,9 +53,9 @@ UI surface; L = needs new interaction infra (selection, menus).
 
 | # | Primitive | TTS analog | Effort | Notes |
 |---|-----------|-----------|--------|-------|
-| B1 | **Draw N** (number keys 1–9 while hovering deck) | number keys | **S** | `drawFromTop` just needs a count param + fan the drawn cards. |
-| B2 | **Flip whole deck** (toggle `isFaceUp`) | flip deck | **S** | Field exists, mutation doesn't. Mind the ordering convention flip (top = last vs first). |
-| B3 | **Shuffle hotkey + visible feedback** (hover deck + `S`) | shake/`R` | **S** | Action exists; needs binding + a broadcastable wiggle so opponents see it happened. |
+| B1 | **Draw N** (number keys 1–9 while hovering deck) | number keys | **S** | *Shipped.* `drawFromTop(id, count)` lands the cards fanned down-screen of the deck, one thickness apart in Y, in a single patch. |
+| B2 | **Flip whole deck** (toggle `isFaceUp`) | flip deck | **S** | *Shipped.* `F` on a hovered deck. Toggling `isFaceUp` alone is the physical flip — the draw convention (top = last vs first) makes the former bottom the new top. |
+| B3 | **Shuffle hotkey + visible feedback** (hover deck + `S`) | shake/`R` | **S** | *Shipped.* `S` on a hovered own deck; `shuffledAt` rides the shuffle patch and every client's Deck plays a decaying yaw wiggle when it changes. |
 | B4 | **Deal to seats** (right-click → deal N to each player tray) | Deal | **M** | Blocked on B6 for discoverability, but the action itself is a loop of draw→tray patches. |
 | B5 | **Search / browse deck** (scrollable contents list, take/reorder) | Search | **M** | SPEC already plans the Bag to *reuse* this UI — build it once here. Hidden-info: only reveal to the searcher. |
 | B6 | **Context menu on card/deck** (right-click) | RMB menu | **M/L** | The unlock for every discoverable verb (deal, search, reset, flip-pile). Today right-click on a card falls through to camera orbit. |

@@ -370,8 +370,8 @@ Decks spawn in declaration order. A facedown deck is shuffled when spawned direc
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"x-tableplace-spec-version": "1.0.0",
-	"x-generated-at": "2026-07-25T10:07:29.095Z",
-	"x-tableplace-source-sha": "8f51cd719fc58c03837df9059a6f2cbcd9a5d407-dirty"
+	"x-generated-at": "2026-07-25T12:16:29.803Z",
+	"x-tableplace-source-sha": "875a4210b560d9f8389a69c8615ee245b3d19934-dirty"
 }
 ```
 
@@ -828,6 +828,11 @@ Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`â
 					"description": "scenario authoring intent (tbps v2): reshuffle this deck on scenario load",
 					"type": "boolean",
 					"title": "shuffleOnLoad"
+				},
+				"shuffledAt": {
+					"description": "wall-clock ms of the last shuffle. Its only job is to CHANGE in the same\npatch as the reordered cards â€” the reorder alone is invisible from the\nback, the changed timestamp is what remote clients turn into the wiggle.",
+					"type": "number",
+					"title": "shuffledAt"
 				}
 			}
 		},
@@ -1080,8 +1085,8 @@ Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`â
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"x-tableplace-spec-version": "0.1.0",
-	"x-generated-at": "2026-07-25T10:07:29.095Z",
-	"x-tableplace-source-sha": "8f51cd719fc58c03837df9059a6f2cbcd9a5d407-dirty"
+	"x-generated-at": "2026-07-25T12:16:29.803Z",
+	"x-tableplace-source-sha": "875a4210b560d9f8389a69c8615ee245b3d19934-dirty"
 }
 ```
 

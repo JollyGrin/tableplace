@@ -2,8 +2,9 @@
 	import * as THREE from 'three';
 	import { T } from '@threlte/core';
 	import { Text, Billboard, ImageMaterial, interactivity } from '@threlte/extras';
+	import type { IntersectionEvent } from '@threlte/extras';
+	import { Spring } from 'svelte/motion';
 	import { dragStart, dragStore, setDeckHover } from '$lib/store/dragStore.svelte';
-	import { degrees } from '$lib/utils/constants-rotation';
 	import {
 		CARD_DRAG_Y,
 		CARD_WIDTH,
@@ -13,10 +14,11 @@
 	} from '$lib/utils/constants-cards';
 	import { createDeckEdgeTexture, deckEdgeRepeatY } from '$lib/utils/deck-edge-texture';
 	import { browser } from '$app/environment';
-	import { DEG2RAD } from 'three/src/math/MathUtils.js';
 	import { gameStore } from './store/game/gameStore.svelte';
 	import { gameActions } from './store/game/actions';
 	import { resolveCardImage, sheetRefCache, CARD_BACK_DEFAULT } from '$lib/packs';
+	import { claimPointerDown } from '$lib/utils/single-hit-dispatch';
+	import { DRAG_THRESHOLD_PX } from '$lib/utils/counter-input';
 	import DropFootprint from './drop/DropFootprint.svelte';
 
 	interactivity();
@@ -56,37 +58,102 @@
 
 	const isHovered = $derived(id === $dragStore.isDeckHovered);
 	// dropping here replaces the table landing entirely, so the deck has to be
-	// the cue — the drop indicator suppresses its table footprint while hovered
-	const isDropTarget = $derived(isHovered && !!$dragStore.isDragging);
+	// the cue — the drop indicator suppresses its table footprint while hovered.
+	// Cards only: a dragged deck or piece just settles on the felt (see
+	// resolveDrop), so lighting up would promise a landing that can't happen —
+	// and the deck being dragged is always hovered by its own pointer.
+	const isDragged = $derived($dragStore.isDragging === id);
+	const isDropTarget = $derived(
+		isHovered &&
+			!!$dragStore.isDragging &&
+			!$dragStore.isDragging.startsWith('deck:') &&
+			!$dragStore.isDragging.startsWith('piece:')
+	);
 
-	function handleDragStart(e: PointerEvent) {
+	// Lift + glide springs, same rig as Piece.svelte: the local drag snaps XZ
+	// instantly (a spring there reads as input lag), remote decks glide toward
+	// the ~200ms-throttled store position instead of teleporting between ticks.
+	const lift = new Spring(position[1] ?? 0, {
+		stiffness: 0.28,
+		damping: 0.7,
+		precision: 0.0001
+	});
+	$effect(() => {
+		lift.target = isDragged ? CARD_DRAG_Y : (deck.position?.[1] ?? 0);
+	});
+
+	const planar = new Spring(
+		{ x: position[0] ?? 0, z: position[2] ?? 0 },
+		{ stiffness: 0.15, damping: 0.8, precision: 0.0001 }
+	);
+	$effect(() => {
+		const [x = 0, , z = 0] = deck.position ?? [];
+		if (isDragged) planar.set({ x, z }, { instant: true });
+		else planar.target = { x, z };
+	});
+
+	// Shuffle wiggle: a decaying yaw twitch, kicked whenever `shuffledAt`
+	// changes — the reorder patch alone is invisible from the back, so this is
+	// what tells everyone (shuffler included) a shuffle happened. Low damping
+	// on purpose: the spring overshoots a few times, which reads as a riffle.
+	const wiggle = new Spring(0, { stiffness: 0.3, damping: 0.15, precision: 0.001 });
+	// null = not seeded yet: the first run only records, so a late joiner
+	// doesn't replay a shuffle that happened before they arrived
+	let prevShuffledAt: number | null | undefined = null;
+	$effect(() => {
+		const t = deck.shuffledAt;
+		const prev = prevShuffledAt;
+		prevShuffledAt = t;
+		if (prev === null || t === undefined || t === prev) return;
+		wiggle.set(0.3, { instant: true });
+		wiggle.target = 0;
+	});
+
+	let pendingDrag: { x: number; y: number } | null = null;
+
+	// Drag threshold, same as Card/Piece: the pointerdown only arms the
+	// gesture. Travel past the threshold and it's a deck move; release under
+	// it and the click handler draws instead.
+	function onPendingMove(ne: PointerEvent) {
+		if (!pendingDrag) return;
+		if (Math.hypot(ne.clientX - pendingDrag.x, ne.clientY - pendingDrag.y) < DRAG_THRESHOLD_PX)
+			return;
+		cancelPendingDrag();
+		// origin (pre-lift store position) is what Esc returns the deck to
+		dragStart(id, CARD_DRAG_Y, deck.position);
+	}
+
+	function cancelPendingDrag() {
+		pendingDrag = null;
+		window.removeEventListener('pointermove', onPendingMove);
+		window.removeEventListener('pointerup', cancelPendingDrag);
+	}
+
+	$effect(() => cancelPendingDrag);
+
+	function handlePointerDown(e: IntersectionEvent<PointerEvent>) {
+		// claims the pointerdown ahead of anything behind the deck — see
+		// claimPointerDown — and locks OrbitControls out of the gesture
+		if (!claimPointerDown(e)) return;
+		pendingDrag = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
+		window.addEventListener('pointermove', onPendingMove);
+		window.addEventListener('pointerup', cancelPendingDrag);
+	}
+
+	// a press that never travelled: the draw (the pre-threshold behavior —
+	// one card off the top, landing in front of the deck)
+	function handleClick(e: IntersectionEvent<MouseEvent>) {
+		if (e.delta > DRAG_THRESHOLD_PX) return; // was a drag, not a click
 		e.stopPropagation();
-		const { x = 0, z = 0 } = $dragStore.intersectionPoint as THREE.Vector3;
-		const card = gameActions.drawFromTop(id);
-		if (!card) return console.warn('No card drawn');
-
-		const rotX = isFaceUp ? 0 : 180;
-		const rotY = 0;
-		const rotZ = -degrees[gameActions?.getMySeat()] / DEG2RAD;
-		gameStore.updateState({
-			cards: {
-				[card.id]: {
-					...card,
-					position: [x, CARD_DRAG_Y, z],
-					rotation: [rotX, rotY, rotZ],
-					backImageUrl: card.backImageUrl ?? deckBackImage
-				}
-			}
-		});
-
-		dragStart(card.id, CARD_DRAG_Y);
+		gameActions.drawFromTop(id);
 	}
 </script>
 
 <T.Group
-	{position}
-	{rotation}
-	onpointerdown={handleDragStart}
+	position={[planar.current.x, lift.current, planar.current.z]}
+	rotation={[rotation[0], rotation[1] + wiggle.current, rotation[2]]}
+	onpointerdown={handlePointerDown}
+	onclick={handleClick}
 	onpointerenter={() => setDeckHover(id)}
 	onpointerleave={() => setDeckHover(null)}
 >

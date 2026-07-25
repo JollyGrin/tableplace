@@ -70,6 +70,10 @@
 				const dragId = $dragStore.isDragging as string;
 				if (dragId.startsWith('piece:')) {
 					gameStore.updateState({ pieces: { [dragId]: { position: [cx, PIECE_DRAG_Y, cz] } } });
+				} else if (dragId.startsWith('deck:')) {
+					// decks float at card height while dragged; these stream through
+					// the same position throttle as cards (see storeIntegration.ts)
+					gameStore.updateState({ decks: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
 				} else {
 					gameStore.updateState({ cards: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
 				}

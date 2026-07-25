@@ -43,6 +43,8 @@ export function commitActiveDrag() {
 		gameActions.placeOnTopOfDeck(drop.targetId, id);
 	} else if (drop && id.startsWith('piece:')) {
 		gameStore.updateState({ pieces: { [id]: { position: drop.position } } });
+	} else if (drop && id.startsWith('deck:')) {
+		gameStore.updateState({ decks: { [id]: { position: drop.position } } });
 	} else if (drop) {
 		gameStore.updateState({ cards: { [id]: { position: drop.position } } });
 	}
@@ -67,6 +69,7 @@ export function cancelActiveDrag() {
 	}
 
 	if (id.startsWith('piece:')) gameStore.updateState({ pieces: { [id]: { position: origin } } });
+	else if (id.startsWith('deck:')) gameStore.updateState({ decks: { [id]: { position: origin } } });
 	else gameStore.updateState({ cards: { [id]: { position: origin } } });
 
 	dragEnd();
@@ -76,6 +79,8 @@ function commitActiveDragAtRest(id: string) {
 	const drop = resolveDrop(get(gameStore), id, null);
 	if (drop && id.startsWith('piece:'))
 		gameStore.updateState({ pieces: { [id]: { position: drop.position } } });
+	else if (drop && id.startsWith('deck:'))
+		gameStore.updateState({ decks: { [id]: { position: drop.position } } });
 	else if (drop) gameStore.updateState({ cards: { [id]: { position: drop.position } } });
 	dragEnd();
 }

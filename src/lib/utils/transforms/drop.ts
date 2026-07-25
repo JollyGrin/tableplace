@@ -1,6 +1,11 @@
 import type { GameDTO } from '$lib/store/game/types';
 import { TABLE_FEATURES_DEFAULT, type TableFeatures } from '$lib/store/tableFeatures';
-import { CARD_WIDTH, CARD_HEIGHT, CARD_REST_Y } from '$lib/utils/constants-cards';
+import {
+	CARD_WIDTH,
+	CARD_HEIGHT,
+	CARD_REST_Y,
+	deckHeightForCount
+} from '$lib/utils/constants-cards';
 import { PIECE_DEFAULT_RADIUS, PIECE_REST_Y } from '$lib/utils/constants-pieces';
 import { EDGE_MARGIN, TABLE_HALF_X, TABLE_HALF_Z, TABLE_TOP_Y } from '$lib/utils/constants-table';
 import { resolveStack } from './stacking';
@@ -97,7 +102,12 @@ export function resolveDrop(
 	if (!dragId) return null;
 
 	const isPiece = dragId.startsWith('piece:');
-	const entity = isPiece ? state?.pieces?.[dragId] : state?.cards?.[dragId];
+	const isDeck = dragId.startsWith('deck:');
+	const entity = isPiece
+		? state?.pieces?.[dragId]
+		: isDeck
+			? state?.decks?.[dragId]
+			: state?.cards?.[dragId];
 	if (!entity) return null;
 
 	const [ex = 0, , ez = 0] = entity.position ?? [];
@@ -112,6 +122,21 @@ export function resolveDrop(
 			position: [x, PIECE_REST_Y, z],
 			rotation,
 			footprint: { shape: 'circle', r },
+			footprintY: TABLE_TOP_Y
+		};
+	}
+
+	// decks don't nest, stack, or enter the tray: a dragged pile settles on
+	// the felt wherever it's pointed, centred at half its body height (the
+	// group origin is the slab's middle, not its base)
+	if (isDeck) {
+		const count = ('cards' in entity ? entity.cards : undefined)?.length ?? 0;
+		const restY = TABLE_TOP_Y + deckHeightForCount(count) / 2;
+		return {
+			kind: 'table',
+			position: [x, restY, z],
+			rotation,
+			footprint: { shape: 'rect', w: CARD_WIDTH, h: CARD_HEIGHT },
 			footprintY: TABLE_TOP_Y
 		};
 	}

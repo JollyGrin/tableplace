@@ -120,9 +120,7 @@ export function wsWrapperUpdateGameState(fn: Function) {
 		console.log('ws update gamestate: spread args', ...args);
 		const metadata = createWsMetaData();
 		if (!metadata.playerId || metadata.playerId === '') {
-			console.warn(
-				'wsWrapperUpdateGameState: No playerId found when creating websocket metadata'
-			);
+			console.warn('wsWrapperUpdateGameState: No playerId found when creating websocket metadata');
 			return fn(...args);
 		}
 
@@ -134,12 +132,13 @@ export function wsWrapperUpdateGameState(fn: Function) {
 		};
 
 		// NOTE: This is a hacky way to check if there are any position updates
-		// (cards AND pieces — anything draggable must go through the throttle,
-		// or pointer-move-rate messages trip the server rate limiter)
-		const hasPositionUpdate = [payload.value.cards, payload.value.pieces].some((collection) =>
-			Object.values(collection || {}).some(
-				(item: any) => !!item && Object.keys(item ?? {}).includes('position')
-			)
+		// (cards, pieces AND decks — anything draggable must go through the
+		// throttle, or pointer-move-rate messages trip the server rate limiter)
+		const hasPositionUpdate = [payload.value.cards, payload.value.pieces, payload.value.decks].some(
+			(collection) =>
+				Object.values(collection || {}).some(
+					(item: any) => !!item && Object.keys(item ?? {}).includes('position')
+				)
 		);
 		const now = Date.now();
 		const limitMs = 200;

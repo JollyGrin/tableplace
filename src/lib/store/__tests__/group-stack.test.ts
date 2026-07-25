@@ -54,9 +54,9 @@ describe('groupStackIntoDeck', () => {
 
 	it('keeps the visual top card on top: drawing returns it first', () => {
 		const deckId = gameActions.groupStackIntoDeck('middle') as string;
-		expect(gameActions.drawFromTop(deckId)?.id).toBe('top');
-		expect(gameActions.drawFromTop(deckId)?.id).toBe('middle');
-		expect(gameActions.drawFromTop(deckId)?.id).toBe('bottom');
+		expect(gameActions.drawFromTop(deckId)[0]?.id).toBe('top');
+		expect(gameActions.drawFromTop(deckId)[0]?.id).toBe('middle');
+		expect(gameActions.drawFromTop(deckId)[0]?.id).toBe('bottom');
 	});
 
 	it('lands the deck at the base card XZ', () => {
@@ -71,7 +71,7 @@ describe('groupStackIntoDeck', () => {
 		const deck = get(gameStore).decks?.[deckId];
 		expect(deck?.isFaceUp).toBe(true);
 		expect(deck?.cards?.[0].id).toBe('top'); // face-up convention: top is first
-		expect(gameActions.drawFromTop(deckId)?.id).toBe('top');
+		expect(gameActions.drawFromTop(deckId)[0]?.id).toBe('top');
 	});
 
 	it('groups a lone card into a 1-card deck', () => {
@@ -165,7 +165,7 @@ describe('ungroupDeck', () => {
 		const secondId = gameActions.groupStackIntoDeck('top') as string;
 		const second = get(gameStore).decks?.[secondId];
 		expect(second?.cards).toEqual(first?.cards);
-		expect(gameActions.drawFromTop(secondId)?.id).toBe('top');
+		expect(gameActions.drawFromTop(secondId)[0]?.id).toBe('top');
 	});
 
 	it('spreads a facedown deck to facedown cards', () => {

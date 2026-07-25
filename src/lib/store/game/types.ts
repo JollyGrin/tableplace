@@ -44,6 +44,12 @@ export type DeckDTO = {
 	packOrigin?: PackOrigin;
 	/** scenario authoring intent (tbps v2): reshuffle this deck on scenario load */
 	shuffleOnLoad?: boolean;
+	/**
+	 * wall-clock ms of the last shuffle. Its only job is to CHANGE in the same
+	 * patch as the reordered cards — the reorder alone is invisible from the
+	 * back, the changed timestamp is what remote clients turn into the wiggle.
+	 */
+	shuffledAt?: number;
 };
 
 interface SeatState {

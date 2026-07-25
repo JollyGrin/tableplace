@@ -72,8 +72,10 @@
 
 	// height the dragged entity is floating at, for the connector's top end
 	const liftY = $derived(
-		(dragId ? ($gameStore?.pieces?.[dragId] ?? $gameStore?.cards?.[dragId]) : undefined)
-			?.position?.[1] ?? 0
+		(dragId
+			? ($gameStore?.pieces?.[dragId] ?? $gameStore?.cards?.[dragId] ?? $gameStore?.decks?.[dragId])
+			: undefined
+		)?.position?.[1] ?? 0
 	);
 	const connector = $derived(liftY - surfaceY);
 </script>
