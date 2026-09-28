@@ -15,9 +15,12 @@
  */
 
 import type { Browser } from 'puppeteer-core';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { ok, planarDistance } from './assert';
 import type { Servers } from './servers';
+import { PIECE_REST_Y, PIECE_THICKNESS } from '../src/lib/utils/constants-pieces';
 import { openTable, type Table } from './table';
 
 export type Spec = {
@@ -32,6 +35,12 @@ export type Spec = {
  */
 const LANE = (slot: number): [number, number, number] => [-4 + slot * 4, 0.16, 1];
 const DRAG = { dx: 0, dy: 150 };
+/**
+ * The same lane at a flat piece's rest height. `LANE`'s y sinks a token's disc
+ * below the felt — harmless for a spec that only raycasts and drags it, fatal
+ * for one that looks at what it draws.
+ */
+const ON_FELT = (slot: number): [number, number, number] => [LANE(slot)[0], PIECE_REST_Y, 1];
 
 let lobbySeq = 0;
 /** a fresh lobby per spec, so nothing leaks between them through the relay */
@@ -1974,6 +1983,159 @@ export const SPECS: Spec[] = [
 				await assertDraggable(table, deck, 'deck (after cycling a piece state)');
 				assertClean(table, 'at the end of the mixed table');
 				await table.snap('mixed');
+			})
+	},
+	{
+		/**
+		 * tableplace-175: a token or counter with an `imageUrl` drew as the bare
+		 * cream disc. The image fetched 200 with CORS, the mesh mounted and
+		 * raycast — every structural probe passed — but `ImageMaterial` sizes
+		 * itself off a plane's width/height, and on a circle its shader went NaN:
+		 * the UVs collapsed to one corner texel, the art's cream background.
+		 * Only the drawn pixel shows it, so that is what this reads.
+		 *
+		 * The art is served cross-origin, with `access-control-allow-origin: *`,
+		 * from a host that only this page's request interception answers — the
+		 * real-world case (unbrewed's CDN) without leaning on the network.
+		 */
+		name: 'piece art: a token and a counter draw their cross-origin image',
+		run: (context) =>
+			withTable(context, 'piece-art', async (table) => {
+				const art = await table.page.evaluate(() => {
+					const draw = (fill: string) => {
+						const canvas = document.createElement('canvas');
+						canvas.width = canvas.height = 1200;
+						const context = canvas.getContext('2d')!;
+						// a medallion on a cream field, like real token art: an image
+						// that is one colour edge to edge would pass even when the UVs
+						// collapse to a single texel, which is how this bug drew
+						context.fillStyle = 'rgb(240, 232, 212)';
+						context.fillRect(0, 0, 1200, 1200);
+						context.fillStyle = fill;
+						context.beginPath();
+						context.arc(600, 600, 540, 0, Math.PI * 2);
+						context.fill();
+						return canvas.toDataURL('image/webp').split(',')[1]!;
+					};
+					return { blue: draw('rgb(30, 80, 235)'), green: draw('rgb(30, 205, 60)') };
+				});
+				// another port is another origin — a real cross-origin fetch, answered
+				// with the same headers unbrewed's CDN sends. (Not request
+				// interception: turning that on stops the table canvas repainting.)
+				const host = createServer((request, response) => {
+					const name = (request.url ?? '').replace(/^\/|\.webp$/g, '');
+					const body = name in art ? art[name as keyof typeof art] : null;
+					response.writeHead(body ? 200 : 404, {
+						'access-control-allow-origin': '*',
+						'content-type': 'image/webp'
+					});
+					response.end(body ? Buffer.from(body, 'base64') : undefined);
+				});
+				await new Promise<void>((resolve) => host.listen(0, '127.0.0.1', resolve));
+				const ART = `http://127.0.0.1:${(host.address() as AddressInfo).port}/`;
+				try {
+					const blue = `${ART}blue.webp`;
+					const green = `${ART}green.webp`;
+
+					const pieces = {
+						token: await table.spawn('token', { position: ON_FELT(0), radius: 1, imageUrl: blue }),
+						sheet: await table.spawn('token', {
+							position: ON_FELT(1),
+							radius: 1,
+							imageUrl: `sheet:${JSON.stringify({ url: blue, cols: 1, rows: 1, index: 0 })}`
+						}),
+						counter: await table.spawn('counter', {
+							position: ON_FELT(2),
+							radius: 1,
+							imageUrl: blue,
+							maxValue: 10
+						}),
+						states: await table.spawn('token', {
+							position: ON_FELT(3),
+							radius: 1,
+							states: [
+								{ face: blue, name: 'front' },
+								{ face: green, name: 'back' }
+							]
+						})
+					};
+					await table.settle(2000);
+					assertClean(table, 'after spawning image-faced pieces');
+
+					const isBlue = ([r, g, b]: number[]) => b! > r! + 60 && b! > g! + 40;
+					const isGreen = ([r, g, b]: number[]) => g! > r! + 60 && g! > b! + 60;
+
+					/**
+					 * Five points on the far half of the disc's top face (−z draws
+					 * toward the top of the screen) and the colour drawn at each. The
+					 * near half is out: a counter's value badge rides over it. All but one
+					 * must match — a stray sample is a rim or a shadow, not the art.
+					 */
+					const FACE_POINTS = [
+						[0, -0.6],
+						[0.35, -0.45],
+						[-0.35, -0.45],
+						[0.2, -0.75],
+						[-0.2, -0.75]
+					];
+					const assertFace = async (
+						id: string,
+						label: string,
+						colour: string,
+						matches: (rgb: number[]) => boolean
+					) => {
+						const drawn = await eventually(
+							async () => {
+								const at = await table.positionOf(id);
+								ok(at, `${label} (${id}) has no position`);
+								const top = at![1]! + PIECE_THICKNESS / 2;
+								const points = await table.page.evaluate(
+									(x, y, z, offsets) =>
+										offsets.map(([dx, dz]) => window.__tableplace!.project([x + dx!, y, z + dz!])),
+									at![0]!,
+									top,
+									at![2]!,
+									FACE_POINTS
+								);
+								ok(
+									points.every(Boolean),
+									`${label} (${id}) projects off-screen — move it into the camera frame`
+								);
+								const samples = await table.pixels(points as { x: number; y: number }[]);
+								return samples.filter((sample) => sample.onCanvas);
+							},
+							(samples) => samples.filter((sample) => matches(sample.rgb)).length >= 4
+						);
+						ok(
+							drawn.length >= 4,
+							`${label} (${id}) is covered by a HUD pane — only ${drawn.length} of 5 samples reach the canvas`
+						);
+						ok(
+							drawn.filter((sample) => matches(sample.rgb)).length >= 4,
+							`${label} (${id}) does not draw its ${colour} image — the disc shows ` +
+								`${JSON.stringify(drawn.map((sample) => sample.rgb))} (one flat colour everywhere is the art's corner texel smeared across the disc — the bug)`
+						);
+					};
+
+					await assertFace(pieces.token, 'a token with a cross-origin imageUrl', 'blue', isBlue);
+					await assertFace(pieces.sheet, 'a token with a sheet: imageUrl', 'blue', isBlue);
+					await assertFace(pieces.counter, 'a counter with an imageUrl', 'blue', isBlue);
+					await assertFace(pieces.states, 'a two-state token (front)', 'blue', isBlue);
+
+					// the face follows the state: flip it and the other image draws
+					await table.page.evaluate(
+						(id) => window.__tableplace!.actions.cyclePieceState(id, 1),
+						pieces.states
+					);
+					await table.settle(900);
+					await assertFace(pieces.states, 'a two-state token (back)', 'green', isGreen);
+
+					await assertDraggable(table, pieces.token, 'an image-faced token');
+					assertClean(table, 'at the end of the piece-art table');
+					await table.snap('piece-art');
+				} finally {
+					host.close();
+				}
 			})
 	}
 ];
