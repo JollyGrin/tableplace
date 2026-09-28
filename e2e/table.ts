@@ -79,6 +79,16 @@ export type Table = {
 	 */
 	stall: (options: { ms: number; everyMs?: number } | null) => Promise<number>;
 	/**
+	 * The colour actually drawn at each screen point — a 3×3 average read back
+	 * from a real screenshot, plus whether the table canvas (not a HUD pane) is
+	 * what sits there. For "did the image land", which no structural probe can
+	 * answer: a material whose shader goes NaN still mounts, still has a map,
+	 * and still raycasts (tableplace-175).
+	 */
+	pixels: (
+		points: ScreenPoint[]
+	) => Promise<{ rgb: [number, number, number]; onCanvas: boolean }[]>;
+	/**
 	 * capture the page to e2e/screenshots/<name>.png — the visual-polish
 	 * train's evidence artifact — failing if the frame is silently blank
 	 */
@@ -397,6 +407,49 @@ export async function openTable(browser: Browser, servers: Servers, lobby: strin
 		await dragFromTo(id, from, to, options);
 	};
 
+	const pixels = async (points: ScreenPoint[]) => {
+		const png = Buffer.from(await page.screenshot({ type: 'png' }));
+		return page.evaluate(
+			async (dataUrl, targets) => {
+				const image = new Image();
+				await new Promise<void>((resolve, reject) => {
+					image.onload = () => resolve();
+					image.onerror = () => reject(new Error('the captured PNG did not decode'));
+					image.src = dataUrl;
+				});
+				const surface = document.createElement('canvas');
+				surface.width = image.width;
+				surface.height = image.height;
+				const context = surface.getContext('2d')!;
+				context.drawImage(image, 0, 0);
+				const table = [...document.querySelectorAll('canvas')].sort(
+					(a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight
+				)[0];
+				// the screenshot is in device pixels; the points are CSS pixels
+				const scaleX = image.width / window.innerWidth;
+				const scaleY = image.height / window.innerHeight;
+				return targets.map((point) => {
+					const data = context.getImageData(
+						Math.round(point.x * scaleX) - 1,
+						Math.round(point.y * scaleY) - 1,
+						3,
+						3
+					).data;
+					const rgb: [number, number, number] = [0, 0, 0];
+					for (let i = 0; i < data.length; i += 4) {
+						for (const channel of [0, 1, 2] as const) rgb[channel] += data[i + channel]! / 9;
+					}
+					return {
+						rgb: rgb.map(Math.round) as [number, number, number],
+						onCanvas: document.elementFromPoint(point.x, point.y) === table
+					};
+				});
+			},
+			`data:image/png;base64,${png.toString('base64')}`,
+			points
+		);
+	};
+
 	/**
 	 * One PNG per spec, written after a settle so the springs are done posing.
 	 *
@@ -507,6 +560,7 @@ export async function openTable(browser: Browser, servers: Servers, lobby: strin
 		positionOf,
 		settle,
 		stall,
+		pixels,
 		snap,
 		close: () => page.close()
 	};

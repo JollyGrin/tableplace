@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { T } from '@threlte/core';
-	import { ImageMaterial } from '@threlte/extras';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { Spring } from 'svelte/motion';
 	import { clearBagHover, dragStart, dragStore, setBagHover } from './store/dragStore.svelte';
@@ -17,6 +16,7 @@
 	import Die from './Die.svelte';
 	import LabelBadge from './LabelBadge.svelte';
 	import Model from './models/Model.svelte';
+	import PieceFace from './PieceFace.svelte';
 	import DropFootprint from './drop/DropFootprint.svelte';
 	import {
 		BAG_HEIGHT,
@@ -325,12 +325,12 @@
 			</T.Mesh>
 			{#if imageUrl}
 				<!-- same decal treatment as a token, laid on the neck opening -->
-				{#key imageUrl}
-					<T.Mesh rotation.x={-Math.PI / 2} position.y={BAG_HEIGHT * 0.99}>
-						<T.CircleGeometry args={[radius * 0.46, 24]} />
-						<ImageMaterial url={imageUrl} side={0} />
-					</T.Mesh>
-				{/key}
+				<PieceFace
+					url={imageUrl}
+					radius={radius * 0.46}
+					segments={24}
+					position={[0, BAG_HEIGHT * 0.99, 0]}
+				/>
 			{/if}
 			{#if isBagDropTarget}
 				<T.Group rotation.x={-Math.PI / 2} position.y={-THICKNESS / 2 + 0.005}>
@@ -365,12 +365,7 @@
 				<T.MeshStandardMaterial {color} />
 			</T.Mesh>
 			{#if imageUrl}
-				{#key imageUrl}
-					<T.Mesh rotation.x={-Math.PI / 2} position.y={THICKNESS / 2 + 0.002}>
-						<T.CircleGeometry args={[radius * 0.96, 36]} />
-						<ImageMaterial url={imageUrl} side={0} />
-					</T.Mesh>
-				{/key}
+				<PieceFace url={imageUrl} radius={radius * 0.96} position={[0, THICKNESS / 2 + 0.002, 0]} />
 			{/if}
 		{/if}
 
