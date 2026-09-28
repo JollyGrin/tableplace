@@ -13,6 +13,11 @@
 	import { createCameraStream } from '$lib/websocket/cameraStream';
 	import { isWebSocketConnected, sendMessage } from '$lib/websocket/connection';
 	import { isTyping } from '$lib/hotkeys/is-typing';
+	import {
+		CAMERA_FOV_DEG,
+		CAMERA_MAX_DISTANCE,
+		CAMERA_MIN_DISTANCE
+	} from '$lib/utils/constants-camera';
 	import { isPanKey, panDelta } from '$lib/utils/transforms/pan';
 
 	const isDragging = $derived($dragStore.isDragging !== null);
@@ -166,13 +171,14 @@
 	);
 </script>
 
-<!-- near/far bound tightly to the orbit range (min 1 / max 40): depth precision
-     is proportional to near/far ratio, and card faces are only 0.02 apart -->
+<!-- near/far bound tightly to the orbit range (min 1 / max 62): depth precision
+     is proportional to near/far ratio, and card faces are only 0.02 apart. At the
+     max distance the depth step is ~z²/(near·2²⁴) ≈ 0.0005, well under 0.02. -->
 <T.PerspectiveCamera
 	makeDefault
 	bind:ref={camera}
 	position={seating[seat] as [number, number, number]}
-	fov={35}
+	fov={CAMERA_FOV_DEG}
 	near={0.5}
 	far={200}
 >
@@ -190,7 +196,7 @@
 		enableDamping
 		maxPolarAngle={Math.PI / 2 - 0.1}
 		target={[0, 0, 0]}
-		minDistance={1}
-		maxDistance={40}
+		minDistance={CAMERA_MIN_DISTANCE}
+		maxDistance={CAMERA_MAX_DISTANCE}
 	/>
 </T.PerspectiveCamera>
