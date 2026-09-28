@@ -1890,6 +1890,47 @@ export const SPECS: Spec[] = [
 			})
 	},
 	{
+		/**
+		 * The felt is 60×30 and a player must be able to see all of it: at full
+		 * zoom-out every corner projects inside the canvas at 16:10 and 16:9.
+		 * Stacked cards ride along so a depth-precision regression at the new
+		 * distance shows up as z-fighting in the screenshot.
+		 */
+		name: 'camera: full zoom-out frames all four felt corners at 16:10 and 16:9',
+		run: (context) =>
+			withTable(context, 'camera-frame-felt', async (table) => {
+				await table.seedDeck();
+				await table.settle(1000);
+				for (const [label, width, height] of [
+					['16x10', 1280, 800],
+					['16x9', 1280, 720]
+				] as const) {
+					await table.page.setViewport({ width, height });
+					await table.page.keyboard.press('KeyC');
+					await table.settle(800);
+					await table.page.mouse.move(width / 2, height / 2);
+					for (let i = 0; i < 40; i++) await table.page.mouse.wheel({ deltaY: 400 });
+					await table.settle(1500);
+					const corners = await table.page.evaluate(() =>
+						[
+							[-30, -15],
+							[30, -15],
+							[-30, 15],
+							[30, 15]
+						].map(([x, z]) => window.__tableplace!.project([x, 0.255, z]))
+					);
+					for (const c of corners) {
+						ok(
+							c !== null && c.x >= 0 && c.x <= width && c.y >= 0 && c.y <= height,
+							`${label}: a felt corner is off-screen at full zoom-out: ${JSON.stringify(corners)}`
+						);
+					}
+					assertClean(table, `after zooming out at ${label}`);
+					await table.snap(`camera-frame-felt-${label}`);
+				}
+			})
+	},
+	{
 		// acceptance criterion 4: one table carrying all four at once
 		name: 'mixed table: deck + die + bag + multi-state piece',
 		run: (context) =>
