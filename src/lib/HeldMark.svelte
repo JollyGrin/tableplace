@@ -3,7 +3,7 @@
 	import DropFootprint from './drop/DropFootprint.svelte';
 	import LabelBadge from './LabelBadge.svelte';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
-	import { isHoldLive, myHoldId } from '$lib/store/hold';
+	import { isHoldLive, myHoldId } from '$lib/utils/hold';
 	import { playerColor } from '$lib/hud/players';
 	import {
 		HELD_BADGE_FONT_SIZE,
@@ -49,7 +49,11 @@
 	const holder = $derived(
 		heldBy && heldBy !== myHoldId() && isHoldLive($gameStore, heldBy) ? heldBy : null
 	);
-	const color = $derived(holder ? playerColor(holder, $gameStore?.players?.[holder]?.seat) : '');
+	// an absent seat is seat 0, as the player HUD reads it: the default seat
+	// never goes on the wire (the join row re-publishes only id and timestamp)
+	const color = $derived(
+		holder ? playerColor(holder, $gameStore?.players?.[holder]?.seat ?? 0) : ''
+	);
 </script>
 
 {#if holder}

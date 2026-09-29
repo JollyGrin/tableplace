@@ -39,7 +39,7 @@ import {
 import { resolvePacks } from './resolve-packs';
 import { validRotationStep } from '$lib/utils/yaw';
 import { validHandPlayFace } from '$lib/utils/hand';
-import { withoutHolds } from '$lib/store/hold';
+import { withoutHolds } from '$lib/utils/hold';
 
 const STORAGE_KEY = 'scenarios:v1';
 

@@ -17,7 +17,7 @@ import type { GameDTO } from '../store/game/types';
 import { assertReadableSpecVersion, SCENARIO_SPEC_VERSION } from '../formats/spec-version';
 import { validRotationStep } from '../utils/yaw';
 import { validHandPlayFace } from '../utils/hand';
-import { withoutHolds } from '../store/hold';
+import { withoutHolds } from '../utils/hold';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */

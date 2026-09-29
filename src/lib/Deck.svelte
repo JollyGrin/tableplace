@@ -8,7 +8,7 @@
 	import { dragStart, dragStore, isCarried, setDeckHover } from '$lib/store/dragStore.svelte';
 	import { isSelectClick, selectedIds, toggleSelected } from '$lib/store/selection';
 	import { toastLocked } from '$lib/hotkeys/lock';
-	import { heldByOther } from '$lib/store/hold';
+	import { heldByOther } from '$lib/utils/hold';
 	import { toastHeld } from '$lib/hotkeys/held';
 	import SelectionRing from './SelectionRing.svelte';
 	import HeldMark from './HeldMark.svelte';

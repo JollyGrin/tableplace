@@ -32,7 +32,7 @@ import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { carryPatch, dragActions, dragStart, dragStore } from '$lib/store/dragStore.svelte';
 import { clearSelection, setSelection } from '$lib/store/selection';
 import { cancelActiveDrag, commitActiveDrag } from '$lib/drop/commit';
-import { heldByOther, releaseHoldsPatch, withoutHolds } from '$lib/store/hold';
+import { heldByOther, releaseHoldsPatch, withoutHolds } from '$lib/utils/hold';
 import { parseScenarioFile, serializeScenarioFile } from '$lib/scenario/file';
 import { saveScenario } from '$lib/scenario/scenario';
 import { createJournal, SETTLE_MS } from '$lib/journal/journal';

@@ -1,4 +1,4 @@
-import type { GameDTO } from './game/types';
+import type { GameDTO } from '../store/game/types';
 
 /**
  * Held-by (tableplace-199): a card, deck or piece in someone's hand says so.

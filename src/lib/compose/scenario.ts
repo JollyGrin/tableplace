@@ -20,7 +20,7 @@ import type { GamePackDef } from '../packs/types';
 import type { GameDTO } from '../store/game/types';
 import { validRotationStep } from '../utils/yaw';
 import { validHandPlayFace } from '../utils/hand';
-import { withoutHolds } from '../store/hold';
+import { withoutHolds } from '../utils/hold';
 import type { PackPlacement, PackRef, Scenario, SeatIndex, SnapPoint } from '../scenario/file';
 
 export type { ShuffleFn };

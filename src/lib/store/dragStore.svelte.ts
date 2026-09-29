@@ -7,7 +7,7 @@ import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
 import { PIECE_DRAG_Y } from '$lib/utils/constants-pieces';
 import { clampToTable } from '$lib/utils/transforms/drop';
 import type { GameDTO } from '$lib/store/game/types';
-import { heldByOther, myHoldId } from '$lib/store/hold';
+import { heldByOther, myHoldId } from '$lib/utils/hold';
 import { toastHeld } from '$lib/hotkeys/held';
 
 type Vec3 = [number, number, number];

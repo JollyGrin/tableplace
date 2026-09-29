@@ -9,7 +9,7 @@ import { createWsMetaData } from '$lib/utils/transforms/websocket';
 import toast from 'svelte-french-toast';
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
-import { releaseHoldsPatch } from '$lib/store/hold';
+import { releaseHoldsPatch } from '$lib/utils/hold';
 
 /**
  * Initialize websocket connection and join the given lobby

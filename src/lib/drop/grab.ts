@@ -22,7 +22,7 @@ import { dragStart } from '$lib/store/dragStore.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
 import { toastLocked } from '$lib/hotkeys/lock';
-import { heldByOther } from '$lib/store/hold';
+import { heldByOther } from '$lib/utils/hold';
 import { toastHeld } from '$lib/hotkeys/held';
 
 /**
