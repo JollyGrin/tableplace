@@ -46,6 +46,11 @@ function idOf(ctx: VerbContext): string {
 	return 'id' in ctx.target ? ctx.target.id : '';
 }
 
+/** the live piece a piece target names, for verbs that read its data */
+function pieceOf(ctx: VerbContext): Partial<PieceDTO> | undefined {
+	return (ctx.target.kind === 'piece' && get(gameStore)?.pieces?.[ctx.target.id]) || undefined;
+}
+
 const on =
 	(kind: VerbTargetKind, cap?: (piece: PieceCapabilities) => boolean) => (ctx: VerbContext) =>
 		ctx.target.kind === kind && (!cap || (!!ctx.piece && cap(ctx.piece)));
@@ -239,12 +244,15 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 	},
 
 	// ---- a piece, by what it can do ----
+	// Every piece verb is on the wheel: right-click or press-and-hold a piece
+	// and these are its wedges, each printed with its key (or its click).
 	{
 		id: 'rotate-cw',
 		label: `Rotate +${STEP}°`,
 		reference: `Rotate hovered model +${STEP}°`,
 		applies: on('piece', (piece) => piece.isGridRotatable),
 		hotkey: key('KeyT', 'T'),
+		radial: true,
 		run: (ctx) => gameActions.rotatePiece(idOf(ctx), STEP)
 	},
 	{
@@ -253,6 +261,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		reference: `Rotate hovered model −${STEP}°`,
 		applies: on('piece', (piece) => piece.isGridRotatable),
 		hotkey: key('KeyR', 'R'),
+		radial: true,
 		run: (ctx) => gameActions.rotatePiece(idOf(ctx), -STEP)
 	},
 	{
@@ -261,7 +270,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		reference: "Hovered piece's next state",
 		applies: on('piece', (piece) => piece.hasStates),
 		hotkey: key('KeyX', 'X', false),
-		gesture: 'right-click to pick',
+		radial: true,
 		run: (ctx) => gameActions.cyclePieceState(idOf(ctx), 1)
 	},
 	{
@@ -270,37 +279,70 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		reference: "Hovered piece's previous state",
 		applies: on('piece', (piece) => piece.hasStates),
 		hotkey: key('KeyX', 'Shift + X', true),
+		radial: true,
 		run: (ctx) => gameActions.cyclePieceState(idOf(ctx), -1)
 	},
-	// pointer-only piece verbs: Piece.svelte's inputs dispatch these (they need
-	// the click's drag guard); they are listed so the hint bar can name them
+	// pointer-only piece verbs: Piece.svelte's inputs dispatch the clicks (they
+	// need the click's drag guard); the wheel and the hint bar read them here.
+	// A counter's and a bag's right-click used to act directly (+1, draw); it
+	// opens this wheel now, like every other thing on the table.
+	{
+		id: 'count-up',
+		label: '+1',
+		applies: on('piece', (piece) => piece.isCounter),
+		gesture: 'Shift+click',
+		radial: true,
+		run: (ctx) => gameActions.incrementCounter(idOf(ctx), 1)
+	},
 	{
 		id: 'count-down',
 		label: '−1',
 		applies: on('piece', (piece) => piece.isCounter),
 		gesture: 'click',
+		radial: true,
 		run: (ctx) => gameActions.incrementCounter(idOf(ctx), -1)
 	},
 	{
-		id: 'count-up',
-		label: '+1',
+		id: 'count-reset',
+		label: 'Reset to max',
 		applies: on('piece', (piece) => piece.isCounter),
-		gesture: 'right-click or Shift+click',
-		run: (ctx) => gameActions.incrementCounter(idOf(ctx), 1)
+		radial: true,
+		refusal: (ctx) => (pieceOf(ctx)?.maxValue == null ? 'No maximum to reset to' : null),
+		run: (ctx) => gameActions.resetCounter(idOf(ctx))
 	},
 	{
 		id: 'roll',
 		label: 'Roll',
 		applies: on('piece', (piece) => piece.isRandomiser),
 		gesture: 'click',
+		radial: true,
 		run: (ctx) => void gameActions.rollDie(idOf(ctx))
 	},
 	{
 		id: 'take-out',
-		label: 'Take one out',
+		label: 'Draw',
+		reference: 'Take one out of a container',
 		applies: on('piece', (piece) => piece.isContainer),
 		gesture: 'click',
+		radial: true,
 		run: (ctx) => void gameActions.drawFromBag(idOf(ctx))
+	},
+	{
+		// a toggle, so the wedge names what choosing it will do
+		id: 'snap-toggle',
+		label: 'Snap to grid',
+		labelFor: (ctx) => (pieceOf(ctx)?.snap === false ? 'Snap to grid' : 'Stop snapping'),
+		applies: on('piece', (piece) => piece.isGridRotatable),
+		radial: true,
+		run: (ctx) => gameActions.setPieceSnap(idOf(ctx), pieceOf(ctx)?.snap === false)
+	},
+	{
+		id: 'remove',
+		label: 'Remove',
+		reference: 'Remove piece from the table',
+		applies: on('piece', (piece) => piece.isRemovable),
+		radial: true,
+		run: (ctx) => void gameActions.removePiece(idOf(ctx))
 	},
 	// ---- anything on the table: last, so it never reorders a kind's own verbs ----
 	{
@@ -338,7 +380,8 @@ export function pieceCapabilities(
 		isContainer: piece.kind === 'bag',
 		isCounter: piece.kind === 'counter',
 		isRandomiser: piece.kind === 'die',
-		isGridRotatable: piece.kind === 'model'
+		isGridRotatable: piece.kind === 'model',
+		isRemovable: piece.kind === 'model'
 	};
 }
 
@@ -362,7 +405,7 @@ export function verbsFor(
 			const reason = def.refusal?.(ctx) ?? null;
 			return {
 				id: def.id,
-				label: def.label,
+				label: def.labelFor?.(ctx) ?? def.label,
 				...(def.hotkey ? { hotkey: def.hotkey } : {}),
 				...(def.gesture ? { gesture: def.gesture } : {}),
 				radial: def.radial ?? false,
@@ -381,7 +424,7 @@ export function verbsFor(
  */
 const POINTER_BEFORE: KeybindRow[] = [
 	// the wheel first: it is how you find the rest of this list (radial/gesture.ts)
-	{ action: 'Actions on card / deck / table', key: 'right-click' },
+	{ action: 'Actions on anything (card, deck, piece, table)', key: 'right-click' },
 	{ action: 'Same wheel, no right button', key: 'press & hold' },
 	// held, auto-repeating camera motion (utils/transforms/pan.ts)
 	{ action: 'Pan camera', key: 'W A S D' },
@@ -481,12 +524,6 @@ export function keybindReference(
 	return [...POINTER_BEFORE, ...verbs, ...POINTER_AFTER];
 }
 
-/** the printed hotkey of a registry verb, for a menu's footer */
-export function hotkeyLabel(id: string, kind: VerbTargetKind): string | undefined {
-	return VERB_SOURCES.flat().find((def) => def.id === id && def.applies(probe(kind)))?.hotkey
-		?.label;
-}
-
 /** a context that satisfies any capability, for reading static metadata */
 function probe(kind: VerbTargetKind): VerbContext {
 	const target =
@@ -500,7 +537,8 @@ function probe(kind: VerbTargetKind): VerbContext {
 		isContainer: true,
 		isCounter: true,
 		isRandomiser: true,
-		isGridRotatable: true
+		isGridRotatable: true,
+		isRemovable: true
 	} as const;
 	return { target, actor: { playerId: null }, piece: all };
 }

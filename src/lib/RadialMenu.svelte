@@ -1,10 +1,12 @@
 <!--
-	The radial ("wheel") context menu: press a card, a deck or the felt and the
-	verbs for that thing fan out around the pointer.
+	The radial ("wheel") context menu: press a card, a deck, a piece or the felt
+	and the verbs for that thing fan out around the pointer, each printed with
+	its hotkey (or, for a verb with no key, its click) — using the wheel is how
+	you learn you no longer need it.
 
-	DOM rather than in-scene, for the same reasons PieceStateMenu.svelte is: the
-	labels have to stay legible at any camera angle, and the pointer must not
-	fight the table's drag handling. Rendered once per route, next to the Canvas.
+	DOM rather than in-scene: the labels have to stay legible at any camera
+	angle, and the pointer must not fight the table's drag handling. Rendered
+	once per route, next to the Canvas.
 
 	It draws only. The gesture — which button, how long, which wedge, and what
 	the release means — lives in `radial/gesture.ts`, because a flick leaves this
@@ -103,7 +105,15 @@
 				onpointerleave={() => setRadialHover(null)}
 				onclick={() => fireRadialOption(index)}
 			>
-				{option.label}
+				<span class="block">{option.label}</span>
+				{#if option.key}
+					<kbd
+						data-radial-key
+						class="block font-sans text-[10px] font-normal {menu.hover === index
+							? 'text-emerald-100/80'
+							: 'text-emerald-300/70'}">{option.key}</kbd
+					>
+				{/if}
 			</button>
 		{/each}
 	</div>

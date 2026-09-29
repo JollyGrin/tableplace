@@ -21,7 +21,7 @@ export type CounterInputDeps = {
 };
 
 /**
- * The click / right-click / wheel handlers for a counter piece, kept out of
+ * The click / wheel handlers for a counter piece, kept out of
  * Piece.svelte so the single-dispatch guarantee can be tested against a
  * replica of Threlte's dispatch loop (see __tests__/counter-input.test.ts).
  *
@@ -43,14 +43,6 @@ export function createCounterInput({ id, isCounter, wasDrag, increment }: Counte
 			// click deals damage; shift (or alt) heals
 			const ne = e.nativeEvent;
 			increment(id(), ne.shiftKey || ne.altKey ? 1 : -1);
-		},
-
-		oncontextmenu(e: IntersectionEvent<MouseEvent>) {
-			if (!isCounter()) return;
-			if (!claimDispatch(e)) return;
-			e.nativeEvent.preventDefault();
-			if (e.delta > DRAG_THRESHOLD_PX) return;
-			increment(id(), 1);
 		},
 
 		onwheel(e: IntersectionEvent<WheelEvent>) {

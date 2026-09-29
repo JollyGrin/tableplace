@@ -111,7 +111,7 @@ describe('hovering a piece or a hand card', () => {
 	it('a counter offers its click gestures', () => {
 		const texts = keys(line([{ kind: 'piece', id: 'piece:me:c' }, TABLE]));
 		expect(texts).toContain('click|−1');
-		expect(texts).toContain('right-click or Shift+click|+1');
+		expect(texts).toContain('Shift+click|+1');
 	});
 
 	it('an unnamed piece falls back to the noun', () => {

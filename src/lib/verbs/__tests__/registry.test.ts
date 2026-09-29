@@ -8,7 +8,7 @@ import { gameStore } from '$lib/store/game/gameStore.svelte';
 
 vi.mock('svelte-french-toast', () => ({ default: { error: vi.fn(), success: vi.fn() } }));
 
-const { verbsFor, keybindReference, BUILTIN_VERBS, hotkeyLabel } = await import('../registry');
+const { verbsFor, keybindReference, BUILTIN_VERBS } = await import('../registry');
 const { UNGROUP_MAX_CARDS } = await import('$lib/store/game/actions/deck');
 
 const me = { playerId: 'me' };
@@ -32,6 +32,8 @@ beforeEach(() => {
 			'piece:me:m': { kind: 'model', position: [0, 0, 0] },
 			'piece:me:s': { kind: 'pawn', position: [0, 0, 0], states: [{}, {}] },
 			'piece:me:c': { kind: 'counter', position: [0, 0, 0] },
+			'piece:me:c5': { kind: 'counter', position: [0, 0, 0], maxValue: 5 },
+			'piece:me:m-free': { kind: 'model', position: [0, 0, 0], snap: false },
 			'piece:me:b': { kind: 'bag', position: [0, 0, 0] },
 			'piece:me:d': { kind: 'die', position: [0, 0, 0] },
 			'piece:me:t': { kind: 'token', position: [0, 0, 0] }
@@ -79,14 +81,31 @@ describe('verbs by capability, never by game', () => {
 		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => verb !== 'focus');
 
 	it('grid-rotatable → rotate; has states → next/previous state', () => {
-		expect(piece('piece:me:m')).toEqual(['rotate-cw', 'rotate-ccw']);
+		expect(piece('piece:me:m')).toEqual(['rotate-cw', 'rotate-ccw', 'snap-toggle', 'remove']);
 		expect(piece('piece:me:s')).toEqual(['state-next', 'state-prev']);
 	});
 
-	it('counter → ±1, randomiser → roll, container → take one out', () => {
-		expect(piece('piece:me:c')).toEqual(['count-down', 'count-up']);
+	it('counter → ±1 and reset, randomiser → roll, container → take one out', () => {
+		expect(piece('piece:me:c')).toEqual(['count-up', 'count-down', 'count-reset']);
 		expect(piece('piece:me:d')).toEqual(['roll']);
 		expect(piece('piece:me:b')).toEqual(['take-out']);
+	});
+
+	it('reset to max needs a max; the snap toggle names what it will do', () => {
+		const one = (id: string, verbId: string) =>
+			verbsFor({ kind: 'piece', id }, me).find((v) => v.id === verbId);
+		expect(one('piece:me:c', 'count-reset')).toMatchObject({ enabled: false });
+		expect(one('piece:me:c5', 'count-reset')).toMatchObject({ enabled: true });
+		expect(one('piece:me:m', 'snap-toggle')?.label).toBe('Stop snapping');
+		expect(one('piece:me:m-free', 'snap-toggle')?.label).toBe('Snap to grid');
+	});
+
+	// focus is the one exception: a camera move, offered by key and double-click
+	// focus is the one exception: a camera move, offered by key and double-click
+	it('every piece verb is offered on the wheel', () => {
+		for (const id of ['piece:me:m', 'piece:me:s', 'piece:me:c', 'piece:me:b', 'piece:me:d'])
+			for (const verb of verbsFor({ kind: 'piece', id }, me))
+				if (verb.id !== 'focus') expect(verb.radial, verb.id).toBe(true);
 	});
 
 	it('a plain token, or a piece that is gone, has nothing', () => {
@@ -157,7 +176,7 @@ describe('the Keybinds folder is generated from the registry', () => {
 
 	it('still lists every binding it listed before the registry', () => {
 		const before: [string, string][] = [
-			['Actions on card / deck / table', 'right-click'],
+			['Actions on anything (card, deck, piece, table)', 'right-click'],
 			['Same wheel, no right button', 'press & hold'],
 			['Pan camera', 'W A S D'],
 			['Seat view (reset camera)', 'C'],
@@ -190,12 +209,6 @@ describe('the Keybinds folder is generated from the registry', () => {
 		expect(keyFor('Focus hovered card, deck or piece')).toBe('Z');
 		expect(keyFor('Focus what you moved last')).toBe('Z');
 		expect(keyFor('Focus a card, deck or piece')).toBe('double-click');
-	});
-
-	it('menus print their hotkeys from the same place', () => {
-		expect(hotkeyLabel('state-next', 'piece')).toBe('X');
-		expect(hotkeyLabel('rotate-cw', 'piece')).toBe('T');
-		expect(hotkeyLabel('rotate-ccw', 'piece')).toBe('R');
 	});
 });
 

@@ -42,6 +42,8 @@ export type PieceCapabilities = {
 	isRandomiser: boolean;
 	/** turns by the snap grid's yaw step and carries its own snap toggle */
 	isGridRotatable: boolean;
+	/** can be taken off the table outright (a placed model) */
+	isRemovable: boolean;
 };
 
 /**
@@ -96,6 +98,8 @@ export type VerbContext<T extends VerbTarget = VerbTarget> = {
 export type VerbDef = {
 	id: string;
 	label: string;
+	/** a label that reads the target's state (a toggle naming what it will do) */
+	labelFor?: (ctx: VerbContext) => string;
 	/** the Keybinds folder's longer wording; defaults to `label` */
 	reference?: string;
 	applies: (ctx: VerbContext) => boolean;

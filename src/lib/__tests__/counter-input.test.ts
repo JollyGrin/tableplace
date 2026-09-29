@@ -100,19 +100,14 @@ describe('counter input', () => {
 		expect(increment).toHaveBeenCalledTimes(1);
 	});
 
-	it('heals once on shift-click and once on right-click', () => {
+	it('heals once on shift-click; right-click is the radial wheel, not a heal', () => {
 		const increment = vi.fn();
 		const handlers = counter(increment);
 
 		dispatch('onclick', counterHits(handlers), mouseEvent('click', { shiftKey: true }));
 		expect(increment).toHaveBeenCalledTimes(1);
 		expect(increment).toHaveBeenLastCalledWith('piece:seat0:counter-0', 1);
-
-		const contextmenu = mouseEvent('contextmenu', { cancelable: true });
-		dispatch('oncontextmenu', counterHits(handlers), contextmenu);
-		expect(increment).toHaveBeenCalledTimes(2);
-		expect(increment).toHaveBeenLastCalledWith('piece:seat0:counter-0', 1);
-		expect(contextmenu.defaultPrevented).toBe(true);
+		expect('oncontextmenu' in handlers).toBe(false);
 	});
 
 	it('moves one step per wheel notch, not one per child mesh', () => {

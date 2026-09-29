@@ -14,7 +14,7 @@ export type BagInputDeps = {
 };
 
 /**
- * Click (or right-click) a bag to draw one item out of it — the same shape as
+ * Click a bag to draw one item out of it — the same shape as
  * `createCounterInput`, and for the same reason: a bag group has several
  * raycastable children (pouch, neck, count label), and Threlte queues the group
  * once per child the ray pierces, so an unguarded handler would draw two or
@@ -36,15 +36,6 @@ export function createBagInput({ id, isBag, wasDrag, draw }: BagInputDeps) {
 	}
 
 	return {
-		onclick: drawOnce,
-
-		oncontextmenu(e: IntersectionEvent<MouseEvent>) {
-			// the context action for a bag is the same as the click: draw one. The
-			// browser menu would otherwise cover the table — but only a bag
-			// suppresses it, or right-clicking any other piece would lose its menu.
-			if (!isBag()) return;
-			e.nativeEvent.preventDefault();
-			drawOnce(e);
-		}
+		onclick: drawOnce
 	};
 }
