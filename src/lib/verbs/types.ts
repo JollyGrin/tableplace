@@ -5,8 +5,6 @@
  * Keybinds folder, and (next) the hint bar.
  */
 
-import type { PieceKind } from '$lib/store/game/types';
-
 /**
  * What a verb acts on. Entity targets always carry the id they act on — no
  * verb falls back to "whatever is hovered" on its own; the keyboard resolves
@@ -30,10 +28,10 @@ export type VerbActor = { playerId: string | null | undefined };
 
 /**
  * What a piece can do, derived from its data rather than from what game it
- * belongs to. A verb asks for a capability ("has states"), never a game.
+ * belongs to. A verb asks for a capability ("has states"), never a kind's
+ * name and never a game.
  */
 export type PieceCapabilities = {
-	kind: PieceKind;
 	/** two or more faces to step between */
 	hasStates: boolean;
 	/** holds other things and hands them out (a bag) */

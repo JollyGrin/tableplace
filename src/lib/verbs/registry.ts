@@ -278,9 +278,10 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 export const VERB_SOURCES: readonly (readonly VerbDef[])[] = [BUILTIN_VERBS];
 
 /** a piece's capabilities, from its data alone */
-export function pieceCapabilities(piece: PieceDTO): PieceCapabilities {
+export function pieceCapabilities(
+	piece: Partial<Pick<PieceDTO, 'kind' | 'states'>>
+): PieceCapabilities {
 	return {
-		kind: piece.kind,
 		hasStates: (piece.states?.length ?? 0) >= 2,
 		isContainer: piece.kind === 'bag',
 		isCounter: piece.kind === 'counter',
@@ -367,7 +368,6 @@ function probe(kind: VerbTargetKind): VerbContext {
 				? ({ kind } as VerbTarget)
 				: ({ kind, id: '' } as VerbTarget);
 	const all = {
-		kind: 'token',
 		hasStates: true,
 		isContainer: true,
 		isCounter: true,
