@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { dragStore } from '$lib/store/dragStore.svelte';
 import { hoveredPiece } from '$lib/store/pieceUi';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
+import { get } from 'svelte/store';
 
 const gameActions = {
 	getMe: vi.fn(() => ({ id: 'me' })),
@@ -168,6 +169,21 @@ describe('a hovered deck', () => {
 		down({ code: 'KeyG', shift: true });
 		expect(gameActions.ungroupDeck).toHaveBeenCalledWith('deck:me:0');
 		expect(gameActions.groupStackIntoDeck).not.toHaveBeenCalled();
+	});
+
+	it('/ opens the search drawer, ? still opens the reference, and the drawer swallows keys (tableplace-196)', async () => {
+		const { searchingDeck } = await import('$lib/deckSearch/deckSearch');
+		const { helpOpen, toggleHelp } = await import('$lib/hint/hintUi');
+		gameStore.set({ players: {}, decks: { 'deck:me:0': { cards: [] } } } as never);
+		down({ code: 'Slash', shift: true });
+		expect(get(searchingDeck)).toBeNull();
+		expect(get(helpOpen)).toBe(true);
+		toggleHelp(false);
+		down({ code: 'Slash' });
+		expect(get(searchingDeck)).toBe('deck:me:0');
+		down({ code: 'KeyF' });
+		expect(gameActions.flipDeck).not.toHaveBeenCalled();
+		searchingDeck.set(null);
 	});
 
 	it('1-9 draw that many into the hand (tableplace-194)', () => {

@@ -184,7 +184,7 @@ async function assertRenders(table: Table, id: string, label: string): Promise<v
 type Json = Record<string, unknown>;
 /** the slice of lobby state the specs read off a peer */
 type PeerState = {
-	decks?: Record<string, { cards?: unknown[] }>;
+	decks?: Record<string, { cards?: unknown[]; shuffledAt?: number }>;
 	players?: Record<string, { tray?: Json }>;
 };
 type Peer = { state: PeerState; send: (value: object) => void; close: () => void };
@@ -1712,6 +1712,239 @@ export const SPECS: Spec[] = [
 				);
 				assertClean(table, 'after drawing to the hand');
 				await table.snap('draw-to-hand');
+			} finally {
+				await table.close();
+				peer.close();
+			}
+		}
+	},
+	{
+		/**
+		 * tableplace-196: `/` on a hovered deck opens the search drawer. A
+		 * 100-card deck pages rather than rendering whole; a click takes the named
+		 * card into the hand, Shift+click lays one face-up on the felt; closing
+		 * shuffles (the other seat sees the wiggle stamp and the counts). A
+		 * face-up pile opens from the wheel and closes without a shuffle.
+		 */
+		name: 'deck search: / opens the drawer, a click takes the named card, close shuffles',
+		run: async (context) => {
+			const lobby = nextLobby('deck-search');
+			const peer = await relayPeer(context.servers.relay, lobby, 'e2e-peer');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const { page } = table;
+			try {
+				const peerDeck = 'deck:e2e-peer:0';
+				peer.send({
+					players: { 'e2e-peer': { id: 'e2e-peer', seat: 1, tray: {} } },
+					decks: {
+						[peerDeck]: {
+							id: peerDeck,
+							isFaceUp: false,
+							position: [LANE(2)[0], 0.4, LANE(2)[2]],
+							rotation: [0, 0, 0],
+							cards: ['AS', '2S'].map((code) => ({
+								id: `card:e2e-peer:${code}`,
+								faceImageUrl: `gen:std52/${code}`
+							}))
+						}
+					}
+				});
+				// 100 named cards, generic names — the drawer lists them by name
+				const deck = await page.evaluate(() => {
+					const codes = ['AS', 'KH', 'QD', 'JC'];
+					const cards = Array.from({ length: 100 }, (_, i) => ({
+						id: `card:search:${i + 1}`,
+						name: `Card ${i + 1}`,
+						faceImageUrl: `gen:std52/${codes[i % codes.length]}`,
+						backImageUrl: 'gen:std52/back'
+					}));
+					return String(window.__tableplace!.actions.addDeck({ cards } as never) ?? '');
+				});
+				ok(deck, 'the 100-card deck was not created');
+
+				const state = () => page.evaluate(() => window.__tableplace!.state());
+				const deckCount = async (id: string) => (await state())?.decks?.[id]?.cards?.length ?? -1;
+				const hand = () =>
+					page.evaluate(() => {
+						const bridge = window.__tableplace!;
+						const me = bridge.actions.getMyId();
+						return Object.keys((me && bridge.state()?.players?.[me]?.tray) ?? {});
+					});
+				const hostId = await page.evaluate(() => window.__tableplace!.actions.getMyId());
+				const drawerOpen = () =>
+					page.evaluate(() => !!document.querySelector('[data-testid="deck-search"]'));
+				const drawerCards = () =>
+					page.evaluate(() =>
+						[...document.querySelectorAll('[data-deck-card]')].map(
+							(el) => el.getAttribute('title') ?? ''
+						)
+					);
+				const hover = async (id: string) => {
+					const at = await eventually(
+						() => table.locate(id),
+						(point) => !!point
+					);
+					ok(at, `${id} never mounted`);
+					await page.mouse.move(at!.x, at!.y, { steps: 6 });
+					const hovered = await eventually(
+						() => page.evaluate(() => window.__tableplace!.drag().isDeckHovered),
+						(value) => value === id
+					);
+					ok(hovered === id, `the pointer is over ${id} but the hovered deck is ${hovered}`);
+				};
+
+				ok(
+					(await eventually(
+						() => deckCount(deck),
+						(n) => n === 100
+					)) === 100,
+					'deck never held 100'
+				);
+				ok(
+					(await eventually(
+						async () => peer.state.decks?.[deck]?.cards?.length ?? -1,
+						(n) => n === 100
+					)) === 100,
+					'the other seat never saw the deck'
+				);
+				ok(
+					(await eventually(
+						() => deckCount(peerDeck),
+						(n) => n === 2
+					)) === 2,
+					'peer deck never arrived'
+				);
+				await table.settle(600);
+
+				// ── `/` opens the drawer; 100 cards are paged ─────────────────
+				await hover(deck);
+				await page.keyboard.press('Slash');
+				ok(await eventually(drawerOpen, (open) => open), '/ on a hovered deck opened no drawer');
+				const firstPage = await drawerCards();
+				ok(
+					firstPage.length > 0 && firstPage.length < 100,
+					`the drawer rendered ${firstPage.length} cards at once — a 100-card deck must page`
+				);
+				ok(
+					firstPage[0] === 'Card 1',
+					`a face-down deck should list by name, first is ${firstPage[0]}`
+				);
+
+				// ── page forward, click the named card into the hand ──────────
+				const target = 'Card 77';
+				for (let i = 0; i < 5 && !(await drawerCards()).includes(target); i++) {
+					await page.click('[data-testid="deck-search-next"]');
+				}
+				ok((await drawerCards()).includes(target), `${target} is on no page of the drawer`);
+				const peerShuffledBefore = peer.state.decks?.[deck]?.shuffledAt;
+				await page.click(`[data-deck-card="card:search:77"]`);
+				const taken = await eventually(hand, (ids) => ids.length === 1);
+				ok(taken[0] === 'card:search:77', `the hand holds ${JSON.stringify(taken)}, not ${target}`);
+				ok((await deckCount(deck)) === 99, `the deck holds ${await deckCount(deck)}, not 99`);
+				const tray = (await state())?.players?.[hostId!]?.tray?.['card:search:77'];
+				ok(tray?.name === target, `the card in hand is named ${tray?.name}, not ${target}`);
+				ok(
+					!(await drawerCards()).includes(target),
+					'the drawer still lists the card that was taken'
+				);
+
+				// ── filter + Shift+click: face-up on the felt ─────────────────
+				await page.type('[data-testid="deck-search-filter"]', 'card 5');
+				const filtered = await drawerCards();
+				ok(
+					filtered.includes('Card 5') && !filtered.includes('Card 6'),
+					`filter showed ${filtered.join(', ')}`
+				);
+				await page.keyboard.down('Shift');
+				await page.click(`[data-deck-card="card:search:5"]`);
+				await page.keyboard.up('Shift');
+				const loose = await eventually(
+					async () => (await state())?.cards?.['card:search:5'],
+					(card) => !!card
+				);
+				ok(
+					loose?.rotation?.[0] === 0,
+					`Shift+click landed the card rotated ${loose?.rotation}, not face-up`
+				);
+				ok(
+					(await deckCount(deck)) === 98 && (await hand()).length === 1,
+					'Shift+click went to the hand'
+				);
+
+				// ── close: Shuffle is on by default, everyone sees the wiggle ──
+				ok(
+					await page.evaluate(
+						() =>
+							(document.querySelector('[data-testid="deck-search-shuffle"]') as HTMLInputElement)
+								?.checked
+					),
+					'Shuffle is not ticked by default'
+				);
+				await page.keyboard.press('Escape');
+				ok(!(await eventually(drawerOpen, (open) => !open)), 'Esc did not close the drawer');
+				const shuffledAt = await eventually(
+					async () => (await state())?.decks?.[deck]?.shuffledAt,
+					(at) => !!at
+				);
+				ok(shuffledAt, 'closing the drawer did not shuffle');
+				const remote = await eventually(
+					async () => ({
+						shuffledAt: peer.state.decks?.[deck]?.shuffledAt,
+						deck: peer.state.decks?.[deck]?.cards?.length ?? -1,
+						hand: Object.keys(peer.state.players?.[hostId!]?.tray ?? {}).length
+					}),
+					(seen) => seen.shuffledAt === shuffledAt && seen.deck === 98 && seen.hand === 1
+				);
+				ok(
+					remote.shuffledAt === shuffledAt && remote.shuffledAt !== peerShuffledBefore,
+					`the other seat never saw the shuffle (${remote.shuffledAt})`
+				);
+				ok(remote.deck === 98 && remote.hand === 1, `the other seat saw ${JSON.stringify(remote)}`);
+
+				// ── a face-up pile: the wheel opens it, no shuffle step ───────
+				await page.evaluate((id) => window.__tableplace!.actions.flipDeck(id), deck);
+				await eventually(
+					async () => (await state())?.decks?.[deck]?.isFaceUp,
+					(up) => !!up
+				);
+				await table.settle(400);
+				const wheel = await table.openRadial(deck, { button: 'right' });
+				ok(
+					wheel.wedges['search'],
+					`the deck's wheel has no search wedge: ${wheel.actions.join(', ')}`
+				);
+				await page.mouse.click(wheel.wedges['search']!.x, wheel.wedges['search']!.y);
+				ok(await eventually(drawerOpen, (open) => open), 'the wheel did not open the drawer');
+				ok(
+					!(await page.evaluate(
+						() => !!document.querySelector('[data-testid="deck-search-shuffle"]')
+					)),
+					'a face-up pile offered a shuffle'
+				);
+				await page.click('[data-testid="deck-search-close"]');
+				ok(!(await eventually(drawerOpen, (open) => !open)), 'Close did not close the drawer');
+				await sleep(300);
+				ok(
+					(await state())?.decks?.[deck]?.shuffledAt === shuffledAt,
+					'closing a face-up pile shuffled it'
+				);
+
+				// ── someone else's deck refuses ───────────────────────────────
+				await hover(peerDeck);
+				await page.keyboard.press('Slash');
+				const refused = await eventually(
+					() =>
+						page.evaluate(() =>
+							document.body.innerText.includes("That deck isn't yours to search")
+						),
+					(shown) => shown
+				);
+				ok(refused && !(await drawerOpen()), "another player's deck opened for search");
+
+				// ── and the table still answers ───────────────────────────────
+				await assertDraggable(table, 'card:search:5', 'the searched-out card', { dx: -150, dy: 0 });
+				assertClean(table, 'after searching a deck');
+				await table.snap('deck-search');
 			} finally {
 				await table.close();
 				peer.close();

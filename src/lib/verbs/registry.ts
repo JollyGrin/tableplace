@@ -30,6 +30,7 @@ import { tableFeatures } from '$lib/store/tableFeatures';
 import { cameraTransforms } from '$lib/utils/transforms/camera';
 import { SNAP_GRID_YAW_STEP_DEFAULT } from '$lib/utils/constants-snap';
 import { toggleHelp } from '$lib/hint/hintUi';
+import { openDeckSearch, SEARCH_NOT_MINE } from '$lib/deckSearch/deckSearch';
 import type { DropKind } from '$lib/utils/transforms/drop';
 import type { PieceDTO } from '$lib/store/game/types';
 import type {
@@ -239,6 +240,19 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		radial: true,
 		refusal: (ctx) => (isDeckOwnedBy(idOf(ctx), ctx.actor.playerId) ? null : SHUFFLE_NOT_MINE),
 		run: (ctx) => void shuffleHoveredDeck(idOf(ctx))
+	},
+	{
+		// browse the pile in a drawer and take one card (tableplace-196). Plain
+		// `/` — Shift + Slash is the table's `?`, and a deck is asked first
+		id: 'search',
+		label: 'Search',
+		reference: 'Search hovered deck',
+		applies: (ctx) => on('deck')(ctx) && get(tableFeatures).drawToHand,
+		hotkey: key('Slash', '/', false),
+		radial: true,
+		refusal: (ctx) =>
+			gameActions.canDrawToHand(idOf(ctx), ctx.actor.playerId) ? null : SEARCH_NOT_MINE,
+		run: (ctx) => void openDeckSearch(idOf(ctx))
 	},
 	{
 		id: 'ungroup',

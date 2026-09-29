@@ -21,6 +21,7 @@ import { hoveredPiece } from '$lib/store/pieceUi';
 import { hoveredTrayCard } from '$lib/HUDTray/trayHover';
 import { gameActions } from '$lib/store/game/actions';
 import { isTyping } from '$lib/hotkeys/is-typing';
+import { searchingDeck } from '$lib/deckSearch/deckSearch';
 import { verbsFor } from './registry';
 import type { Hotkey, Verb, VerbActor, VerbTarget } from './types';
 
@@ -84,6 +85,8 @@ export function verbForKey(
  */
 export function handleVerbKeyDown(event: KeyboardEvent) {
 	if (isTyping(event.target)) return;
+	// the search drawer is modal: the deck behind it still reads as hovered
+	if (get(searchingDeck)) return;
 	const verb = verbForKey(event);
 	verb?.run(verb.hotkey?.arg?.(event.code));
 }
