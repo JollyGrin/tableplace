@@ -55,6 +55,11 @@ export type PieceCapabilities = {
 export type Hotkey = {
 	codes: readonly string[];
 	shift?: boolean;
+	/**
+	 * true demands Ctrl (or ⌘); every other hotkey is bare and does not fire
+	 * while either is held, so a browser chord is never also a table verb
+	 */
+	mod?: boolean;
 	/** how the Keybinds folder, menus and (later) the wheel print it */
 	label: string;
 	/** a key that carries a number (the digits' draw count) */

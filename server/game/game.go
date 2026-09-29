@@ -33,6 +33,11 @@ func (g *Game) HandleMessage(from *Player, msg Message) {
 		// persisted, never appear in a `sync` snapshot and never replay to a
 		// joiner. Falling straight through to the broadcast below *is* the
 		// contract; this case exists so nobody "fixes" it into an update.
+	case "journal":
+		// Ephemeral tier as well: one action-journal line per player action
+		// (tableplace-201). The change itself already rode its own "update";
+		// this is only the log line, so it is relayed and forgotten exactly
+		// like "camera" — never merged, never in a sync, never replayed.
 	}
 
 	// For whatever reason, we broadcast every message.
