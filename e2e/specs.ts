@@ -1973,20 +1973,31 @@ export const SPECS: Spec[] = [
 				);
 
 				// ── W pans away from the viewer, D to the right ───────────────
+				// Held until the page has RENDERED the pan, not for a fixed 900ms of
+				// runner clock: under software GL one frame can outlast the hold, and
+				// then keydown and keyup both land before the next frame — the held
+				// key task never sees the key and the eye does not move at all (seen
+				// on CI and reproduced on origin/feature/table-feel). A pan that is
+				// really broken still fails, at the deadline instead of at 900ms.
+				const holdPan = async (code: 'KeyW' | 'KeyD', moved: (at: number[]) => boolean) => {
+					await table.page.keyboard.down(code);
+					const deadline = Date.now() + 8000;
+					try {
+						await sleep(900);
+						while (Date.now() < deadline && !moved(await eye())) await sleep(150);
+					} finally {
+						await table.page.keyboard.up(code);
+					}
+					await table.settle(500);
+				};
 				const beforeKeys = await eye();
-				await table.page.keyboard.down('KeyW');
-				await sleep(900);
-				await table.page.keyboard.up('KeyW');
-				await table.settle(500);
+				await holdPan('KeyW', (at) => at[2]! < beforeKeys[2]! - 0.5);
 				const afterW = await eye();
 				ok(
 					afterW[2]! < beforeKeys[2]! - 0.5,
 					`W did not pan away from the viewer: ${JSON.stringify(beforeKeys)} → ${JSON.stringify(afterW)}`
 				);
-				await table.page.keyboard.down('KeyD');
-				await sleep(900);
-				await table.page.keyboard.up('KeyD');
-				await table.settle(500);
+				await holdPan('KeyD', (at) => at[0]! > afterW[0]! + 0.5);
 				const afterD = await eye();
 				ok(
 					afterD[0]! > afterW[0]! + 0.5,
