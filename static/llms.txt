@@ -40,7 +40,7 @@ Every file carries an in-band discriminator at the top level: `"tbpp": 1` or `"t
 
 ### 2.1 Spec versions
 
-Current: **pack `1.8.0`**, **scenario `0.1.15`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
+Current: **pack `1.8.0`**, **scenario `0.1.16`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
 
 Two version fields exist and they answer different questions:
 
@@ -616,8 +616,8 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"x-tableplace-spec-version": "1.8.0",
-	"x-generated-at": "2026-09-29T19:02:06.578Z",
-	"x-tableplace-source-sha": "7dd0767c0a6d6b4714c99f3acf794d6cdbe669bb-dirty"
+	"x-generated-at": "2026-09-29T20:16:10.071Z",
+	"x-tableplace-source-sha": "a27fce9183f138018ef446dc642450f9d9079775-dirty"
 }
 ```
 
@@ -759,7 +759,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
 
 ### 7.1 Fields
 
-- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.15`.
+- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.16`.
 - **`name`**, **`createdAt`** — title and a Unix epoch timestamp in milliseconds.
 - **`packs[]`** — `{ id, source? }` for every pack the scenario draws from. `source` is `"builtin"` for packs shipped with the app (currently only `standard-52`), `"local"` for a pack held in the reader's own browser-local pack library, or an `https://` URL a `.tbpp.json` can be fetched from. A remote pack goes through the same validation as a local import. A scenario meant to travel to other people must use `"builtin"` or a URL: `"local"` resolves only on the machine that has the pack, and fails loudly (naming the pack id) anywhere else.
 - **`placements[]`** — one entry per spawned thing:
@@ -778,6 +778,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
 - **`handPlayFace`** _(optional, `"down"` or `"up"`)_ — which face a card dragged out of a player's hand lands on. Omit for the default, `"down"`. Set `"up"` for a game whose cards are played face up. Whatever this says, holding Shift at release plays the other face.
 - **`state`** — a partial snapshot for everything _not_ pack-derived: hand-placed cards, ad-hoc pieces. Applied on top of the placements, so it can also override them. This is the part of the format most likely to change; keep as little in it as you can.
   - A card in `state.cards` may carry **`placedBy`** — the player who laid it face-down out of their hand. Only that player's zoomed preview shows its face ("Only you see this"); everyone else sees the back. It is a display rule, not secrecy: the face is in the file and on the wire for anyone to read. In a scenario it is only meaningful as a seat placeholder (`seat0`–`seat3`), which passes to whoever claims that seat. Flipping the card face up, taking it into a hand or putting it on a pile clears it.
+  - Never write **`heldBy`**. On a live table it names the player whose pointer is carrying a card, deck or piece; a file has no pointer, so save and export strip it and import drops it.
   - A card in a hand (`state.players[id].tray`) may carry **`handOrder`** — a number; the hand shows its cards lowest first, left to right, and cards without one after the rest. Leave it out unless the order matters.
 
 Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`–`seat3`, and entity ids follow `kind:owner:slug` — `deck:seat0:main`, `card:seat0:main-AS`, `piece:seat0:hp-0`. Overlays are table-scoped and keyed `overlay:<packId>:<index>`. When a real player claims a seat, every id containing that placeholder is renamed to them. Never put a real player id in a file.
@@ -1258,6 +1259,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"description": "Where this card sits in its holder's hand, left to right (tableplace-195):\na sort key, lowest first, so a reorder is one patch of numbers and the\norder survives a reload (the relay does not keep object key order).\nOnly meaningful inside `players[id].tray`; a card leaving the hand drops\nit. Absent sorts after every numbered card.",
 					"type": "number",
 					"title": "handOrder"
+				},
+				"heldBy": {
+					"description": "Player id of whoever is carrying this card right now (tableplace-199).\nWritten in the same patch as the first carried position and cleared\n(`null`) by the patch that lands it, so it costs no message of its own.\nEveryone else draws the holder's colour around it and refuses a second\ngrab. A hold by a player whose `connected` is false reads as released.\nLive-table state only: never saved into a scenario, stripped on load.\nAbsent = nobody holds it.",
+					"type": "string",
+					"title": "heldBy"
 				}
 			}
 		},
@@ -1358,6 +1364,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"description": "Pinned in place (tableplace-189): the pile can't be moved, flipped or\nungrouped. Cards still come off its top — a locked draw pile is still a\ndraw pile.",
 					"type": "boolean",
 					"title": "locked"
+				},
+				"heldBy": {
+					"description": "player id of whoever is carrying the pile right now — see `CardDTO.heldBy`",
+					"type": "string",
+					"title": "heldBy"
 				}
 			}
 		},
@@ -1366,7 +1377,7 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 			"title": "CardInDeck",
 			"allOf": [
 				{
-					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%7C%22handOrder%22%3E"
+					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%7C%22handOrder%22%7C%22heldBy%22%3E"
 				},
 				{
 					"type": "object",
@@ -1380,8 +1391,8 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 				}
 			]
 		},
-		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\">": {
-			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\">",
+		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\"|\"heldBy\">": {
+			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\"|\"heldBy\">",
 			"type": "object",
 			"properties": {
 				"faceImageUrl": {
@@ -1675,6 +1686,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"type": "boolean",
 					"title": "locked"
 				},
+				"heldBy": {
+					"description": "player id of whoever is carrying the piece right now — see `CardDTO.heldBy`",
+					"type": "string",
+					"title": "heldBy"
+				},
 				"packOrigin": {
 					"description": "Provenance stamped on pack-spawned entities so a scenario export (tbps v2)\ncan reference the pack instead of inlining its content. Wire-safe: the\nrelay server merges state schema-agnostically.",
 					"type": "object",
@@ -1855,9 +1871,9 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.15",
-	"x-generated-at": "2026-09-29T19:02:06.578Z",
-	"x-tableplace-source-sha": "7dd0767c0a6d6b4714c99f3acf794d6cdbe669bb-dirty"
+	"x-tableplace-spec-version": "0.1.16",
+	"x-generated-at": "2026-09-29T20:16:10.071Z",
+	"x-tableplace-source-sha": "a27fce9183f138018ef446dc642450f9d9079775-dirty"
 }
 ```
 
@@ -1869,7 +1885,7 @@ Two packs — one builtin, one fetched from `https://example.com/packs/ember-due
 {
 	"$schema": "https://table.place/scenario.schema.json",
 	"tbps": 2,
-	"specVersion": "0.1.15",
+	"specVersion": "0.1.16",
 	"name": "ember-duel-opening",
 	"createdAt": 1700000000000,
 	"packs": [

@@ -4,6 +4,7 @@
 	import { clearHover, dragStart, dragStore, isCarried, setHover } from './store/dragStore.svelte';
 	import { isSelectClick, selectedIds, toggleSelected } from './store/selection';
 	import SelectionRing from './SelectionRing.svelte';
+	import HeldMark from './HeldMark.svelte';
 	import { Spring } from 'svelte/motion';
 	import { untrack } from 'svelte';
 	import { ImageMaterial } from '@threlte/extras';
@@ -412,6 +413,17 @@
 		yaw={(rotationTap.current + orientationYaw) * -DEG2RAD}
 	/>
 {/if}
+
+<!-- held-by (tableplace-199): another player is carrying this card -->
+<HeldMark
+	{id}
+	heldBy={cardState?.heldBy}
+	shape="rect"
+	w={CARD_WIDTH}
+	h={CARD_HEIGHT}
+	position={[posX, posY - CARD_THICKNESS / 2, posZ]}
+	yaw={(rotationTap.current + orientationYaw) * -DEG2RAD}
+/>
 
 {#if isPicked}
 	<!--

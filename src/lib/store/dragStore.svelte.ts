@@ -7,6 +7,8 @@ import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
 import { PIECE_DRAG_Y } from '$lib/utils/constants-pieces';
 import { clampToTable } from '$lib/utils/transforms/drop';
 import type { GameDTO } from '$lib/store/game/types';
+import { heldByOther, myHoldId } from '$lib/utils/hold';
+import { toastHeld } from '$lib/hotkeys/held';
 
 type Vec3 = [number, number, number];
 
@@ -86,6 +88,8 @@ function groupFor(id: string, origin: Vec3 | undefined): GroupMember[] {
 	const [lx = 0, , lz = 0] = origin;
 	return selected.flatMap((other) => {
 		if (other === id) return [];
+		// in someone else's hand: it stays with them, the rest still comes along
+		if (heldByOther(state, other)) return [];
 		const position = state?.[collectionOf(other)]?.[other]?.position as Vec3 | undefined;
 		if (!position) return [];
 		const [x = 0, , z = 0] = position;
@@ -93,8 +97,17 @@ function groupFor(id: string, origin: Vec3 | undefined): GroupMember[] {
 	});
 }
 
-// Start dragging a card — and, when it is selected, the rest of the selection
-function dragStart(id: string, height: number, origin?: [number, number, number]) {
+/**
+ * Start dragging a card — and, when it is selected, the rest of the
+ * selection. Refused (false, with a toast naming the holder) when another
+ * player is carrying `id` right now (tableplace-199).
+ */
+function dragStart(id: string, height: number, origin?: [number, number, number]): boolean {
+	const holder = heldByOther(get(gameStore), id);
+	if (holder) {
+		toastHeld(holder);
+		return false;
+	}
 	const group = groupFor(id, origin);
 	// grabbing something outside the selection lets go of the selection, the
 	// way every desktop does. Only a table entity: drawing a card off a deck
@@ -110,6 +123,7 @@ function dragStart(id: string, height: number, origin?: [number, number, number]
 		// the pile you just picked a card out of is no longer a pile to preview
 		hoveredStack: null
 	}));
+	return true;
 }
 
 /** every id a drag is carrying: the lead, then its group */
@@ -135,6 +149,11 @@ function carryY(id: string): number {
  * does (the throttle in websocket/storeIntegration.ts coalesces by patch, not
  * by entity). Each member is clamped on its own, the same clamp the drop
  * commits with, so nothing tracks somewhere it could not land.
+ *
+ * Every carried entity is stamped `heldBy` with this client's id in the same
+ * patch (tableplace-199) — the hold rides the move, never a message of its own,
+ * and re-sending it with each position means a peer who joins mid-drag, or a
+ * coalesced first frame, still learns who has it. The drop clears it.
  */
 function carryPatch(
 	state: Pick<DragState, 'isDragging' | 'group'>,
@@ -143,10 +162,14 @@ function carryPatch(
 ): Partial<GameDTO> | null {
 	const lead = state.isDragging;
 	if (!lead) return null;
-	const patch: Record<string, Record<string, { position: Vec3 }>> = {};
+	const patch: Record<string, Record<string, { position: Vec3; heldBy?: string }>> = {};
+	const me = myHoldId();
 	const place = (id: string, px: number, pz: number) => {
 		const [cx, cz] = clampToTable(px, pz);
-		(patch[collectionOf(id)] ??= {})[id] = { position: [cx, carryY(id), cz] };
+		(patch[collectionOf(id)] ??= {})[id] = {
+			position: [cx, carryY(id), cz],
+			...(me ? { heldBy: me } : {})
+		};
 	};
 	place(lead, x, z);
 	for (const member of state.group ?? [])

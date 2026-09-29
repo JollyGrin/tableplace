@@ -5331,6 +5331,75 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-204: table sounds. Synthesised in the page, so what a spec
+		 * can see is which sounds STARTED (`sounds()`), not what came out of a
+		 * speaker. The gates: none before a user gesture (a programmatic move on
+		 * a fresh page is silent), the first real mouse gesture arms audio and a
+		 * drag then lifts and drops, and none while muted — and the mute is
+		 * remembered across a reload.
+		 */
+		name: 'sound: silent before a gesture and while muted, lift and drop once armed',
+		run: (context) =>
+			withTable(context, 'sound', async (table) => {
+				const { page } = table;
+				const token = await table.spawn('token', { position: ON_FELT(1) });
+				const deck = await table.seedDeck();
+				await table.settle(2500);
+				const sounds = () => page.evaluate(() => window.__tableplace!.sounds());
+				const total = (s: Record<string, number | boolean>) =>
+					Object.entries(s).reduce((n, [, v]) => n + (typeof v === 'number' ? v : 0), 0);
+
+				// no gesture yet: a raised-and-lowered token makes no sound
+				const armed = await sounds();
+				ok(
+					armed.gestured === false,
+					`audio was armed before any gesture: ${JSON.stringify(armed)}`
+				);
+				await page.evaluate((id) => {
+					const bridge = window.__tableplace!;
+					bridge.actions.movePiece(id, [0, 2, 0]);
+					bridge.actions.movePiece(id, [0, 0.1, 0]);
+				}, token);
+				await sleep(300);
+				ok(
+					total(await sounds()) === 0,
+					`sound played before a gesture: ${JSON.stringify(await sounds())}`
+				);
+
+				// the first real gesture arms audio; a drag then lifts and drops
+				await table.dragBy(token, 120, 0);
+				const heard = await eventually(sounds, (s) => (s.drop as number) > 0);
+				ok(heard.gestured === true, `the gesture did not arm audio: ${JSON.stringify(heard)}`);
+				ok(
+					(heard.lift as number) > 0 && (heard.drop as number) > 0,
+					`a drag did not lift and drop: ${JSON.stringify(heard)}`
+				);
+
+				// muted: the visible toggle silences the same drag
+				await page.click('[data-testid="sound-toggle"]');
+				ok(
+					(await page.evaluate(() => localStorage.getItem('sound:v1'))) === 'off',
+					'the mute was not remembered in localStorage'
+				);
+				const muted = total(await sounds());
+				await table.dragBy(token, -120, 0);
+				await sleep(400);
+				ok(
+					total(await sounds()) === muted,
+					`sound played while muted: ${JSON.stringify(await sounds())}`
+				);
+
+				// unmuted again: it plays
+				await page.click('[data-testid="sound-toggle"]');
+				await table.dragBy(token, 120, 0);
+				await eventually(sounds, (s) => total(s) > muted);
+
+				await assertDraggable(table, deck, 'deck (beside sound)');
+				assertClean(table, 'after playing table sounds');
+			})
+	},
+	{
+		/**
 		 * tableplace-198: ping. Two players in two browser contexts. The first
 		 * double-clicks bare felt under a real mouse; the second must draw the
 		 * ripple, in the pinger's seat colour, at that spot — and it only ever
@@ -5524,6 +5593,173 @@ export const SPECS: Spec[] = [
 				assertClean(table, 'after pinging');
 				assertClean(peer, 'on the second client, watching pings');
 			} finally {
+				await remote?.close();
+				await peerContext.close();
+				await table.close();
+			}
+		}
+	},
+	{
+		/**
+		 * Held-by (tableplace-199), two real clients in separate browser contexts
+		 * (two localStorages, so two player ids). Seat 0 presses a piece and
+		 * carries it without letting go. Seat 1 must see the hold arrive in the
+		 * same patches as the move, draw it in seat 0's colour, and get nowhere
+		 * with a drag of its own: a toast, and the piece stays where seat 0 has
+		 * it. Once seat 0 lets go the hold is gone for both and seat 1 can move
+		 * it. Last, a holder that disconnects mid-hold: a bare relay client takes
+		 * the piece and drops its socket, and seat 1 can move it again.
+		 */
+		name: 'held-by: seat 0 holds a piece, and seat 1 cannot drag it until it is let go',
+		run: async (context) => {
+			const lobby = nextLobby('held-by');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const peerContext = await context.browser.createBrowserContext();
+			let remote: Table | null = null;
+			let holder: Awaited<ReturnType<typeof relayPeer>> | null = null;
+			const heldBy = (t: Table, id: string) =>
+				t.page.evaluate(
+					(pieceId) => window.__tableplace!.state()?.pieces?.[pieceId]?.heldBy ?? null,
+					id
+				);
+			const marks = (t: Table) => t.page.evaluate(() => window.__tableplace!.heldMarks());
+			try {
+				const deck = await table.seedDeck();
+				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
+				await table.settle();
+				const seat0 = (await table.page.evaluate(() => window.__tableplace!.actions.getMyId()))!;
+				remote = await openTable(peerContext, context.servers, lobby);
+				const peer = remote;
+				await peer.page.evaluate(() => window.__tableplace!.actions.setSeat(1));
+				await peer.settle(1500);
+				await assertRenders(peer, piece, 'the piece (seat 1)');
+
+				// seat 0 picks the piece up and keeps the button down
+				const at = await table.locate(piece);
+				ok(at, 'the piece never mounted for seat 0');
+				await table.page.mouse.move(at!.x, at!.y);
+				await sleep(80);
+				await table.page.mouse.down();
+				await sleep(80);
+				for (let step = 1; step <= 8; step++) {
+					await table.page.mouse.move(at!.x, at!.y + step * 12);
+					await sleep(30);
+				}
+				await sleep(400);
+				ok(
+					(await table.page.evaluate(() => window.__tableplace!.drag().isDragging)) === piece,
+					'seat 0 never picked the piece up'
+				);
+				// a hand holding something is never perfectly still: keep seat 0's
+				// pointer nudging while seat 1 waits, so a loaded runner that
+				// coalesced the first frames still gets a carry patch through
+				let nudge = 0;
+				const seen = await eventually(
+					async () => {
+						nudge = 1 - nudge;
+						await table.page.mouse.move(at!.x + nudge * 3, at!.y + 96);
+						return heldBy(peer, piece);
+					},
+					(who) => who === seat0,
+					30_000
+				);
+				ok(seen === seat0, `seat 1 never learned seat 0 holds the piece (heldBy ${seen})`);
+				const drawn = await eventually(
+					() => marks(peer),
+					(m) => m.some((mark) => mark.id === piece)
+				);
+				const mark = drawn.find((m) => m.id === piece);
+				ok(
+					mark?.holder === seat0 && mark.color.toLowerCase() === '#ff6b8a',
+					`seat 1 does not draw seat 0's hold in seat 0's colour: ${JSON.stringify(drawn)}`
+				);
+				ok(
+					(await marks(table)).length === 0,
+					`seat 0 draws a hold mark on its own carry: ${JSON.stringify(await marks(table))}`
+				);
+
+				// seat 1 grabs at it: refused, and the piece stays in seat 0's hand
+				const held = (await table.positionOf(piece))!;
+				// the toast lives 1.8 s and a loaded runner's drag gesture can outlast
+				// it, so every toast seat 1 shows is recorded from before the grab
+				await peer.page.evaluate(() => {
+					const seen: string[] = [];
+					(window as unknown as { __toasts: string[] }).__toasts = seen;
+					new MutationObserver(() => {
+						for (const el of document.querySelectorAll('[role="status"]'))
+							if (el.textContent) seen.push(el.textContent);
+					}).observe(document.body, { childList: true, subtree: true, characterData: true });
+				});
+				await peer.dragBy(piece, DRAG.dx, DRAG.dy);
+				ok(
+					(await peer.page.evaluate(() => window.__tableplace!.drag().isDragging)) === null,
+					'seat 1 picked up a piece seat 0 is holding'
+				);
+				const toasts = await eventually(
+					() => peer.page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts),
+					(seen) => seen.some((text) => /is holding that/.test(text)),
+					4000
+				);
+				ok(
+					toasts.some((text) => text.includes(`${seat0} is holding that`)),
+					`seat 1's refused grab did not say who is holding the piece: ${JSON.stringify(toasts)}`
+				);
+				await sleep(600);
+				const still = (await table.positionOf(piece))!;
+				ok(
+					planarDistance(still, held) < 0.05 && (await heldBy(table, piece)) === seat0,
+					`seat 1's grab moved the held piece: ${JSON.stringify(held)} → ${JSON.stringify(still)}`
+				);
+
+				// seat 0 lets go: the hold comes off for both, and seat 1 can move it
+				await table.page.mouse.up();
+				const released = await eventually(
+					() => heldBy(peer, piece),
+					(who) => who === null
+				);
+				ok(released === null, `the hold outlived the drop on seat 1 (heldBy ${released})`);
+				ok((await heldBy(table, piece)) === null, 'the hold outlived the drop on seat 0');
+				const cleared = await eventually(
+					() => marks(peer),
+					(m) => m.length === 0
+				);
+				ok(cleared.length === 0, `seat 1 still draws a hold: ${JSON.stringify(cleared)}`);
+				await assertDraggable(peer, piece, 'the piece (seat 1, after seat 0 let go)');
+
+				// a holder who disconnects mid-hold: their hold reads as released
+				holder = await relayPeer(context.servers.relay, lobby, 'e2e-holder');
+				holder.send({
+					players: {
+						'e2e-holder': { id: 'e2e-holder', seat: 2, joinTimestamp: Date.now(), tray: {} }
+					},
+					pieces: { [piece]: { heldBy: 'e2e-holder' } }
+				});
+				const ghost = await eventually(
+					() => marks(peer),
+					(m) => m.some((mark) => mark.holder === 'e2e-holder')
+				);
+				ok(
+					ghost.some((m) => m.holder === 'e2e-holder'),
+					`seat 1 never drew the relay client's hold: ${JSON.stringify(ghost)}`
+				);
+				holder.close();
+				holder = null;
+				const gone = await eventually(
+					() => marks(peer),
+					(m) => m.length === 0
+				);
+				ok(
+					gone.length === 0,
+					`a disconnected holder's hold is still drawn: ${JSON.stringify(gone)}`
+				);
+				await assertDraggable(peer, piece, 'the piece (seat 1, after its holder disconnected)');
+
+				await assertDraggable(table, deck, 'deck (after holds came and went)');
+				assertClean(table, 'after holding a piece');
+				assertClean(peer, 'on seat 1, after a refused grab');
+				await peer.snap('held-by');
+			} finally {
+				holder?.close();
 				await remote?.close();
 				await peerContext.close();
 				await table.close();

@@ -428,6 +428,11 @@
 					"description": "Where this card sits in its holder's hand, left to right (tableplace-195):\na sort key, lowest first, so a reorder is one patch of numbers and the\norder survives a reload (the relay does not keep object key order).\nOnly meaningful inside `players[id].tray`; a card leaving the hand drops\nit. Absent sorts after every numbered card.",
 					"type": "number",
 					"title": "handOrder"
+				},
+				"heldBy": {
+					"description": "Player id of whoever is carrying this card right now (tableplace-199).\nWritten in the same patch as the first carried position and cleared\n(`null`) by the patch that lands it, so it costs no message of its own.\nEveryone else draws the holder's colour around it and refuses a second\ngrab. A hold by a player whose `connected` is false reads as released.\nLive-table state only: never saved into a scenario, stripped on load.\nAbsent = nobody holds it.",
+					"type": "string",
+					"title": "heldBy"
 				}
 			}
 		},
@@ -528,6 +533,11 @@
 					"description": "Pinned in place (tableplace-189): the pile can't be moved, flipped or\nungrouped. Cards still come off its top — a locked draw pile is still a\ndraw pile.",
 					"type": "boolean",
 					"title": "locked"
+				},
+				"heldBy": {
+					"description": "player id of whoever is carrying the pile right now — see `CardDTO.heldBy`",
+					"type": "string",
+					"title": "heldBy"
 				}
 			}
 		},
@@ -536,7 +546,7 @@
 			"title": "CardInDeck",
 			"allOf": [
 				{
-					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%7C%22handOrder%22%3E"
+					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%7C%22handOrder%22%7C%22heldBy%22%3E"
 				},
 				{
 					"type": "object",
@@ -550,8 +560,8 @@
 				}
 			]
 		},
-		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\">": {
-			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\">",
+		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\"|\"heldBy\">": {
+			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\"|\"heldBy\">",
 			"type": "object",
 			"properties": {
 				"faceImageUrl": {
@@ -845,6 +855,11 @@
 					"type": "boolean",
 					"title": "locked"
 				},
+				"heldBy": {
+					"description": "player id of whoever is carrying the piece right now — see `CardDTO.heldBy`",
+					"type": "string",
+					"title": "heldBy"
+				},
 				"packOrigin": {
 					"description": "Provenance stamped on pack-spawned entities so a scenario export (tbps v2)\ncan reference the pack instead of inlining its content. Wire-safe: the\nrelay server merges state schema-agnostically.",
 					"type": "object",
@@ -1025,7 +1040,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.15",
-	"x-generated-at": "2026-09-29T19:02:06.578Z",
-	"x-tableplace-source-sha": "7dd0767c0a6d6b4714c99f3acf794d6cdbe669bb-dirty"
+	"x-tableplace-spec-version": "0.1.16",
+	"x-generated-at": "2026-09-29T20:16:10.071Z",
+	"x-tableplace-source-sha": "a27fce9183f138018ef446dc642450f9d9079775-dirty"
 }

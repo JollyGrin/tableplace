@@ -569,6 +569,7 @@ function placeOnTopOfDeck(deckId: string, cardId: string) {
 
 	const { position, rotation, ...card } = { ..._card, id: cardId };
 	delete card.placedBy; // a pile has no placer: nobody's peek goes into it
+	delete card.heldBy; // and no hand is on a card once it is in the pile
 	card.id = cardId;
 	if (!card.faceImageUrl) return console.error('No card faceImageUrl found');
 

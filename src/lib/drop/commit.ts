@@ -80,11 +80,15 @@ export function commitActiveDrag() {
 		// land somewhere rather than stay floating at drag height
 		if (!gameActions.returnToBag(drop.targetId, id)) commitActiveDragAtRest(id);
 	} else if (drop && id.startsWith('piece:')) {
-		gameStore.updateState({ pieces: { [id]: dropPatch(drop) } });
+		landPiece(id, dropPatch(drop));
 	} else if (drop && id.startsWith('deck:')) {
 		gameStore.updateState({ decks: { [id]: dropPatch(drop) } });
 	} else if (drop) {
 		gameStore.updateState({ cards: { [id]: dropPatch(drop) } });
+	} else {
+		// nowhere to land (the entity is gone, or the pointer never met the
+		// table): nothing moves, but a hold must never outlive the drag
+		releaseHold(id);
 	}
 
 	dragEnd();
@@ -95,14 +99,35 @@ export function commitActiveDrag() {
  * drop actually turned the entity — a snap point with an authored yaw. Every
  * other kind resolves the rotation the entity already has, and re-sending it
  * would put an unchanged field on the wire on every single drop.
+ *
+ * And the hold comes off in the same patch (tableplace-199): `heldBy: null`
+ * rides the landing, so letting go costs no message of its own either.
  */
 function dropPatch(drop: DropTarget): {
 	position: [number, number, number];
 	rotation?: [number, number, number];
+	heldBy: null;
 } {
 	return drop.snap?.rotation !== undefined
-		? { position: drop.position, rotation: drop.rotation }
-		: { position: drop.position };
+		? { position: drop.position, rotation: drop.rotation, heldBy: null }
+		: { position: drop.position, heldBy: null };
+}
+
+/**
+ * A piece's landing. Its own writer only for the types: the store's patch type
+ * does not reach into the optional `pieces` collection, so `heldBy: null`
+ * (delete) would not type there the way it does on cards and decks.
+ */
+function landPiece(id: string, patch: ReturnType<typeof dropPatch>) {
+	gameStore.updateState({ pieces: { [id]: patch } } as unknown as Partial<GameDTO>);
+}
+
+/** let go of `id` without moving it — only when it is recorded as held */
+function releaseHold(id: string) {
+	const collection = collectionOf(id);
+	const entity = get(gameStore)?.[collection]?.[id] as { heldBy?: string } | null | undefined;
+	if (!entity?.heldBy) return;
+	gameStore.updateState({ [collection]: { [id]: { heldBy: null } } } as Partial<GameDTO>);
 }
 
 /**
@@ -117,9 +142,15 @@ export function cancelActiveDrag() {
 
 	if (group.length && origin) {
 		// the whole group goes back where it was picked up, in one patch
-		const patch: Record<string, Record<string, { position: [number, number, number] }>> = {};
+		const patch: Record<
+			string,
+			Record<string, { position: [number, number, number]; heldBy: null }>
+		> = {};
 		for (const member of [{ id, origin }, ...group])
-			(patch[collectionOf(member.id)] ??= {})[member.id] = { position: member.origin };
+			(patch[collectionOf(member.id)] ??= {})[member.id] = {
+				position: member.origin,
+				heldBy: null
+			};
 		gameStore.updateState(patch as Partial<GameDTO>);
 		dragEnd();
 		return;
@@ -131,18 +162,21 @@ export function cancelActiveDrag() {
 		return;
 	}
 
-	if (id.startsWith('piece:')) gameStore.updateState({ pieces: { [id]: { position: origin } } });
-	else if (id.startsWith('deck:')) gameStore.updateState({ decks: { [id]: { position: origin } } });
-	else gameStore.updateState({ cards: { [id]: { position: origin } } });
+	// back where it was, and out of the hand in the same patch
+	const back = { position: origin, heldBy: null };
+	if (id.startsWith('piece:')) landPiece(id, back);
+	else if (id.startsWith('deck:')) gameStore.updateState({ decks: { [id]: back } });
+	else gameStore.updateState({ cards: { [id]: back } });
 
 	dragEnd();
 }
 
 function commitActiveDragAtRest(id: string) {
 	const drop = resolveDrop(get(gameStore), id, null, {}, { surfaceYAt: modelSurfaceYAt(id) });
-	if (drop && id.startsWith('piece:')) gameStore.updateState({ pieces: { [id]: dropPatch(drop) } });
+	if (drop && id.startsWith('piece:')) landPiece(id, dropPatch(drop));
 	else if (drop && id.startsWith('deck:'))
 		gameStore.updateState({ decks: { [id]: dropPatch(drop) } });
 	else if (drop) gameStore.updateState({ cards: { [id]: dropPatch(drop) } });
+	else releaseHold(id);
 	dragEnd();
 }

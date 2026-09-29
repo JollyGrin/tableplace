@@ -17,6 +17,7 @@ import type { GameDTO } from '../store/game/types';
 import { assertReadableSpecVersion, SCENARIO_SPEC_VERSION } from '../formats/spec-version';
 import { validRotationStep } from '../utils/yaw';
 import { validHandPlayFace } from '../utils/hand';
+import { withoutHolds } from '../utils/hold';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */
@@ -201,7 +202,9 @@ export function scenarioFileName(name: string): string {
 
 /** Serialize a scenario for download as `<name>.tbps.json`. */
 export function serializeScenarioFile(scenario: Scenario): string {
-	const { packs, placements, ...rest } = scenario;
+	const { packs, placements, ...fields } = scenario;
+	// a hold is a pointer on a live table: no file carries one (tableplace-199)
+	const rest = { ...fields, state: withoutHolds(fields.state ?? {}) };
 	const version = scenarioVersion(scenario);
 	const file: ScenarioFile =
 		version === 2
@@ -391,7 +394,8 @@ export function parseScenarioFile(text: string): Scenario {
 	const scenario: Scenario = {
 		name: obj.name,
 		createdAt: typeof obj.createdAt === 'number' ? obj.createdAt : Date.now(),
-		state: (obj.state ?? {}) as Partial<GameDTO>
+		// a stray hold (tableplace-199) is live-table state, never a file's
+		state: withoutHolds((obj.state ?? {}) as Partial<GameDTO>)
 	};
 	if (obj.packs !== undefined) {
 		if (!Array.isArray(obj.packs)) throw new Error('`packs` must be an array');
