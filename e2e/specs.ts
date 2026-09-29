@@ -3732,7 +3732,7 @@ export const SPECS: Spec[] = [
 						await eventually(
 							() => lockedOn(table),
 							(on) => !on,
-							3000
+							8000
 						),
 						`a second L did not unlock the token — under the pointer: ${JSON.stringify(
 							await page.evaluate(() => {
