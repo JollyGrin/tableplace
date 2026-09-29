@@ -199,6 +199,22 @@ export type TestBridge = {
 	pings: () => PingShape[];
 	/** ping a table point as this player, through the same rate limit a double-click hits */
 	ping: (x: number, z: number) => boolean;
+	/**
+	 * Other players' pointers as this page draws them right now
+	 * (tableplace-197): where each cursor is (mid-glide), the table point it
+	 * is gliding to, whether it is up, its opacity and its drawn colour.
+	 */
+	remotePointers: () => RemotePointerShape[];
+};
+
+export type RemotePointerShape = {
+	playerId: string;
+	x: number;
+	z: number;
+	target: [number, number] | null;
+	visible: boolean;
+	opacity: number;
+	color: string | null;
 };
 
 export type PingShape = {
@@ -627,7 +643,30 @@ export function installTestBridge(handles: SceneHandles): void {
 			samplePings(handles.scene());
 			return [...seenPings.values()].map((p) => ({ ...p }));
 		},
-		ping: (x, z) => sendPing(x, z)
+		ping: (x, z) => sendPing(x, z),
+		remotePointers: () => {
+			const out: RemotePointerShape[] = [];
+			handles.scene()?.traverse((object) => {
+				const playerId = object.userData?.remotePointer as string | undefined;
+				if (!playerId) return;
+				let color: string | null = null;
+				object.traverse((child) => {
+					const material = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+					if (!color && child instanceof THREE.Mesh && material?.color)
+						color = `#${material.color.getHexString()}`;
+				});
+				out.push({
+					playerId,
+					x: object.position.x,
+					z: object.position.z,
+					target: (object.userData.target as [number, number] | undefined) ?? null,
+					visible: object.visible,
+					opacity: (object.userData.opacity as number | undefined) ?? 0,
+					color
+				});
+			});
+			return out;
+		}
 	};
 }
 

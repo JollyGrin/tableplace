@@ -7,9 +7,12 @@ import {
 	CAMERA_MIN_OPACITY,
 	CAMERA_SEQ_RESET_GAP,
 	CAMERA_STALE_MS,
+	POINTER_FADE_MS,
+	POINTER_IDLE_MS,
 	applyCameraSample,
 	cameraOpacity,
 	parseCameraSample,
+	pointerOpacity,
 	pruneExpiredCameras,
 	remoteCameraActions,
 	remoteCameraStore,
@@ -41,7 +44,14 @@ describe('applyCameraSample', () => {
 
 	it('stores the first sample with its arrival time', () => {
 		const next = applyCameraSample(empty, 'bob', sample(1, 3), 1_000);
-		expect(next.bob).toEqual({ p: [3, 25, 0], t: [0, 0, 0], seq: 1, lastSeen: 1_000 });
+		expect(next.bob).toEqual({
+			p: [3, 25, 0],
+			t: [0, 0, 0],
+			seq: 1,
+			lastSeen: 1_000,
+			c: null,
+			pointerAt: 1_000
+		});
 	});
 
 	it('applies a newer seq', () => {
@@ -80,12 +90,68 @@ describe('applyCameraSample', () => {
 	});
 });
 
+describe('remote pointer (tableplace-197)', () => {
+	const empty: RemoteCameraMap = {};
+	const pointing = (seq: number, c: unknown) => ({ ...sample(seq), c });
+
+	it('parses the optional pointer', () => {
+		expect(parseCameraSample(pointing(1, [2, -3]))).toEqual({
+			p: [0, 25, 0],
+			t: [0, 0, 0],
+			seq: 1,
+			c: [2, -3]
+		});
+	});
+
+	it('a malformed pointer loses only the pointer, never the pose', () => {
+		for (const c of [[1], [1, 2, 3], ['1', 2], [NaN, 0], 'here', {}])
+			expect(parseCameraSample(pointing(1, c))).toEqual({ p: [0, 25, 0], t: [0, 0, 0], seq: 1 });
+	});
+
+	it('a sample from a sender that predates pointers reads as no pointer', () => {
+		expect(applyCameraSample(empty, 'bob', sample(1), 1_000).bob.c).toBeNull();
+	});
+
+	it('an absent pointer hides it — the sender left the canvas', () => {
+		const shown = applyCameraSample(empty, 'bob', pointing(1, [2, 3]), 1_000);
+		expect(shown.bob.c).toEqual([2, 3]);
+		expect(applyCameraSample(shown, 'bob', sample(2), 1_300).bob.c).toBeNull();
+	});
+
+	it('pointerAt follows the pointer moving, not samples arriving', () => {
+		let map = applyCameraSample(empty, 'bob', pointing(1, [2, 3]), 1_000);
+		expect(map.bob.pointerAt).toBe(1_000);
+		// an orbit under a parked pointer: new pose, same table point
+		map = applyCameraSample(map, 'bob', { p: [9, 25, 0], t: [0, 0, 0], seq: 2, c: [2, 3] }, 1_400);
+		expect(map.bob).toMatchObject({ lastSeen: 1_400, pointerAt: 1_000 });
+		map = applyCameraSample(map, 'bob', pointing(3, [4, 3]), 1_800);
+		expect(map.bob.pointerAt).toBe(1_800);
+	});
+
+	it('a pointer coming back counts as a move', () => {
+		let map = applyCameraSample(empty, 'bob', pointing(1, [2, 3]), 1_000);
+		map = applyCameraSample(map, 'bob', sample(2), 1_400);
+		map = applyCameraSample(map, 'bob', pointing(3, [2, 3]), 9_000);
+		expect(map.bob.pointerAt).toBe(9_000);
+	});
+
+	it('pointerOpacity: full for POINTER_IDLE_MS, then gone over POINTER_FADE_MS', () => {
+		expect(pointerOpacity(0)).toBe(1);
+		expect(pointerOpacity(POINTER_IDLE_MS)).toBe(1);
+		expect(pointerOpacity(POINTER_IDLE_MS + POINTER_FADE_MS / 2)).toBeCloseTo(0.5);
+		expect(pointerOpacity(POINTER_IDLE_MS + POINTER_FADE_MS)).toBe(0);
+		expect(pointerOpacity(POINTER_IDLE_MS * 10)).toBe(0);
+	});
+});
+
 describe('pruneExpiredCameras', () => {
 	const stale = (lastSeen: number) => ({
 		p: [0, 0, 0] as Vec3,
 		t: [0, 0, 0] as Vec3,
 		seq: 1,
-		lastSeen
+		lastSeen,
+		c: null,
+		pointerAt: lastSeen
 	});
 	const NOW = 100_000;
 
