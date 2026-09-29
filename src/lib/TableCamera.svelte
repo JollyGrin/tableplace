@@ -273,9 +273,12 @@
 					kind: target.kind as CameraFocus['kind'],
 					id: target.id
 				});
-			// over the hand's own HUD, or a DOM pane stacked on the canvas: not the felt
+			// over the hand's own HUD, or a DOM pane stacked on the canvas: not the
+			// felt. The pointer capture interactivity takes retargets the click to
+			// `dom` itself, so that counts as the canvas.
 			if (targets.some((t) => t.kind === 'hand-card')) return;
-			if (!(event.target instanceof HTMLCanvasElement) || !camera) return;
+			if (event.target !== dom && !(event.target instanceof HTMLCanvasElement)) return;
+			if (!camera) return;
 			const point = feltPointAt(camera, dom.getBoundingClientRect(), event.clientX, event.clientY);
 			if (point) ping(point.x, point.z);
 		};

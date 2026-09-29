@@ -14,8 +14,16 @@
 
 import { TABLE_HALF_X, TABLE_HALF_Z } from '$lib/utils/constants-table';
 
-/** how long a ripple (and its edge arrow) stays up */
+/** how long a ripple (and its edge arrow) stays up, from its first drawn frame */
 export const PING_LIFETIME_MS = 1200;
+
+/**
+ * The ripple layer retires a ping when it has played; this is only the
+ * backstop for a page that never draws one. Long, because a stalled renderer
+ * (a loaded machine, a busy tab) may not draw its next frame for seconds, and
+ * a ping that expires unseen is a ping nobody got.
+ */
+export const PING_STALE_MS = 10_000;
 
 /** at most `count` pings from this client in any `windowMs` */
 export const PING_RATE = { count: 2, windowMs: 1000 } as const;

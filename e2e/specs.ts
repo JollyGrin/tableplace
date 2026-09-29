@@ -5078,5 +5078,199 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * tableplace-198: ping. Two players in two browser contexts. The first
+		 * double-clicks bare felt under a real mouse; the second must draw the
+		 * ripple, in the pinger's seat colour, at that spot — and it only ever
+		 * arrives as the ephemeral `ping` relay message, never as lobby state.
+		 * Then: a double-click on a piece focuses it and pings nobody; the
+		 * radial's Ping wedge on a piece pings where it lies; a ping outside
+		 * the view puts an edge arrow up; and a burst is held to two a second
+		 * on the sender, so the relay (and the socket) never feel it.
+		 */
+		name: 'ping: double-click the felt, the other player sees the ripple; off-view shows an arrow',
+		run: async (context) => {
+			const lobby = nextLobby('ping');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const peerContext = await context.browser.createBrowserContext();
+			let remote: Table | null = null;
+			const pings = (t: Table) => t.page.evaluate(() => window.__tableplace!.pings());
+			const myId = (t: Table) => t.page.evaluate(() => window.__tableplace!.actions.getMyId());
+			// SEAT_COLOR in src/lib/hud/players.ts
+			const SEAT_COLOR: Record<number, string> = {
+				0: '#ff6b8a',
+				1: '#6ee7a0',
+				2: '#b98cff',
+				3: '#ff8a3d'
+			};
+			/** the colour `t` should paint `id`'s pings: the seat `t` holds for them */
+			const seatColorOn = async (t: Table, id: string) => {
+				const seat = await t.page.evaluate(
+					(pid) => window.__tableplace!.state()?.players?.[pid]?.seat,
+					id
+				);
+				return typeof seat === 'number' ? (SEAT_COLOR[seat] ?? null) : null;
+			};
+			try {
+				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
+				await table.settle();
+				remote = await openTable(peerContext, context.servers, lobby);
+				const peer = remote;
+				await peer.page.evaluate(() => window.__tableplace!.actions.setSeat(1));
+				await peer.settle(1500);
+				await assertRenders(peer, piece, 'the piece (second client)');
+				const [me, them] = [await myId(table), await myId(peer)];
+				ok(me && them && me !== them, `the two clients are not two players: ${me} / ${them}`);
+
+				// ── double-click bare felt: both draw it, in the pinger's colour ──
+				const spot: [number, number, number] = [6, 0.26, 4];
+				const felt = await table.page.evaluate((w) => window.__tableplace!.project(w), spot);
+				ok(felt, 'the felt spot projects off-screen');
+				await table.page.mouse.move(felt!.x, felt!.y);
+				await table.settle(300);
+				ok(
+					(await table.elementAt(felt!)).startsWith('canvas') &&
+						!(await table.hits(felt!)).includes(piece),
+					`the felt spot is not bare felt: ${await table.elementAt(felt!)} / ${JSON.stringify(await table.hits(felt!))}`
+				);
+				await table.page.mouse.click(felt!.x, felt!.y, { count: 2 });
+				const seen = await eventually(
+					() => pings(peer),
+					(list) => list.some((p) => p.playerId === me && p.rings > 0 && p.color)
+				);
+				const theirs = seen.find((p) => p.playerId === me);
+				ok(
+					theirs,
+					`the second client never drew the ping: ${JSON.stringify(seen)} ` +
+						`(the pinger drew ${JSON.stringify(await pings(table))})`
+				);
+				ok(
+					Math.hypot(theirs!.x - spot[0], theirs!.z - spot[2]) < 0.5,
+					`the ping landed at ${theirs!.x},${theirs!.z}, not the double-clicked ${spot[0]},${spot[2]}`
+				);
+				ok(
+					theirs!.rings > 0,
+					`the second client never showed a ripple ring: ${JSON.stringify(theirs)}`
+				);
+				ok(
+					theirs!.color === (await seatColorOn(peer, me!)),
+					`the ripple is ${theirs!.color}, not the pinger's seat colour ${await seatColorOn(peer, me!)}`
+				);
+				const own = (await pings(table)).find((p) => p.playerId === me);
+				ok(
+					own && own.rings > 0 && own.color === (await seatColorOn(table, me!)),
+					`the pinger's own ripple is missing or a different colour: ${JSON.stringify(own)}`
+				);
+				ok(
+					!(await table.page.evaluate(() => 'pings' in (window.__tableplace!.state() ?? {}))),
+					'a ping leaked into lobby state'
+				);
+				await table.snap('ping');
+
+				// ── a double-click on a piece focuses it and pings nobody ──
+				const cameraBefore = JSON.stringify(await peer.cameraPose());
+				const target = await peer.locate(piece);
+				ok(target, 'the piece projects off-screen for the second client');
+				await peer.page.mouse.move(target!.x, target!.y);
+				await peer.settle(300);
+				ok(
+					(await peer.hits(target!)).includes(piece),
+					`the second client's pointer is not over the piece: ${JSON.stringify(await peer.hits(target!))}`
+				);
+				await peer.page.mouse.click(target!.x, target!.y, { count: 2 });
+				await settleCamera(peer);
+				ok(
+					JSON.stringify(await peer.cameraPose()) !== cameraBefore,
+					'a double-click on the piece did not focus it'
+				);
+				await sleep(800);
+				for (const [who, t] of [
+					['the second client', peer],
+					['the first client', table]
+				] as const)
+					ok(
+						!(await pings(t)).some((p) => p.playerId === them),
+						`a double-click on a piece pinged (${who})`
+					);
+
+				// ── a ping outside the view gets an edge arrow ──
+				const far: [number, number, number] = [-TABLE_HALF_X + 2, 0.26, -TABLE_HALF_Z + 2];
+				const offView = await peer.page.evaluate((w) => {
+					const at = window.__tableplace!.project(w);
+					return !at || at.x < 0 || at.y < 0 || at.x > innerWidth || at.y > innerHeight;
+				}, far);
+				ok(offView, 'the far corner is still in the focused view — pick a farther spot');
+				const arrowSeen = peer.page.waitForSelector('[data-ping-arrow]', { timeout: 8000 });
+				ok(
+					await table.page.evaluate((x, z) => window.__tableplace!.ping(x, z), far[0], far[2]),
+					'the far ping was refused by the rate limit'
+				);
+				await arrowSeen;
+				const arrowed = await eventually(
+					() => pings(peer),
+					(list) => list.some((p) => p.playerId === me && p.x === far[0] && p.arrow)
+				);
+				ok(
+					arrowed.some((p) => p.playerId === me && p.x === far[0] && p.arrow),
+					`no edge arrow for the off-view ping: ${JSON.stringify(arrowed)}`
+				);
+				ok(
+					await eventually(
+						() => peer.page.evaluate(() => !document.querySelector('[data-ping-arrow]')),
+						(gone) => gone,
+						// frame-timed: the ripple plays from its first drawn frame, so on
+						// a starved renderer it ends late — but never past PING_STALE_MS
+						12_000
+					),
+					'the edge arrow outlived its ping'
+				);
+
+				// ── the radial on a thing: Ping pings where it lies ──
+				await peer.page.keyboard.press('KeyC');
+				await settleCamera(peer);
+				const wheel = await peer.openRadial(piece, { button: 'right' });
+				ok(wheel.wedges['ping'], `the piece's wheel has no Ping: ${wheel.actions.join(', ')}`);
+				await flickTo(peer, wheel.wedges['ping']!);
+				await peer.page.mouse.up({ button: 'right' });
+				const wedged = await eventually(
+					() => pings(table),
+					(list) => list.some((p) => p.playerId === them && p.rings > 0)
+				);
+				const fromWheel = wedged.find((p) => p.playerId === them);
+				const at = (await table.positionOf(piece))!;
+				ok(
+					fromWheel && Math.hypot(fromWheel.x - at[0], fromWheel.z - at[2]) < 0.5,
+					`the wheel's ping did not land on the piece: ${JSON.stringify(fromWheel)} vs ${JSON.stringify(at)}`
+				);
+				ok(
+					fromWheel!.color === (await seatColorOn(table, them!)),
+					`the second player's ping is ${fromWheel!.color}, not their seat colour ${await seatColorOn(table, them!)}`
+				);
+
+				// ── a burst is held to two a second on the sender ──
+				await sleep(1100);
+				const before = (await pings(peer)).filter((p) => p.playerId === me).length;
+				const burst = await table.page.evaluate(() =>
+					Array.from({ length: 6 }, (_, i) => window.__tableplace!.ping(i, 0))
+				);
+				ok(
+					JSON.stringify(burst) === JSON.stringify([true, true, false, false, false, false]),
+					`the burst was not limited to two: ${JSON.stringify(burst)}`
+				);
+				await sleep(1500);
+				const after = (await pings(peer)).filter((p) => p.playerId === me).length;
+				ok(after - before === 2, `the second client drew ${after - before} of the burst, not 2`);
+				ok(await table.connected(), 'the relay dropped the pinger');
+
+				assertClean(table, 'after pinging');
+				assertClean(peer, 'on the second client, watching pings');
+			} finally {
+				await remote?.close();
+				await peerContext.close();
+				await table.close();
+			}
+		}
 	}
 ];

@@ -10,7 +10,7 @@ import { gameActions } from '$lib/store/game/actions';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { playerColor } from '$lib/hud/players';
 import type { VerbTarget } from '$lib/verbs/types';
-import { createPinger, PING_LIFETIME_MS, type ActivePing, type PingValue } from './ping';
+import { createPinger, PING_STALE_MS, type ActivePing, type PingValue } from './ping';
 import { playPingSound } from './sound';
 import type { EdgeArrow } from './edge';
 
@@ -31,13 +31,16 @@ const pinger = createPinger({
 	myId: () => gameActions.getMyId(),
 	show: (ping) => {
 		activePings.update((pings) => [...pings, ping]);
-		setTimeout(
-			() => activePings.update((pings) => pings.filter((p) => p.key !== ping.key)),
-			PING_LIFETIME_MS
-		);
+		setTimeout(() => retirePings([ping.key]), PING_STALE_MS);
 	},
 	sound: playPingSound
 });
+
+/** take pings off the table (the ripple layer, once each has played) */
+export function retirePings(keys: readonly number[]) {
+	if (!keys.length) return;
+	activePings.update((pings) => pings.filter((p) => !keys.includes(p.key)));
+}
 
 /** start pinging; `publish` puts one ping on the wire */
 export function installPing(publish: (value: PingValue) => void) {
