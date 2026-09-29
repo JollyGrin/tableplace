@@ -364,8 +364,7 @@ export type KeybindRow = { action: string; key: string };
  * (TableCamera.svelte); the wheel menu is radial/gesture.ts.
  */
 export const TABLE_BASICS: readonly KeybindRow[] = [
-	{ action: 'Orbit', key: 'drag the table' },
-	{ action: 'Pan', key: 'W A S D' },
+	{ action: 'Orbit', key: 'drag' },
 	{ action: 'Zoom', key: 'wheel' },
 	{ action: 'Actions', key: 'right-click' }
 ];

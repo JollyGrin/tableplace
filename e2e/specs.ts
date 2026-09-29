@@ -2859,5 +2859,150 @@ export const SPECS: Spec[] = [
 
 				assertClean(table, 'after previewing hand, table, deck and piece');
 			})
+	},
+	{
+		/**
+		 * The hint bar (#186): one DOM line, bottom-left, naming what the pointer
+		 * can do — read from the verb registry, so hovering a deck must name draw
+		 * and shuffle with the keys that really do them. It is read in the same
+		 * animation frame as the hover store it follows, it never takes a pointer
+		 * event, and it stays clear of the hand tray (the bottom sixth of the
+		 * canvas) and the preview (the right half) at 1280x720 and at 400 wide.
+		 */
+		name: 'hint bar: names the verbs under the pointer, ? lists them all, never in the way',
+		run: (context) =>
+			withTable(context, 'hint-bar', async (table) => {
+				const page = table.page;
+				await page.setViewport({ width: 1280, height: 720 });
+				const deck = await table.seedDeck([0, 0.26, 0]);
+				ok(!!deck, 'the deck did not spawn');
+				await table.settle(1500);
+
+				/**
+				 * What the bar SHOWS — only the parts on its one visible line; a part
+				 * that did not fit wraps out of sight — and the hover store, read
+				 * together on one animation frame.
+				 */
+				const sample = () =>
+					page.evaluate(
+						() =>
+							new Promise<{ text: string; deck: string | null }>((resolve) =>
+								requestAnimationFrame(() => {
+									const bar = document.querySelector('[data-testid="hint-bar"]');
+									const box = bar?.getBoundingClientRect();
+									const shown = [...(bar?.children ?? [])].filter((part) => {
+										const r = part.getBoundingClientRect();
+										return !!box && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+									});
+									resolve({
+										text: shown
+											.map((part) => part.textContent ?? '')
+											.join(' ')
+											.replace(/\s+/g, ' '),
+										deck: window.__tableplace!.drag().isDeckHovered
+									});
+								})
+							)
+					);
+
+				// ── nothing hovered: ? and the camera basics ────────────────────
+				await page.mouse.move(640, 120);
+				await table.settle(400);
+				const idle = await sample();
+				ok(idle.text.includes('?'), `the idle line does not offer ?: "${idle.text}"`);
+				ok(/Orbit/.test(idle.text), `the idle line has no camera basics: "${idle.text}"`);
+
+				// ── hover the deck: the line follows on the same frame ──────────
+				const at = await table.locate(deck);
+				ok(at, 'the deck is not on screen to hover');
+				await page.mouse.move(at!.x, at!.y, { steps: 6 });
+				const hovered = await eventually(sample, (s) => s.deck === deck);
+				ok(
+					hovered.deck === deck,
+					`the pointer is over the deck but isDeckHovered is ${hovered.deck}`
+				);
+				for (const [verb, key] of [
+					['Draw', '1 – 9'],
+					['Shuffle', 'Shift + S']
+				]) {
+					ok(
+						hovered.text.includes(`${key} ${verb}`),
+						`on the frame the deck became hovered the bar read "${hovered.text}", not "${key} ${verb}"`
+					);
+				}
+				ok(hovered.text.startsWith('Deck'), `the bar does not name the deck: "${hovered.text}"`);
+
+				// ── it never steals the pointer ─────────────────────────────────
+				const passThrough = await page.evaluate(() => {
+					const bar = document.querySelector('[data-testid="hint-bar"]') as HTMLElement;
+					const box = bar.getBoundingClientRect();
+					const under = document.elementFromPoint(
+						box.left + box.width / 2,
+						box.top + box.height / 2
+					);
+					return {
+						events: getComputedStyle(bar).pointerEvents,
+						underIsBar: !!under && bar.contains(under)
+					};
+				});
+				ok(
+					passThrough.events === 'none' && !passThrough.underIsBar,
+					`the hint bar can take pointer events: ${JSON.stringify(passThrough)}`
+				);
+
+				// ── ? opens the reference, generated from the registry; Esc shuts it
+				await page.mouse.move(640, 120);
+				await table.settle(300);
+				await page.keyboard.down('Shift');
+				await page.keyboard.press('Slash');
+				await page.keyboard.up('Shift');
+				const reference = await eventually(
+					() =>
+						page.evaluate(
+							() => document.querySelector('[data-testid="verb-reference"]')?.textContent ?? ''
+						),
+					(text) => text.length > 0,
+					3000
+				);
+				for (const row of ['Shuffle hovered deck', 'Flip card', 'Reset camera', 'Cancel drag']) {
+					ok(reference.includes(row), `the ? reference does not list "${row}"`);
+				}
+				await page.keyboard.press('Escape');
+				const closed = await eventually(
+					() => page.evaluate(() => !document.querySelector('[data-testid="verb-reference"]')),
+					(gone) => gone,
+					3000
+				);
+				ok(closed, 'Esc did not close the ? reference');
+
+				// ── clear of the tray and the preview, wide and narrow ──────────
+				for (const [label, width, height] of [
+					['1280x720', 1280, 720],
+					['400w', 400, 800]
+				] as const) {
+					await page.setViewport({ width, height });
+					await page.mouse.move(width / 2, 60);
+					await table.settle(600);
+					const box = await page.evaluate(() => {
+						const bar = document.querySelector('[data-testid="hint-bar"]');
+						const r = bar?.getBoundingClientRect();
+						return r ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null;
+					});
+					ok(box, `${label}: the hint bar is not on the page`);
+					// HUDTrayScene: the tray is the bottom sixth of the canvas;
+					// HUDPreviewScene: the art is fitted into the right half
+					ok(
+						box!.bottom <= (height * 5) / 6 && box!.top >= 0,
+						`${label}: the hint bar overlaps the hand tray: ${JSON.stringify(box)}`
+					);
+					ok(
+						box!.right <= width / 2 && box!.left >= 0,
+						`${label}: the hint bar reaches into the preview's half: ${JSON.stringify(box)}`
+					);
+					await table.snap(`hint-bar-${label}`);
+				}
+
+				assertClean(table, 'after hovering, opening ? and resizing');
+			})
 	}
 ];

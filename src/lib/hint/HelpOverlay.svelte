@@ -19,11 +19,8 @@
 <svelte:window onkeydown={onKeyDown} />
 
 {#if $helpOpen}
-	<!-- the scrim closes it on a click; the key closes it too, so no role is lost -->
-	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 	<div
 		class="fixed inset-0 z-40 flex items-start justify-center overflow-auto bg-black/40 p-4 pt-16"
-		onclick={(event) => event.target === event.currentTarget && toggleHelp(false)}
 	>
 		<div
 			data-testid="verb-reference"

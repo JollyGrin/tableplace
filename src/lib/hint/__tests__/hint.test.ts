@@ -142,13 +142,13 @@ describe('dragging', () => {
 });
 
 describe('nothing under the pointer', () => {
-	it('gives the camera basics and ends on ?', () => {
+	it('leads with ?, then the camera basics', () => {
 		const hint = line([TABLE]);
 		expect(hint.name).toBeNull();
-		expect(hint.parts.slice(0, TABLE_BASICS.length).map((p) => p.text)).toEqual(
+		expect(hint.parts[0]!.key).toBe('?');
+		expect(hint.parts.slice(1, 1 + TABLE_BASICS.length).map((p) => p.text)).toEqual(
 			TABLE_BASICS.map((row) => row.action)
 		);
-		expect(hint.parts.at(-1)!.key).toBe('?');
 		// the preview needs something under the pointer to preview
 		expect(hint.parts.some((p) => p.text === 'Preview')).toBe(false);
 	});

@@ -147,15 +147,17 @@ export function hintFor(input: HintInput, verbs: VerbsFor = verbsFor): Hint {
 
 	// nothing under the pointer: the camera, the wheel, and the table's own
 	// keys. A held verb (the preview) acts on something under the pointer, so
-	// it has nothing to say here; `?` goes last so the line ends on "more".
+	// it has nothing to say here. `?` leads: the bar drops whatever does not fit
+	// on one line, and on a narrow screen `?` is the one part worth keeping.
 	const table = verbs({ kind: 'table' }, actor).filter((verb) => verb.hotkey && !verb.release);
 	const help = table.filter((verb) => verb.id === 'help');
 	const rest = table.filter((verb) => verb.id !== 'help');
 	return {
 		name: null,
 		parts: [
+			...help.map(verbPart),
 			...TABLE_BASICS.map((row) => part(row.key, row.action)),
-			...[...rest, ...help].map(verbPart)
+			...rest.map(verbPart)
 		]
 	};
 }
