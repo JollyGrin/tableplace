@@ -5,7 +5,7 @@
  * "Screen-relative" is the whole point: W is always *away from the viewer*,
  * whatever the orbit yaw is, so panning stays predictable after you have turned
  * the table around. That direction cannot come from the eye→target vector
- * alone: the default seat view looks straight down, where that vector has no
+ * alone: top-down (P) looks straight down, where that vector has almost no
  * horizontal component at all. The camera's own up axis does have one — at any
  * tilt it points up-screen — so the basis is taken from there, with the
  * eye→target vector as the fallback for a camera lying almost flat (where up is
