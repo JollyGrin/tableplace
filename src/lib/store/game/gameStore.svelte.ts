@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { GameDTO } from './types';
 import { merge } from '../transform-helpers';
 import { noteLocalMoves } from '../lastMoved';
@@ -93,9 +93,22 @@ function updateState(update: PartialWithNull<GameDTO>) {
 	});
 }
 
+type LocalPatchObserver = (update: unknown, before: Partial<GameDTO>) => void;
+let localPatchObserver: LocalPatchObserver | null = null;
+
+/**
+ * Watch every patch this client makes, with the state as it was just before
+ * it lands — the action journal (tableplace-201) reads its undo snapshots
+ * here. One observer; installing another replaces it, `null` removes it.
+ */
+export function observeLocalPatches(observer: LocalPatchObserver | null) {
+	localPatchObserver = observer;
+}
+
 /** a patch this client made (as opposed to one relayed from a peer) */
 function updateLocalState(update: PartialWithNull<GameDTO>) {
 	noteLocalMoves(update);
+	localPatchObserver?.(update, get(game));
 	updateState(update);
 }
 

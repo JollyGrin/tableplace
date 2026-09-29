@@ -109,7 +109,7 @@ function revealedName(
 /** does pressing `a` stop the same keypress reaching `b`? (see `matchesHotkey`) */
 function shadows(a: Hotkey, b: Hotkey): boolean {
 	const shiftOverlaps = a.shift === undefined || b.shift === undefined || a.shift === b.shift;
-	return shiftOverlaps && a.codes.some((code) => b.codes.includes(code));
+	return shiftOverlaps && !!a.mod === !!b.mod && a.codes.some((code) => b.codes.includes(code));
 }
 
 const part = (key: string, text: string): HintPart => ({ key, text, enabled: true });
