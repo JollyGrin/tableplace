@@ -239,6 +239,11 @@
 					"enum": ["down", "up"],
 					"type": "string",
 					"title": "handPlayFace"
+				},
+				"coach": {
+					"description": "`false` hides the first-run \"things to try\" checklist on this table, for\nplayers who already know it. Omitted (or `true`) shows it to anyone who\nhas not dismissed it in their own browser. Seeded into the lobby's synced\n`state.table`, like `rotationStep` (tableplace-206).",
+					"type": "boolean",
+					"title": "coach"
 				}
 			},
 			"required": ["createdAt", "name", "state"]
@@ -338,7 +343,7 @@
 					"title": "snapPoints"
 				},
 				"table": {
-					"description": "table-wide settings (`rotationStep`, `handPlayFace`); a field set to null is removed",
+					"description": "table-wide settings (`rotationStep`, `handPlayFace`, `coach`); a field set to null is removed",
 					"type": "object",
 					"properties": {
 						"rotationStep": {
@@ -351,6 +356,11 @@
 							"enum": ["down", "up"],
 							"type": "string",
 							"title": "handPlayFace"
+						},
+						"coach": {
+							"description": "`false` hides the first-run \"things to try\" strip on this table\n(tableplace-206) — for a table whose players already know it. Absent\n(or `true`) shows it to anyone who has not dismissed it in their browser.",
+							"type": "boolean",
+							"title": "coach"
 						}
 					},
 					"title": "table"
@@ -1040,7 +1050,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.16",
-	"x-generated-at": "2026-09-29T20:16:10.071Z",
-	"x-tableplace-source-sha": "a27fce9183f138018ef446dc642450f9d9079775-dirty"
+	"x-tableplace-spec-version": "0.1.17",
+	"x-generated-at": "2026-09-29T21:16:47.701Z",
+	"x-tableplace-source-sha": "7605e4e3b33b75de49a67f9193b899f6647aae78-dirty"
 }

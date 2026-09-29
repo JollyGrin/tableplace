@@ -17,6 +17,7 @@ import type { GameDTO } from '../store/game/types';
 import { assertReadableSpecVersion, SCENARIO_SPEC_VERSION } from '../formats/spec-version';
 import { validRotationStep } from '../utils/yaw';
 import { validHandPlayFace } from '../utils/hand';
+import { validCoach } from '../coach/table';
 import { withoutHolds } from '../utils/hold';
 
 export const TBPS_VERSION = 2;
@@ -175,6 +176,13 @@ export type Scenario = {
 	 * synced `state.table`, like `rotationStep` (tableplace-195).
 	 */
 	handPlayFace?: 'down' | 'up';
+	/**
+	 * `false` hides the first-run "things to try" checklist on this table, for
+	 * players who already know it. Omitted (or `true`) shows it to anyone who
+	 * has not dismissed it in their own browser. Seeded into the lobby's synced
+	 * `state.table`, like `rotationStep` (tableplace-206).
+	 */
+	coach?: boolean;
 };
 
 /** The on-disk shape of a `.tbps.json` file. */
@@ -428,6 +436,13 @@ export function parseScenarioFile(text: string): Scenario {
 			);
 		}
 		scenario.handPlayFace = face;
+	}
+	if (obj.coach !== undefined) {
+		const coach = validCoach(obj.coach);
+		if (coach === undefined) {
+			throw new Error(`\`coach\` must be true or false, got ${JSON.stringify(obj.coach)}`);
+		}
+		scenario.coach = coach;
 	}
 	return scenario;
 }
