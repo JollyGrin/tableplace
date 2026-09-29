@@ -16,9 +16,8 @@
  *
  * Nothing here reads a hover store to decide WHAT to act on: the target is
  * whatever the press landed on, carried through to the options (see actions.ts).
- * The one hover read is a veto — a piece under the pointer owns its own
- * right-click (bag draw / counter heal / state picker), so the felt behind it
- * must not open the table wheel.
+ * The one hover read is a veto — a piece under the pointer opens its own
+ * wheel, so the felt behind it must not open the table's over the top of it.
  */
 
 import { get } from 'svelte/store';
@@ -283,8 +282,7 @@ export function armRadialPress(options: {
 	if (!hasRadialSurface()) return;
 	// mid-drag the pointer belongs to the thing in the air
 	if (get(dragStore).isDragging) return;
-	// a piece owns its own right-click (bag draw / counter heal / state picker) —
-	// the felt behind it must not answer for it (tableplace-161 leaves pieces out)
+	// a piece opens its own wheel — the felt behind it must not answer for it
 	if (target.kind === 'table' && get(hoveredPiece)) return;
 	if (get(radialMenu)) return;
 

@@ -77,7 +77,7 @@ describe('TTS Locked', () => {
 		const byName = (name: string) => Object.values(pieces ?? {}).find((p) => p?.name === name);
 		expect(byName('Board')?.locked).toBe(true);
 		expect(byName('Token')).not.toHaveProperty('locked');
-		expect(Object.values(decks)[0]?.locked).toBe(true);
+		expect(Object.values(decks ?? {})[0]?.locked).toBe(true);
 	});
 });
 

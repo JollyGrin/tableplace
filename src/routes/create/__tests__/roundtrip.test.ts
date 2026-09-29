@@ -63,6 +63,7 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 		infinite: false,
 		snap: true,
 		reach: 0,
+		locked: false,
 		position: [0, 0],
 		rotation: 0,
 		...over
@@ -133,7 +134,12 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 			]
 		})
 	);
-	draft.overlays.push({ imageUrl: 'https://example.com/map.png', ratio: 1.5, scale: 12 });
+	draft.overlays.push({
+		imageUrl: 'https://example.com/map.png',
+		ratio: 1.5,
+		scale: 12,
+		locked: false
+	});
 
 	return { draft, exported: serializePackFile(cleanForExport(draft)) };
 }

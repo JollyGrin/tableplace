@@ -20,6 +20,7 @@ const { LOCKED_REFUSAL } = await import('$lib/hotkeys/lock');
 const { hintFor } = await import('$lib/hint/hint');
 
 const me = { playerId: 'me' };
+const game = () => get(gameStore)!;
 const loose = (x: number, locked?: boolean) => ({
 	position: [x, 0.26, 0] as [number, number, number],
 	rotation: [0, 0, 0] as [number, number, number],
@@ -65,42 +66,42 @@ beforeEach(() => {
 describe('the flag', () => {
 	it('toggles with one synced boolean, and unpinning deletes the key', () => {
 		expect(gameActions.toggleLock('piece', 'piece:me:m')).toBe(true);
-		expect(get(gameStore).pieces?.['piece:me:m']?.locked).toBe(true);
+		expect(game().pieces?.['piece:me:m']?.locked).toBe(true);
 		expect(gameActions.toggleLock('piece', 'piece:me:m')).toBe(false);
-		expect(get(gameStore).pieces?.['piece:me:m']).not.toHaveProperty('locked');
+		expect(game().pieces?.['piece:me:m']).not.toHaveProperty('locked');
 	});
 
 	it('does nothing to a thing that is not there', () => {
 		expect(gameActions.toggleLock('card', 'card:me:gone')).toBeUndefined();
-		expect(get(gameStore).cards).not.toHaveProperty('card:me:gone');
+		expect(game().cards).not.toHaveProperty('card:me:gone');
 		expect(isLocked('card', 'card:me:gone')).toBe(false);
 	});
 });
 
 describe('actions refuse a pinned target', () => {
 	it('a pinned card neither flips, taps, nudges nor groups', () => {
-		const before = structuredClone(get(gameStore).cards['card:me:a']);
+		const before = structuredClone(game().cards!['card:me:a']!);
 		gameActions.flipCard('card:me:a');
 		gameActions.tapCard(false, 'card:me:a');
 		gameActions.incrementHeight(0.01, 'card:me:a');
 		expect(gameActions.groupStackIntoDeck('card:me:a')).toBeUndefined();
-		expect(get(gameStore).cards['card:me:a']).toEqual(before);
+		expect(game().cards!['card:me:a']!).toEqual(before);
 	});
 
 	it('a loose card still flips', () => {
 		gameActions.flipCard('card:me:b');
-		expect(get(gameStore).cards['card:me:b']?.rotation?.[0]).toBe(180);
+		expect(game().cards!['card:me:b']!.rotation?.[0]).toBe(180);
 	});
 
 	it('grouping a stack with a pinned card in it swallows nothing', () => {
 		expect(gameActions.groupStackIntoDeck('card:me:over')).toBeUndefined();
-		expect(get(gameStore).cards).toHaveProperty('card:me:under');
-		expect(get(gameStore).cards).toHaveProperty('card:me:over');
+		expect(game().cards).toHaveProperty('card:me:under');
+		expect(game().cards).toHaveProperty('card:me:over');
 	});
 
 	it('a pinned deck neither flips, ungroups nor lifts', () => {
 		gameActions.flipDeck('deck:me:0');
-		expect(get(gameStore).decks['deck:me:0']?.isFaceUp).toBeFalsy();
+		expect(game().decks!['deck:me:0']!.isFaceUp).toBeFalsy();
 		expect(ungroupRefusal('deck:me:0', 'me')).toMatchObject({ ok: false, reason: 'locked' });
 		expect(grabDeck('deck:me:0')).toBeNull();
 		expect(toast).toHaveBeenCalledWith(LOCKED_REFUSAL, expect.anything());
@@ -109,9 +110,9 @@ describe('actions refuse a pinned target', () => {
 	it('a pinned piece does not turn, but a pinned counter still counts', () => {
 		gameActions.setLocked('piece', 'piece:me:m', true);
 		gameActions.rotatePiece('piece:me:m', 90);
-		expect(get(gameStore).pieces?.['piece:me:m']?.rotation).toEqual([0, 0, 0]);
+		expect(game().pieces?.['piece:me:m']?.rotation).toEqual([0, 0, 0]);
 		gameActions.incrementCounter('piece:me:c', -1);
-		expect(get(gameStore).pieces?.['piece:me:c']?.value).toBe(2);
+		expect(game().pieces?.['piece:me:c']?.value).toBe(2);
 	});
 });
 
@@ -135,7 +136,7 @@ describe('the verbs', () => {
 		const flip = verb({ kind: 'card', id: 'card:me:a' }, 'flip');
 		flip.run();
 		expect(toast).toHaveBeenCalledWith(LOCKED_REFUSAL, expect.anything());
-		expect(get(gameStore).cards['card:me:a']?.rotation?.[0]).toBe(0);
+		expect(game().cards!['card:me:a']!?.rotation?.[0]).toBe(0);
 	});
 
 	it('L is bound on every entity, reads Lock / Unlock, and is never refused', () => {

@@ -80,14 +80,8 @@ describe('bag input', () => {
 		expect(draw).toHaveBeenCalledTimes(1);
 	});
 
-	it('right-click draws too, and suppresses the browser menu', () => {
-		const draw = vi.fn();
-		const contextmenu = new MouseEvent('contextmenu', { cancelable: true });
-
-		dispatch('oncontextmenu', bagHits(bagInput(draw)), contextmenu);
-
-		expect(draw).toHaveBeenCalledTimes(1);
-		expect(contextmenu.defaultPrevented).toBe(true);
+	it('right-click is the radial wheel, not a draw', () => {
+		expect('oncontextmenu' in bagInput(vi.fn())).toBe(false);
 	});
 
 	it('a drag release claims the event without drawing', () => {
@@ -109,19 +103,14 @@ describe('bag input', () => {
 	it('a non-bag piece ignores bag input, so hits below still see the event', () => {
 		const draw = vi.fn();
 		const token = bagInput(draw, { id: 'piece:seat0:token-0', isBag: false });
-		const contextmenu = new MouseEvent('contextmenu', { cancelable: true });
-
 		const { stopped } = dispatch(
 			'onclick',
 			[{ label: 'token-disc', handlers: token }],
 			new MouseEvent('click')
 		);
-		dispatch('oncontextmenu', [{ label: 'token-disc', handlers: token }], contextmenu);
 
 		expect(draw).not.toHaveBeenCalled();
 		expect(stopped).toBe(false);
-		// a token's context menu is not a bag's business to cancel
-		expect(contextmenu.defaultPrevented).toBe(false);
 	});
 
 	it('a bag under another bag is left alone — only the topmost draws', () => {

@@ -8,6 +8,7 @@
  * the wheel happens to be drawn over.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { gameStore } from '$lib/store/game/gameStore.svelte';
 
 const gameActions = {
 	getMe: () => ({ id: 'me' }),
@@ -16,7 +17,15 @@ const gameActions = {
 	groupStackIntoDeck: vi.fn(),
 	drawFromTop: vi.fn(),
 	flipDeck: vi.fn(),
-	ungroupDeck: vi.fn(() => ({ ok: true, deckId: 'deck:me:0', cardIds: [] }))
+	ungroupDeck: vi.fn(() => ({ ok: true, deckId: 'deck:me:0', cardIds: [] })),
+	cyclePieceState: vi.fn(),
+	rotatePiece: vi.fn(),
+	setPieceSnap: vi.fn(),
+	removePiece: vi.fn(),
+	incrementCounter: vi.fn(),
+	resetCounter: vi.fn(),
+	rollDie: vi.fn(),
+	drawFromBag: vi.fn()
 };
 const shuffleHoveredDeck = vi.fn();
 const resetView = vi.fn();
@@ -115,6 +124,84 @@ describe('table wheel', () => {
 			'reset-view',
 			'top-down',
 			'focus'
+		]);
+	});
+});
+
+describe('piece wheel', () => {
+	const face = { face: 'https://example.test/face.png' };
+	beforeEach(() =>
+		gameStore.set({
+			pieces: {
+				'piece:me:tile': {
+					kind: 'token',
+					name: 'Tile',
+					position: [0, 0, 0],
+					states: [face, face, face]
+				},
+				'piece:me:model': { kind: 'model', position: [0, 0, 0] },
+				'piece:me:tally': { kind: 'counter', position: [0, 0, 0], maxValue: 9 },
+				'piece:me:pouch': { kind: 'bag', position: [0, 0, 0] },
+				'piece:me:die': { kind: 'die', position: [0, 0, 0] }
+			}
+		} as never)
+	);
+	const wheel = (id: string) => radialOptions({ kind: 'piece', id });
+	const printed = (id: string) =>
+		Object.fromEntries(wheel(id).map((option) => [option.id, option.key ?? null]));
+
+	it('a multi-state piece cycles its state, each wedge printed with its key', () => {
+		expect(printed('piece:me:tile')).toEqual({
+			'state-next': 'X',
+			'state-prev': 'Shift + X',
+			lock: 'L'
+		});
+		expect(radialTitle({ kind: 'piece', id: 'piece:me:tile' })).toBe('Tile');
+		run({ kind: 'piece', id: 'piece:me:tile' }, 'state-next');
+		expect(gameActions.cyclePieceState).toHaveBeenCalledWith('piece:me:tile', 1);
+	});
+
+	it('a model rotates, toggles its snap and can be removed', () => {
+		expect(printed('piece:me:model')).toEqual({
+			'rotate-cw': 'T',
+			'rotate-ccw': 'R',
+			'snap-toggle': null,
+			remove: null,
+			lock: 'L'
+		});
+		expect(radialTitle({ kind: 'piece', id: 'piece:me:model' })).toBe('Piece');
+		run({ kind: 'piece', id: 'piece:me:model' }, 'snap-toggle');
+		expect(gameActions.setPieceSnap).toHaveBeenCalledWith('piece:me:model', false);
+		run({ kind: 'piece', id: 'piece:me:model' }, 'remove');
+		expect(gameActions.removePiece).toHaveBeenCalledWith('piece:me:model');
+	});
+
+	it('a counter gets +1, −1 and reset; a bag draws; a die rolls', () => {
+		expect(printed('piece:me:tally')).toEqual({
+			'count-up': 'Shift+click',
+			'count-down': 'click',
+			'count-reset': null,
+			lock: 'L'
+		});
+		run({ kind: 'piece', id: 'piece:me:tally' }, 'count-up');
+		expect(gameActions.incrementCounter).toHaveBeenCalledWith('piece:me:tally', 1);
+		run({ kind: 'piece', id: 'piece:me:tally' }, 'count-reset');
+		expect(gameActions.resetCounter).toHaveBeenCalledWith('piece:me:tally');
+		run({ kind: 'piece', id: 'piece:me:pouch' }, 'take-out');
+		expect(gameActions.drawFromBag).toHaveBeenCalledWith('piece:me:pouch');
+		run({ kind: 'piece', id: 'piece:me:die' }, 'roll');
+		expect(gameActions.rollDie).toHaveBeenCalledWith('piece:me:die');
+	});
+});
+
+describe('every wedge prints its key', () => {
+	it('the card wheel', () => {
+		expect(radialOptions({ kind: 'card', id: 'card:me:AS' }).map((o) => o.key)).toEqual([
+			'F',
+			'T',
+			'R',
+			'G',
+			'L'
 		]);
 	});
 });

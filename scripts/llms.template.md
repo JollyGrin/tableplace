@@ -190,11 +190,11 @@ A piece can carry several faces and be flipped between them in play — a double
 
 **`states[0]` is the base face.** The array is the piece's _complete_ ordered set of faces, not extra ones added to `imageUrl`. A piece with `states` renders `states[n].face` and starts at `n = 0` unless a scenario placement's `state` says otherwise (§7.1). Write `imageUrl` equal to `states[0].face`: it is the fallback for anything that ignores states.
 
-`face` is a face ref (§5) — schemes may be mixed inside one piece. `name` is optional and labels the state on hover and in its picker menu. Only `token` and `counter` pieces render an image, so states on a `pawn` change its label, not its shape.
+`face` is a face ref (§5) — schemes may be mixed inside one piece. `name` is optional and labels the state on hover. Only `token` and `counter` pieces render an image, so states on a `pawn` change its label, not its shape.
 
 A piece may also carry **`state`**: the index it _spawns_ showing, for when that is not the base face. Omit it unless you mean it; a scenario placement's `state` (§7.1) overrides it.
 
-Players cycle a piece with `X` (`Shift+X` backwards) or pick a state from its right-click menu; the current index is synced game state, so it survives a scenario save/load.
+Players cycle a piece with `X` (`Shift+X` backwards), or from the same verbs on its right-click radial menu; the current index is synced game state, so it survives a scenario save/load.
 
 ### 6.3 Bags — a hidden blind-draw pool
 

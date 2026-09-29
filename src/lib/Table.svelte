@@ -57,7 +57,7 @@
 		 * puts a wheel in the middle of what the hand is doing: the left button
 		 * on felt already means orbit, and the gesture it interrupts is a drag.
 		 * Right-press-hold and right-click are unambiguous, so the table keeps
-		 * those and nothing else. Pieces, which own their own right-click, are
+		 * those and nothing else. Pieces, which open their own wheel, are
 		 * vetoed in the gesture.
 		 */
 		if (event.nativeEvent.button !== 2) return;
