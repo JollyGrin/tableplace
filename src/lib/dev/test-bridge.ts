@@ -25,7 +25,7 @@ import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
 import { snapGuideDimMaterial } from '$lib/drop/snap-guide-dim';
-import type { GameDTO } from '$lib/store/game/types';
+import type { GameDTO, OverlayDTO } from '$lib/store/game/types';
 import { resolveCardImage, sheetRefCache } from '$lib/packs';
 import { preview as previewStore } from '$lib/HUDPreview/previewStore';
 import { huds } from './hud-registry';
@@ -141,6 +141,18 @@ export type TestBridge = {
 	 * assert the injection really happened rather than trusting that it did.
 	 */
 	stall: (options: { ms: number; everyMs?: number } | null) => number;
+	/**
+	 * Every image texture the table scene draws — card and deck faces, map
+	 * overlays, piece art — with the anisotropy it filters at, and `target`,
+	 * the anisotropy new textures are built with (tableplace-155). Keyed by
+	 * image src, so a spec can find the overlay or card it placed.
+	 */
+	textures: () => { target: number; maps: { src: string; anisotropy: number }[] };
+	/**
+	 * Put a map overlay on the table. No action spawns one outside a pack, and
+	 * a spec should not need a pack to test how a board draws.
+	 */
+	addOverlay: (overlay: OverlayDTO) => string;
 };
 
 export type SnapGuideShape = {
@@ -167,7 +179,7 @@ export type SnapGuideShape = {
 export type EntityShape = {
 	meshes: number;
 	/** one entry per material, in traversal order */
-	materials: { type: string; color: string; hasMap: boolean }[];
+	materials: { type: string; color: string; hasMap: boolean; roughness: number | null }[];
 	/**
 	 * World-space bounding-box dimensions [x, y, z] of the rendered object.
 	 * What tells a landscape card (footprint wider than deep) from a portrait
@@ -440,7 +452,8 @@ export function installTestBridge(handles: SceneHandles): void {
 					shape.materials.push({
 						type: material.type,
 						color: standard.color ? `#${standard.color.getHexString()}` : '',
-						hasMap: !!standard.map
+						hasMap: !!standard.map,
+						roughness: standard.roughness ?? null
 					});
 				}
 			});
@@ -480,7 +493,29 @@ export function installTestBridge(handles: SceneHandles): void {
 				facing: Math.atan2(down.x, down.z)
 			};
 		},
-		stall: setStall
+		stall: setStall,
+		textures: () => {
+			const maps = new Map<string, number>();
+			handles.scene()?.traverse((node) => {
+				const mesh = node as THREE.Mesh;
+				if (!mesh.isMesh) return;
+				for (const material of [mesh.material].flat()) {
+					// ImageMaterial keeps its texture in a uniform, like preview() reads
+					const shader = material as THREE.ShaderMaterial & THREE.MeshBasicMaterial;
+					const texture: THREE.Texture | null = shader.uniforms?.map?.value ?? shader.map ?? null;
+					const src = (texture?.image as { src?: string } | undefined)?.src;
+					if (texture && src) maps.set(src, texture.anisotropy);
+				}
+			});
+			return {
+				target: THREE.Texture.DEFAULT_ANISOTROPY,
+				maps: [...maps].map(([src, anisotropy]) => ({ src, anisotropy }))
+			};
+		},
+		addOverlay: (overlay) => {
+			gameStore.updateState({ overlays: { [overlay.id]: overlay } });
+			return overlay.id;
+		}
 	};
 }
 

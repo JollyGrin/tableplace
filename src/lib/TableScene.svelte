@@ -17,6 +17,7 @@
 	import HudPreviewScene from './HUDPreview/HUDPreviewScene.svelte';
 	import RemoteCameraAvatar from './RemoteCameraAvatar.svelte';
 	import TestBridge from './dev/TestBridge.svelte';
+	import { useTextureSharpness } from '$lib/utils/texture-sharpness';
 	import { dragStore, setNoSnap, setTrayHover } from '$lib/store/dragStore.svelte';
 	import { setTableFeatures, TABLE_FEATURES_DEFAULT } from '$lib/store/tableFeatures';
 	import { gameStore } from './store/game/gameStore.svelte';
@@ -63,6 +64,8 @@
 	const isDragging = $derived($dragStore.isDragging !== null);
 	let mesh: THREE.Mesh | undefined = $state();
 	const { camera, canvas } = useThrelte();
+	// before any card face or overlay mounts and loads its texture
+	useTextureSharpness();
 	// a card drawn into the hand flies from the deck's screen point, which only
 	// this scene's camera can say (see HUDTray/drawFlight)
 	onMount(() => registerTableCamera(() => camera.current));

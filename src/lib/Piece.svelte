@@ -27,6 +27,7 @@
 	import {
 		BAG_HEIGHT,
 		DIE_SIDES_DEFAULT,
+		PIECE_CHIP_ROUGHNESS,
 		PIECE_DEFAULT_RADIUS,
 		PIECE_DRAG_Y,
 		PIECE_RADIUS,
@@ -366,21 +367,21 @@
 			<!-- procedural pawn: base disc + stem + head -->
 			<T.Mesh castShadow position.y={0.06}>
 				<T.CylinderGeometry args={[radius * 0.5, radius * 0.6, 0.12, 24]} />
-				<T.MeshStandardMaterial {color} />
+				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
 			</T.Mesh>
 			<T.Mesh castShadow position.y={0.45}>
 				<T.CylinderGeometry args={[radius * 0.16, radius * 0.3, 0.75, 16]} />
-				<T.MeshStandardMaterial {color} />
+				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
 			</T.Mesh>
 			<T.Mesh castShadow position.y={0.95}>
 				<T.SphereGeometry args={[radius * 0.32, 20, 16]} />
-				<T.MeshStandardMaterial {color} />
+				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
 			</T.Mesh>
 		{:else}
 			<!-- token / counter: flat disc, image or color on top -->
 			<T.Mesh castShadow>
 				<T.CylinderGeometry args={[radius, radius, THICKNESS, 36]} />
-				<T.MeshStandardMaterial {color} />
+				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
 			</T.Mesh>
 			{#if imageUrl}
 				<!-- a counter's image (dial art from an import) is its face background -->
