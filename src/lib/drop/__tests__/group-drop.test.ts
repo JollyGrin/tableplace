@@ -66,6 +66,27 @@ describe('commitActiveDrag with a group', () => {
 		expect(get(dragStore).group).toEqual([]);
 	});
 
+	it('carries a face-down card and its peek mark as they are: a move is not a flip', () => {
+		gameStore.updateState({ cards: { [B]: { rotation: [180, 0, 0], placedBy: 'me' } } });
+		setSelection([A, B]);
+		carryTo(A, [0, CARD_REST_Y, 0], 2, -4);
+		commitActiveDrag();
+		expect(get(gameStore).cards?.[B]).toMatchObject({
+			position: [5, CARD_REST_Y, -4],
+			rotation: [180, 0, 0],
+			placedBy: 'me'
+		});
+	});
+
+	it('never carries a locked entity, even one pinned after it was selected', () => {
+		setSelection([A, B, T]);
+		gameStore.updateState({ pieces: { [T]: { locked: true } } });
+		carryTo(A, [0, CARD_REST_Y, 0], 2, -4);
+		commitActiveDrag();
+		expect(get(gameStore).pieces?.[T]?.position).toEqual([0, PIECE_REST_Y, 3]);
+		expect(get(gameStore).cards?.[B]?.position).toEqual([5, CARD_REST_Y, -4]);
+	});
+
 	it('sends the whole landing as ONE patch', () => {
 		setSelection([A, B, T]);
 		carryTo(A, [0, CARD_REST_Y, 0], 2, -4);

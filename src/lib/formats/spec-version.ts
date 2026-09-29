@@ -54,6 +54,12 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
  *
+ * 0.1.13 — `state.cards` can carry `placedBy` (the player who laid the card
+ * face-down out of their hand, who alone previews its face — a UI rule, not
+ * secrecy, tableplace-193). A scenario keeps it only when it names a seat
+ * placeholder, and claiming that seat hands it to the claiming player.
+ * Optional field on an existing shape — additive, so PATCH.
+ *
  * 0.1.12 — placements can carry `locked` (lay any content down pinned, or
  * `false` to unpin what the pack pins), and `state.cards`, `state.decks`,
  * `state.pieces` and `state.overlays` can carry `locked` (tableplace-189).
@@ -82,7 +88,7 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.12';
+export const SCENARIO_SPEC_VERSION = '0.1.13';
 
 export type Semver = { major: number; minor: number; patch: number };
 

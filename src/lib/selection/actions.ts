@@ -27,7 +27,7 @@ type Patch = Record<string, Record<string, Record<string, unknown>>>;
 
 function entityOf(state: Partial<GameDTO> | undefined | null, id: string) {
 	return state?.[collectionOf(id)]?.[id] as
-		| { rotation?: Vec3; locked?: boolean; isFaceUp?: boolean; kind?: string }
+		| { rotation?: Vec3; locked?: boolean; isFaceUp?: boolean; kind?: string; placedBy?: string }
 		| null
 		| undefined;
 }
@@ -56,7 +56,12 @@ export function flipPatch(
 		if (id.startsWith('deck:')) put(patch, id, { isFaceUp: !(entity.isFaceUp ?? false) });
 		else if (!id.startsWith('piece:')) {
 			const [x = 0, y = 0, z = 0] = entity.rotation ?? [];
-			put(patch, id, { rotation: [x === 180 ? 0 : 180, y, z] });
+			const faceUp = x === 180;
+			put(patch, id, {
+				rotation: [faceUp ? 0 : 180, y, z],
+				// as `flipCard`: face up is public, so the placer's peek mark goes
+				...(faceUp && entity.placedBy ? { placedBy: null } : {})
+			});
 		}
 	}
 	return nonEmpty(patch);

@@ -83,7 +83,9 @@ function revealedName(
 	if (target.kind === 'card') {
 		const card = game?.cards?.[target.id];
 		const faceDown = (card?.rotation ?? [0])[0] === 180;
-		return (!faceDown && card?.name) || noun;
+		// the placer may peek at their own face-down card (see HUDPreview/preview.ts)
+		const peek = !!actor.playerId && card?.placedBy === actor.playerId;
+		return ((!faceDown || peek) && card?.name) || noun;
 	}
 	if (target.kind === 'hand-card') {
 		const tray = actor.playerId ? game?.players?.[actor.playerId]?.tray : undefined;

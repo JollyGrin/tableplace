@@ -217,6 +217,7 @@ Scenarios are **seat-relative**: entities belong to placeholder players `seat0`�
   - **`isFaceUp`** (decks), **`value`** (counter pieces), **`scale`** (overlays) — arrangement details that override the pack's defaults.
   - **`locked`** (any kind) — lay it down pinned (how a layout places a board that shouldn't be knocked around); `false` unpins content the pack itself marks locked. /setup writes it back from the table: press `L` on the entity before saving.
 - **`state`** — a `Partial<GameDTO>` snapshot (`src/lib/store/game/types.ts`) for everything _not_ pack-derived: ad-hoc pieces, hand-placed cards, TTS-imported decks. It is applied on top of the spawned placements, so it can also override them.
+  - **`placedBy`** (on `state.cards`) — the player who laid the card face-down out of their hand; only that player's preview shows its face, captioned "Only you see this". A display rule, not secrecy — the face is in the file and on the wire. Save keeps it only when it names a seat placeholder (`seat0`–`seat3`); claiming that seat hands the mark to the claiming player. Flipping face up, taking the card into a hand, or putting it on a pile clears it. Neither /create nor /setup has a hand to play from, so it is written by play, not by an editor control; TTS has no counterpart.
 
 ### snapPoints — placement guides
 

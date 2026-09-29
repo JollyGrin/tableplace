@@ -8,7 +8,7 @@
  * build.
  */
 
-import type { Browser, ConsoleMessage, Page } from 'puppeteer-core';
+import type { Browser, BrowserContext, ConsoleMessage, Page } from 'puppeteer-core';
 import { mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -119,7 +119,16 @@ function ignorable(text: string): boolean {
 const SUITS = ['S', 'H', 'D', 'C'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
-export async function openTable(browser: Browser, servers: Servers, lobby: string): Promise<Table> {
+/**
+ * Pages opened on the same `Browser` share one localStorage — and so one
+ * `myPlayerId`: they are the same player looking twice. Pass a fresh
+ * `BrowserContext` to seat a genuinely different player.
+ */
+export async function openTable(
+	browser: Browser | BrowserContext,
+	servers: Servers,
+	lobby: string
+): Promise<Table> {
 	const page = await browser.newPage();
 	const problems: Problem[] = [];
 
@@ -162,7 +171,12 @@ export async function openTable(browser: Browser, servers: Servers, lobby: strin
 	const url =
 		`${servers.web}/play?lobby=${encodeURIComponent(lobby)}` +
 		`&server=${encodeURIComponent(servers.relay)}`;
-	await page.goto(url, { waitUntil: 'networkidle2', timeout: 60_000 });
+	// a fresh BrowserContext has no module cache: vite dev serves every module
+	// again, so a slow host gets the same allowance as the ready wait below
+	await page.goto(url, {
+		waitUntil: 'networkidle2',
+		timeout: Number(process.env.E2E_READY_MS ?? 60_000)
+	});
 
 	// the bridge mounts inside the Canvas, which mounts only once the socket is
 	// open — so waiting on it is also the connection assertion

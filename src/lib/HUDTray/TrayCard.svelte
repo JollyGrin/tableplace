@@ -137,6 +137,8 @@
 					position: [x, CARD_DRAG_Y, z],
 					// 180 on x = facedown (matches flipCard convention) — cards leave the hand hidden
 					rotation: [180, 0, -degrees[gameActions?.getMySeat()] / DEG2RAD],
+					// ...but not from me: my preview may still peek at it (tableplace-193)
+					placedBy: myPlayerId,
 					faceImageUrl: movedCard?.faceImageUrl ?? card?.faceImageUrl,
 					backImageUrl: movedCard?.backImageUrl ?? card.backImageUrl ?? CARD_BACK_DEFAULT // TODO: update this with its actual cardback
 				}

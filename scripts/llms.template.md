@@ -260,6 +260,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
   - **`locked`** _(any kind)_ — place it pinned (`true`), or unpin content the pack marks locked (`false`). Omit to keep the pack's default.
 - **`snapPoints[]`** _(optional)_ — placement guides on the felt (§7.2 below). Independent of `placements`: they steer what players drop, not what the scenario spawns.
 - **`state`** — a partial snapshot for everything _not_ pack-derived: hand-placed cards, ad-hoc pieces. Applied on top of the placements, so it can also override them. This is the part of the format most likely to change; keep as little in it as you can.
+  - A card in `state.cards` may carry **`placedBy`** — the player who laid it face-down out of their hand. Only that player's zoomed preview shows its face ("Only you see this"); everyone else sees the back. It is a display rule, not secrecy: the face is in the file and on the wire for anyone to read. In a scenario it is only meaningful as a seat placeholder (`seat0`–`seat3`), which passes to whoever claims that seat. Flipping the card face up, taking it into a hand or putting it on a pile clears it.
 
 Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`–`seat3`, and entity ids follow `kind:owner:slug` — `deck:seat0:main`, `card:seat0:main-AS`, `piece:seat0:hp-0`. Overlays are table-scoped and keyed `overlay:<packId>:<index>`. When a real player claims a seat, every id containing that placeholder is renamed to them. Never put a real player id in a file.
 

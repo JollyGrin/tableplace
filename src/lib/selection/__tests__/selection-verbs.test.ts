@@ -26,7 +26,12 @@ function seed() {
 		players: { me: { id: 'me', seat: 0 } },
 		cards: {
 			[A]: { position: [0, 0.26, 0], rotation: [0, 0, 0], faceImageUrl: 'a.png' },
-			[B]: { position: [5, 0.28, 0], rotation: [180, 0, 90], faceImageUrl: 'b.png' },
+			[B]: {
+				position: [5, 0.28, 0],
+				rotation: [180, 0, 90],
+				faceImageUrl: 'b.png',
+				placedBy: 'me'
+			},
 			[PINNED]: { position: [9, 0.26, 0], rotation: [0, 0, 0], faceImageUrl: 'p', locked: true }
 		},
 		decks: { [D]: { id: D, position: [-4, 0.5, 0], rotation: [0, 0, 0], cards: [] } },
@@ -46,7 +51,11 @@ beforeEach(() => {
 describe('F on a selection', () => {
 	it('turns every card over and flips every deck, in one patch; pieces have no back', () => {
 		expect(flipPatch(get(gameStore), [A, B, D, TOKEN, PINNED])).toEqual({
-			cards: { [A]: { rotation: [180, 0, 0] }, [B]: { rotation: [0, 0, 90] } },
+			cards: {
+				[A]: { rotation: [180, 0, 0] },
+				// face up is public: the peek mark goes, as a single flip does
+				[B]: { rotation: [0, 0, 90], placedBy: null }
+			},
 			decks: { [D]: { isFaceUp: true } }
 		});
 	});
