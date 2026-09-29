@@ -119,12 +119,7 @@ describe('deck wheel', () => {
 describe('table wheel', () => {
 	it('offers the camera presets: seat view, top-down, focus — and ping', () => {
 		const options = radialOptions({ kind: 'table' });
-		expect(options.map((option) => option.id)).toEqual([
-			'reset-view',
-			'top-down',
-			'focus',
-			'ping'
-		]);
+		expect(options.map((option) => option.id)).toEqual(['reset-view', 'top-down', 'focus', 'ping']);
 		expect(options[3]!.key).toBe('double-click felt');
 		options[0]!.run();
 		expect(resetView).toHaveBeenCalled();

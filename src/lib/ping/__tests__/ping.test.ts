@@ -9,7 +9,16 @@ describe('parsePing', () => {
 	});
 
 	it('refuses anything that is not a finite point', () => {
-		for (const value of [null, 3, 'x', {}, { x: 1 }, { x: '1', z: 2 }, { x: NaN, z: 0 }, { x: 0, z: Infinity }])
+		for (const value of [
+			null,
+			3,
+			'x',
+			{},
+			{ x: 1 },
+			{ x: '1', z: 2 },
+			{ x: NaN, z: 0 },
+			{ x: 0, z: Infinity }
+		])
 			expect(parsePing(value)).toBeNull();
 	});
 
