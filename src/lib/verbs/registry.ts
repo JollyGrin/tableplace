@@ -66,11 +66,15 @@ const STEP = SNAP_GRID_YAW_STEP_DEFAULT;
 export const BUILTIN_VERBS: readonly VerbDef[] = [
 	// ---- the table: always under the pointer, whatever else is ----
 	{
+		// Space is bound here; Alt opens the same preview as the no-snap modifier
+		// TableScene already tracks (see HUDPreview/preview.ts `isPreviewOpen`).
+		// It is deliberately NOT a code on this hotkey: Alt must stay a modifier
+		// the registry never claims, so a held Alt still reaches every verb.
 		id: 'preview',
 		label: 'Preview',
-		reference: 'Preview hovered',
+		reference: 'Preview hovered (card, hand, deck, piece)',
 		applies: on('table'),
-		hotkey: key('Space', 'spacebar'),
+		hotkey: { codes: ['Space'], label: 'hold Space or Alt' },
 		run: () => cameraTransforms.togglePreviewHud(true),
 		release: () => cameraTransforms.togglePreviewHud(false)
 	},

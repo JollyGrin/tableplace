@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { T } from '@threlte/core';
+	import { onMount } from 'svelte';
+	import { T, useThrelte } from '@threlte/core';
 	import { dragStore, setTrayHover } from '$lib/store/dragStore.svelte';
 	import * as THREE from 'three';
 	import { useViewport, interactivity } from '@threlte/extras';
@@ -8,6 +9,7 @@
 	import type { GameDTO } from '$lib/store/game/types';
 	import { gameActions } from '$lib/store/game/actions';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
+	import { registerHud } from '$lib/dev/hud-registry';
 
 	/**
 	 * The one interactivity() the HUD keeps, and the only one besides
@@ -25,6 +27,12 @@
 	 */
 	interactivity();
 	let {}: {} = $props();
+
+	// the e2e harness hovers hand cards, so it needs this HUD's camera to aim
+	if (import.meta.env.DEV) {
+		const { camera, scene } = useThrelte();
+		onMount(() => registerHud('tray', { camera: () => camera.current, scene: () => scene }));
+	}
 
 	const viewport = useViewport();
 

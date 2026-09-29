@@ -24,7 +24,11 @@ import { dragStore } from '$lib/store/dragStore.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
+import { snapGuideDimMaterial } from '$lib/drop/snap-guide-dim';
 import type { GameDTO } from '$lib/store/game/types';
+import { resolveCardImage, sheetRefCache } from '$lib/packs';
+import { preview as previewStore } from '$lib/HUDPreview/previewStore';
+import { huds } from './hud-registry';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -37,6 +41,27 @@ export type TestBridge = {
 	project: (world: [number, number, number]) => ScreenPoint | null;
 	/** where a card / deck / piece currently draws, by store id */
 	locate: (id: string) => ScreenPoint | null;
+	/**
+	 * Where a card in MY hand draws, in the same CSS pixels as `locate`. The
+	 * tray is its own HUD scene with its own orthographic camera, so the table
+	 * camera `locate` projects through can never see it.
+	 */
+	locateInHand: (id: string) => ScreenPoint | null;
+	/**
+	 * The zoomed preview as it is on screen right now, or null while closed.
+	 * `face` is the unresolved ref the preview chose, `url` what it resolves
+	 * to, and `shown` the image the preview mesh's texture actually holds —
+	 * null until it has loaded. `shown === url` is "it is drawing that face".
+	 * `at` is the centre of the zoomed art on screen, for a pixel check.
+	 */
+	preview: () => {
+		id: string;
+		face: string;
+		url: string;
+		caption: string;
+		shown: string | null;
+		at: ScreenPoint | null;
+	} | null;
 	/** the raycast the shared interactivity context runs, minus the dispatch */
 	hits: (screen: ScreenPoint) => string[];
 	/** what is being dragged / hovered right now — distinguishes "never lifted" from "lifted and snapped back" */
@@ -45,6 +70,7 @@ export type TestBridge = {
 		isHovered: string | null;
 		isBagHovered: string | null;
 		isDeckHovered: string | null;
+		noSnap: boolean;
 	};
 	/**
 	 * Where the table camera is right now. A pan — dragged with the right button
@@ -71,6 +97,14 @@ export type TestBridge = {
 	 */
 	badge: (id: string) => { scale: number } | null;
 	/**
+	 * The lift-time snap guides as they are drawn right now (tableplace-188),
+	 * read off the rendered objects rather than a store: `rings`/`cells` are
+	 * the instance counts on screen (0 while hidden), `opacity` the ring
+	 * material's live fade, `target` the snap id the filled mark sits on and
+	 * `targetAt` where it sits, and `dim` the shared overlay-dim opacity.
+	 */
+	snapGuides: () => SnapGuideShape;
+	/**
 	 * Inject artificial main-thread stalls — the long frame gaps a shared CI
 	 * runner, a slow GPU or a backgrounded window produce, made deterministic.
 	 *
@@ -93,6 +127,17 @@ export type TestBridge = {
 	 * assert the injection really happened rather than trusting that it did.
 	 */
 	stall: (options: { ms: number; everyMs?: number } | null) => number;
+};
+
+export type SnapGuideShape = {
+	rings: number;
+	cells: number;
+	opacity: number;
+	target: string | null;
+	targetAt: [number, number, number] | null;
+	dim: number;
+	/** how many draw objects the guides use — the instancing claim, checkable */
+	objects: number;
 };
 
 /**
@@ -212,8 +257,10 @@ function setStall(options: { ms: number; everyMs?: number } | null): number {
 export function installTestBridge(handles: SceneHandles): void {
 	const raycaster = new THREE.Raycaster();
 
-	const project = (world: [number, number, number]): ScreenPoint | null => {
-		const camera = handles.camera();
+	const project = (
+		world: [number, number, number],
+		camera = handles.camera()
+	): ScreenPoint | null => {
 		const canvas = handles.canvas();
 		if (!camera || !canvas) return null;
 		const ndc = new THREE.Vector3(...world).project(camera);
@@ -271,12 +318,74 @@ export function installTestBridge(handles: SceneHandles): void {
 			const centre = scene ? renderedCentre(scene, id) : null;
 			return centre ? project([centre.x, centre.y, centre.z]) : null;
 		},
+		locateInHand: (id) => {
+			const tray = huds.get('tray');
+			const scene = tray?.scene();
+			const camera = tray?.camera();
+			const centre = scene && camera ? renderedCentre(scene, id) : null;
+			return centre ? project([centre.x, centre.y, centre.z], camera) : null;
+		},
+		preview: () => {
+			const target = get(previewStore);
+			if (!target) return null;
+			let shown: string | null = null;
+			const hud = huds.get('preview');
+			const camera = hud?.camera();
+			const group = hud?.scene()?.getObjectByName('hud-preview');
+			const centre = group?.getWorldPosition(new THREE.Vector3());
+			group?.traverse((node) => {
+				const mesh = node as THREE.Mesh;
+				if (shown || !mesh.isMesh) return;
+				// ImageMaterial (cards) keeps its texture in a uniform; PieceFace
+				// (discs) is a plain MeshBasicMaterial map
+				const material = mesh.material as THREE.ShaderMaterial & THREE.MeshBasicMaterial;
+				const texture: THREE.Texture | null = material.uniforms?.map?.value ?? material.map ?? null;
+				const image = texture?.image as { src?: string } | undefined;
+				if (image?.src) shown = image.src;
+			});
+			return {
+				id: target.id,
+				face: target.face,
+				url: resolveCardImage(target.face, get(sheetRefCache)),
+				caption: target.caption,
+				shown,
+				at: centre && camera ? project([centre.x, centre.y, centre.z], camera) : null
+			};
+		},
 		hits,
 		drag: () => {
-			const { isDragging, isHovered, isBagHovered, isDeckHovered } = get(dragStore);
-			return { isDragging, isHovered, isBagHovered, isDeckHovered };
+			const { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap } = get(dragStore);
+			return { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap: !!noSnap };
 		},
 		connected: () => isWebSocketConnected(),
+		snapGuides: () => {
+			const shape: SnapGuideShape = {
+				rings: 0,
+				cells: 0,
+				opacity: 0,
+				target: null,
+				targetAt: null,
+				dim: snapGuideDimMaterial.visible ? snapGuideDimMaterial.opacity : 0,
+				objects: 0
+			};
+			handles.scene()?.traverse((object) => {
+				const role = object.userData.snapGuide as 'rings' | 'cells' | 'target' | undefined;
+				if (!role) return;
+				shape.objects++;
+				const mesh = object as THREE.Mesh;
+				const material = mesh.material as THREE.Material;
+				const shown = mesh.visible && material.visible && material.opacity > 0;
+				if (role === 'rings' || role === 'cells') {
+					const count = shown ? (mesh as THREE.InstancedMesh).count : 0;
+					shape[role] = count;
+					if (role === 'rings') shape.opacity = shown ? material.opacity : 0;
+				} else if (role === 'target' && shown && object.userData.snapGuideTarget) {
+					shape.target = object.userData.snapGuideTarget;
+					shape.targetAt = object.getWorldPosition(new THREE.Vector3()).toArray();
+				}
+			});
+			return shape;
+		},
 		camera: () => {
 			const camera = handles.camera();
 			if (!camera) return null;

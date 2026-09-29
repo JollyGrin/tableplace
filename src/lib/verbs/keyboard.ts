@@ -6,13 +6,19 @@
  * The target order is the routing the routes used to hand-write: a hovered
  * deck takes a key before anything else (F flips the whole deck, not the card),
  * then a hovered piece (T/R turn a model rather than tapping a card), then the
- * hovered card, then the table (C, Space). A key a target has no verb for
- * falls through to the next one — G on a deck still groups the hovered card.
+ * hovered card or hand card, then the table (C, Space). A key a target has no
+ * verb for falls through to the next one — G on a deck still groups the
+ * hovered card.
+ *
+ * Nothing here calls `preventDefault` or `stopPropagation`, and no verb claims
+ * a modifier: Alt is the no-snap modifier and the second preview key, read by
+ * TableScene's own listener, and it must reach it untouched.
  */
 
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
 import { hoveredPiece } from '$lib/store/pieceUi';
+import { hoveredTrayCard } from '$lib/HUDTray/trayHover';
 import { gameActions } from '$lib/store/game/actions';
 import { isTyping } from '$lib/hotkeys/is-typing';
 import { verbsFor } from './registry';
@@ -28,6 +34,10 @@ export function pointerTargets(): VerbTarget[] {
 	// a card you are carrying still takes F/T/R — the hovered one wins if both
 	const cardId = isHovered || isDragging;
 	if (cardId) targets.push({ kind: 'card', id: cardId, dragging: !!isDragging });
+	// a card in your hand: no verbs yet, but a key over it must still reach the
+	// table's (Space previews it — see HUDPreview/preview.ts)
+	const handCard = get(hoveredTrayCard);
+	if (handCard) targets.push({ kind: 'hand-card', id: handCard });
 	targets.push({ kind: 'table' });
 	return targets;
 }

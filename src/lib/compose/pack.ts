@@ -134,6 +134,7 @@ export function composePackDeck(
 		id: packCardId(opts.ownerId, deck.slot, card.code),
 		faceImageUrl: card.face,
 		backImageUrl: deck.back,
+		...(card.name ? { name: card.name } : {}),
 		...(card.orientation === 'landscape' ? { orientation: card.orientation } : {})
 	}));
 	if (opts.shuffle) {

@@ -234,3 +234,88 @@ describe('typing in a field', () => {
 		expect(camera.togglePreviewHud).not.toHaveBeenCalled();
 	});
 });
+
+/**
+ * The zoomed preview (tableplace-192) opens on a held Space — a registry verb —
+ * or a held Alt, which TableScene tracks as the no-snap modifier. The registry
+ * has to compose with both: Space must reach the preview whatever is hovered,
+ * and neither key may be swallowed or stop the other verbs working.
+ */
+describe('composed with the held preview keys', () => {
+	const alt = (code: string) =>
+		handleVerbKeyDown({
+			code,
+			shiftKey: false,
+			altKey: true,
+			target: null,
+			preventDefault: vi.fn(),
+			stopPropagation: vi.fn()
+		} as unknown as KeyboardEvent);
+
+	it('Space opens the preview over a deck, a piece, a card and a hand card', async () => {
+		const { hoveredTrayCard } = await import('$lib/HUDTray/trayHover');
+		for (const over of [
+			{ deck: 'deck:me:0' },
+			{ piece: 'piece:me:tile-0' },
+			{ card: 'card:me:AS' }
+		]) {
+			pointer(over);
+			down({ code: 'Space' });
+			expect(camera.togglePreviewHud).toHaveBeenLastCalledWith(true);
+			up({ code: 'Space' });
+			expect(camera.togglePreviewHud).toHaveBeenLastCalledWith(false);
+		}
+		pointer();
+		hoveredTrayCard.set('card:me:in-hand');
+		down({ code: 'Space' });
+		expect(camera.togglePreviewHud).toHaveBeenLastCalledWith(true);
+		hoveredTrayCard.set(null);
+	});
+
+	it('while Space is held, every other verb still fires', () => {
+		pointer({ card: 'card:me:AS' });
+		down({ code: 'Space' });
+		down({ code: 'KeyF' });
+		down({ code: 'KeyT' });
+		expect(gameActions.flipCard).toHaveBeenCalledWith('card:me:AS');
+		expect(gameActions.tapCard).toHaveBeenCalledWith(false, 'card:me:AS');
+		up({ code: 'Space' });
+		expect(camera.togglePreviewHud).toHaveBeenLastCalledWith(false);
+	});
+
+	it('Alt is never claimed: no verb runs, nothing is prevented or stopped', () => {
+		pointer({ deck: 'deck:me:0', card: 'card:me:AS' });
+		const event = {
+			code: 'AltLeft',
+			shiftKey: false,
+			altKey: true,
+			target: null,
+			preventDefault: vi.fn(),
+			stopPropagation: vi.fn()
+		};
+		handleVerbKeyDown(event as unknown as KeyboardEvent);
+		handleVerbKeyUp(event as unknown as KeyboardEvent);
+		expect(event.preventDefault).not.toHaveBeenCalled();
+		expect(event.stopPropagation).not.toHaveBeenCalled();
+		expect(camera.togglePreviewHud).not.toHaveBeenCalled();
+		expect(
+			Object.values(gameActions).some((fn) => fn !== gameActions.getMe && fn.mock.calls.length)
+		).toBe(false);
+	});
+
+	it('a held Alt does not change what a key means (F still flips the deck)', () => {
+		pointer({ deck: 'deck:me:0' });
+		alt('KeyF');
+		expect(gameActions.flipDeck).toHaveBeenCalledWith('deck:me:0');
+	});
+
+	it('letting go of Space while hovering a hand card still closes the preview', async () => {
+		const { hoveredTrayCard } = await import('$lib/HUDTray/trayHover');
+		hoveredTrayCard.set('card:me:in-hand');
+		down({ code: 'KeyF' });
+		expect(gameActions.flipCard).not.toHaveBeenCalled(); // a hand card has no F
+		up({ code: 'Space' });
+		expect(camera.togglePreviewHud).toHaveBeenLastCalledWith(false);
+		hoveredTrayCard.set(null);
+	});
+});

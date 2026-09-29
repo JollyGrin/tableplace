@@ -367,6 +367,152 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-188: while something that snaps is lifted, every snap point
+		 * rings, a grid shows only the cells near the pointer, the point that
+		 * will catch the drop is filled, Alt hides it all — and every bit of it
+		 * is gone once the entity lands, exactly where the fill promised.
+		 *
+		 * Read two ways: structurally off the rendered guide objects (the
+		 * bridge's `snapGuides`), and as pixels, because a ring that "is
+		 * visible" to three.js but draws nothing is the failure a structural
+		 * probe can't see. 33 discrete points + a grid, so the instanced path
+		 * is what's under test.
+		 */
+		name: 'snap guides: rings light up on lift, the catcher is filled, all gone on drop',
+		run: (context) =>
+			withTable(context, 'snap-guides', async (table) => {
+				const { page } = table;
+				const token = await table.spawn('token', { position: LANE(0) });
+				// every addSnapPoint is one patch on the wire, and the relay drops a
+				// client over its burst budget (15) — so the scenario is seeded in
+				// small paced batches, never one 34-patch burst
+				const add = (points: Record<string, unknown>[]) =>
+					page.evaluate(
+						(batch) => batch.map((p) => window.__tableplace!.actions.addSnapPoint(p as never)),
+						points
+					);
+				const [target, probe] = await add([
+					{ position: [2, 1] },
+					// a wide ring well clear of the landing: the pixel probe reads its band
+					{ position: [-2, 1], radius: 2 }
+				]);
+				const ids = { target, probe };
+				// a far row of 31 more — the 30+ scenario the guides must stay cheap for
+				for (let i = 0; i < 31; i += 3) {
+					await sleep(700);
+					await add(
+						Array.from({ length: Math.min(3, 31 - i) }, (_, k) => ({
+							position: [-15 + i + k, -9 + ((i + k) % 2)],
+							radius: 0.4
+						}))
+					);
+				}
+				await sleep(700);
+				// cells x ∈ {4,6,8}: only the column nearest the pointer is in reach
+				await add([{ position: [6, 1], kind: 'grid', pitch: 2, cols: 3, rows: 3 }]);
+				await table.settle();
+
+				const guides = () => page.evaluate(() => window.__tableplace!.snapGuides());
+				const at = (x: number, z: number) =>
+					page.evaluate((wx, wz) => window.__tableplace!.project([wx, 0.26, wz]), x, z);
+
+				const idle = await guides();
+				ok(
+					idle.rings === 0 && idle.target === null && idle.dim === 0,
+					`snap guides draw with nothing lifted: ${JSON.stringify(idle)}`
+				);
+				// the probe pixel: inside the wide ring's band, on bare felt
+				const probePoint = await at(-2 + 2 * 0.93, 1);
+				ok(probePoint, 'the probe ring projects off-screen');
+				const [before] = await table.pixels([probePoint!]);
+				ok(before!.onCanvas, 'the probe ring draws under a HUD pane — move it');
+
+				// lift the token and hold it over the target point
+				const from = await table.locate(token);
+				const to = await at(2, 1);
+				ok(from && to, 'cannot place the gesture on screen');
+				await page.mouse.move(from!.x, from!.y);
+				await sleep(80);
+				await page.mouse.down();
+				await sleep(80);
+				for (let step = 1; step <= 12; step++) {
+					await page.mouse.move(
+						from!.x + ((to!.x - from!.x) * step) / 12,
+						from!.y + ((to!.y - from!.y) * step) / 12
+					);
+					await sleep(20);
+				}
+				try {
+					const lifted = await eventually(guides, (g) => g.opacity >= 0.69 && g.target !== null);
+					const dragging = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+					ok(dragging === token, `the token was never lifted (dragging: ${dragging})`);
+					ok(lifted.rings === 33, `expected 33 rings while lifted, got ${JSON.stringify(lifted)}`);
+					ok(
+						lifted.cells > 0 && lifted.cells < 9,
+						`the grid should show only the cells near the pointer, got ${lifted.cells} of 9`
+					);
+					ok(
+						lifted.target === ids.target,
+						`the filled point is ${lifted.target}, not the one under the drop (${ids.target})`
+					);
+					ok(
+						Math.abs(lifted.targetAt![0] - 2) < 0.01 && Math.abs(lifted.targetAt![2] - 1) < 0.01,
+						`the fill draws at ${JSON.stringify(lifted.targetAt)}, not on the point [2, 1]`
+					);
+					ok(lifted.dim > 0, `overlays under the points did not dim: ${lifted.dim}`);
+					ok(
+						lifted.objects === 4,
+						`the guides should be 4 draw objects however many points exist, got ${lifted.objects}`
+					);
+					const [during] = await table.pixels([probePoint!]);
+					const shift = during!.rgb.reduce((sum, c, i) => sum + Math.abs(c - before!.rgb[i]!), 0);
+					ok(
+						shift > 30,
+						`the probe ring did not draw: felt ${JSON.stringify(before!.rgb)} → ${JSON.stringify(during!.rgb)}`
+					);
+					await table.snap('snap-guides');
+
+					// Alt: the no-snap modifier hides the rings (and the drop won't snap)
+					await page.keyboard.down('Alt');
+					const alt = await eventually(guides, (g) => g.rings === 0);
+					ok(alt.rings === 0 && alt.target === null, `Alt left guides up: ${JSON.stringify(alt)}`);
+					await page.keyboard.up('Alt');
+					const back = await eventually(guides, (g) => g.opacity >= 0.69);
+					const state = await page.evaluate(() => window.__tableplace!.drag());
+					ok(
+						back.target === ids.target,
+						`releasing Alt did not bring the guides back: ${JSON.stringify(back)}, drag ${JSON.stringify(state)}`
+					);
+				} finally {
+					await page.mouse.up();
+				}
+
+				const dropped = await eventually(guides, (g) => g.rings === 0 && g.dim === 0);
+				ok(
+					dropped.rings === 0 &&
+						dropped.cells === 0 &&
+						dropped.target === null &&
+						dropped.dim === 0,
+					`snap guides still draw after the drop: ${JSON.stringify(dropped)}`
+				);
+				const landed = await table.positionOf(token);
+				ok(
+					landed && Math.abs(landed[0] - 2) < 0.01 && Math.abs(landed[2] - 1) < 0.01,
+					`the token did not land on the point the guides filled: ${JSON.stringify(landed)}`
+				);
+				const [after] = await table.pixels([probePoint!]);
+				const residue = after!.rgb.reduce((sum, c, i) => sum + Math.abs(c - before!.rgb[i]!), 0);
+				ok(
+					residue < 15,
+					`the probe ring is still drawn after the drop: ${JSON.stringify(before!.rgb)} → ${JSON.stringify(after!.rgb)}`
+				);
+
+				await assertDraggable(table, token, 'the token (after the guides)');
+				assertClean(table, 'with snap guides');
+			})
+	},
+	{
+		/**
 		 * tableplace-145: Alt opts out of the XZ square-up, not of resting on
 		 * top. An Alt-drop overlapping a resting card must land at the pointer's
 		 * XZ (no pull onto the pile) but one card thickness ABOVE the card under
@@ -1827,20 +1973,31 @@ export const SPECS: Spec[] = [
 				);
 
 				// ── W pans away from the viewer, D to the right ───────────────
+				// Held until the page has RENDERED the pan, not for a fixed 900ms of
+				// runner clock: under software GL one frame can outlast the hold, and
+				// then keydown and keyup both land before the next frame — the held
+				// key task never sees the key and the eye does not move at all (seen
+				// on CI and reproduced on origin/feature/table-feel). A pan that is
+				// really broken still fails, at the deadline instead of at 900ms.
+				const holdPan = async (code: 'KeyW' | 'KeyD', moved: (at: number[]) => boolean) => {
+					await table.page.keyboard.down(code);
+					const deadline = Date.now() + 8000;
+					try {
+						await sleep(900);
+						while (Date.now() < deadline && !moved(await eye())) await sleep(150);
+					} finally {
+						await table.page.keyboard.up(code);
+					}
+					await table.settle(500);
+				};
 				const beforeKeys = await eye();
-				await table.page.keyboard.down('KeyW');
-				await sleep(900);
-				await table.page.keyboard.up('KeyW');
-				await table.settle(500);
+				await holdPan('KeyW', (at) => at[2]! < beforeKeys[2]! - 0.5);
 				const afterW = await eye();
 				ok(
 					afterW[2]! < beforeKeys[2]! - 0.5,
 					`W did not pan away from the viewer: ${JSON.stringify(beforeKeys)} → ${JSON.stringify(afterW)}`
 				);
-				await table.page.keyboard.down('KeyD');
-				await sleep(900);
-				await table.page.keyboard.up('KeyD');
-				await table.settle(500);
+				await holdPan('KeyD', (at) => at[0]! > afterW[0]! + 0.5);
 				const afterD = await eye();
 				ok(
 					afterD[0]! > afterW[0]! + 0.5,
@@ -2411,6 +2568,176 @@ export const SPECS: Spec[] = [
 				await assertDraggable(table, mine, 'deck (after driving every verb by key)');
 				assertClean(table, 'after driving the verbs by key');
 				await table.snap('verbs');
+			})
+	},
+	{
+		/**
+		 * tableplace-192: the zoomed preview follows whatever is under the
+		 * pointer — a hand card, a table card, a deck, a piece — while Space or
+		 * Alt is held, and never while something is being dragged.
+		 *
+		 * The hand card is the case the ticket names: the tray is its own HUD
+		 * scene, so this aims through the tray's camera (`locateInHand`), holds
+		 * Space with a real keyboard, and asserts the preview mesh's texture IS
+		 * that card's face — then reads the pixels back, because a texture that
+		 * loaded is not yet a texture that drew.
+		 */
+		name: 'preview: Space over a hand card zooms its face; Alt, decks, pieces; never mid-drag',
+		run: (context) =>
+			withTable(context, 'preview', async (table) => {
+				const preview = () => table.page.evaluate(() => window.__tableplace!.preview());
+				const { deck, hand, loose } = await table.page.evaluate(() => {
+					const bridge = window.__tableplace!;
+					const named = [
+						['AS', 'Ace of Spades'],
+						['7C', 'Seven of Clubs'],
+						['QH', 'Queen of Hearts']
+					].map(([code, name]) => ({
+						id: `card:std:preview-${code}`,
+						faceImageUrl: `gen:std52/${code}`,
+						backImageUrl: 'gen:std52/back',
+						name
+					}));
+					const deck = String(
+						bridge.actions.addDeck({ cards: named, position: [-4, 0.16, -2] } as never) ?? ''
+					);
+					// face-down: the top is the END of the array — QH, then 7C
+					const hand = bridge.actions.drawFromTop(deck, 1)[0]?.id ?? '';
+					const me = bridge.actions.getMyId() ?? '';
+					bridge.actions.moveCardToTray(hand, me);
+					const loose = bridge.actions.drawFromTop(deck, 1)[0]?.id ?? '';
+					bridge.actions.flipCard(loose); // drawn face-down; turn it up
+					return { deck, hand, loose };
+				});
+				ok(deck && hand && loose, `seeding failed: ${JSON.stringify({ deck, hand, loose })}`);
+				const token = await table.spawn('token', {
+					name: 'Marker',
+					position: ON_FELT(2),
+					states: [
+						{ face: 'gen:std52/KS', name: 'Front' },
+						{ face: 'gen:std52/KD', name: 'Back' }
+					]
+				});
+				await table.settle(1500);
+
+				// ── Space over a hand card: its face, its name ─────────────────
+				const inHand = await eventually(
+					() => table.page.evaluate((id) => window.__tableplace!.locateInHand(id), hand),
+					(point) => !!point
+				);
+				ok(inHand, `the hand card ${hand} never drew in the tray`);
+				ok(
+					(await table.elementAt(inHand!)).startsWith('canvas'),
+					`a HUD pane covers the hand card at ${JSON.stringify(inHand)}: ${await table.elementAt(inHand!)}`
+				);
+				await table.page.mouse.move(inHand!.x, inHand!.y, { steps: 5 });
+				await sleep(300);
+				ok((await preview()) === null, 'the preview opened on hover alone, before Space');
+
+				await table.page.keyboard.down('Space');
+				const zoomed = await eventually(preview, (p) => !!p && !!p.shown && p.shown === p.url);
+				ok(zoomed, 'holding Space over a hand card opened no preview');
+				ok(
+					zoomed!.id === hand && zoomed!.face === 'gen:std52/QH',
+					`the preview shows ${zoomed!.id} (${zoomed!.face}), not the hovered hand card ${hand} (gen:std52/QH)`
+				);
+				ok(
+					zoomed!.shown === zoomed!.url,
+					`the preview mesh holds ${String(zoomed!.shown).slice(0, 60)}…, not the hand card's face`
+				);
+				ok(
+					zoomed!.caption === 'Queen of Hearts',
+					`the caption reads ${JSON.stringify(zoomed!.caption)}, not the card's name`
+				);
+				// a card face is white paper; the felt the preview sits over is not.
+				// Sampled off-centre so a pip in the middle cannot decide it.
+				ok(zoomed!.at, 'the preview has no screen position');
+				const { x, y } = zoomed!.at!;
+				const samples = await table.pixels([
+					{ x: x - 90, y: y - 150 },
+					{ x: x + 90, y: y - 150 },
+					{ x: x - 90, y: y + 150 },
+					{ x: x + 90, y: y + 150 }
+				]);
+				ok(
+					samples.filter((s) => Math.min(...s.rgb) > 170).length >= 3,
+					`the preview area does not draw a card face: ${JSON.stringify(samples.map((s) => s.rgb))}`
+				);
+				await table.snap('preview-hand');
+				await table.page.keyboard.up('Space');
+				ok(
+					(await eventually(preview, (p) => p === null)) === null,
+					'releasing Space left the preview open'
+				);
+
+				// ── Alt over a face-up table card ───────────────────────────────
+				const onTable = await table.locate(loose);
+				ok(onTable, `the table card ${loose} never mounted`);
+				await table.page.mouse.move(onTable!.x, onTable!.y, { steps: 8 });
+				await sleep(300);
+				await table.page.keyboard.down('Alt');
+				const alt = await eventually(preview, (p) => p?.id === loose);
+				ok(
+					alt?.id === loose && alt.face === 'gen:std52/7C' && alt.caption === 'Seven of Clubs',
+					`Alt over a face-up table card previews ${JSON.stringify(alt)}`
+				);
+				await table.page.keyboard.up('Alt');
+				ok((await eventually(preview, (p) => p === null)) === null, 'releasing Alt left it open');
+
+				// ── face-down deck: its back and its count, never its top card ──
+				const deckAt = await table.locate(deck);
+				ok(deckAt, 'the deck never mounted');
+				await table.page.mouse.move(deckAt!.x, deckAt!.y, { steps: 8 });
+				await sleep(300);
+				await table.page.keyboard.down('Space');
+				const pile = await eventually(preview, (p) => p?.id === deck);
+				ok(
+					pile?.id === deck && pile.face === 'gen:std52/back' && pile.caption === '1 card',
+					`a face-down deck previews ${JSON.stringify(pile)} — expected its back and "1 card"`
+				);
+				await table.page.keyboard.up('Space');
+
+				// ── a multi-state token: its current face and state name ────────
+				const tokenAt = await table.locate(token);
+				ok(tokenAt, 'the token never mounted');
+				await table.page.mouse.move(tokenAt!.x, tokenAt!.y, { steps: 8 });
+				await sleep(300);
+				await table.page.keyboard.down('Space');
+				const piece = await eventually(preview, (p) => p?.id === token);
+				ok(
+					piece?.id === token &&
+						piece.face === 'gen:std52/KS' &&
+						piece.caption === 'Marker — Front',
+					`a two-state token previews ${JSON.stringify(piece)}`
+				);
+				await eventually(preview, (p) => !!p?.shown && p.shown === p.url);
+				await table.snap('preview-token');
+				await table.page.keyboard.up('Space');
+				await eventually(preview, (p) => p === null);
+
+				// ── never while dragging: Space and Alt both stay shut ──────────
+				const grab = await table.locate(loose);
+				ok(grab, 'the table card vanished');
+				await table.page.mouse.move(grab!.x, grab!.y, { steps: 5 });
+				await sleep(200);
+				await table.page.mouse.down();
+				await table.page.mouse.move(grab!.x, grab!.y - 30, { steps: 4 });
+				await table.page.mouse.move(grab!.x, grab!.y - 60, { steps: 4 });
+				const dragging = await eventually(
+					() => table.page.evaluate(() => window.__tableplace!.drag().isDragging),
+					(id) => id === loose
+				);
+				ok(dragging === loose, `the table card never lifted: dragging ${dragging}`);
+				await table.page.keyboard.down('Space');
+				await table.page.keyboard.down('Alt');
+				await sleep(400);
+				const midDrag = await preview();
+				await table.page.mouse.up();
+				await table.page.keyboard.up('Alt');
+				await table.page.keyboard.up('Space');
+				ok(midDrag === null, `the preview opened mid-drag: ${JSON.stringify(midDrag)}`);
+
+				assertClean(table, 'after previewing hand, table, deck and piece');
 			})
 	}
 ];
