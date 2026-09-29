@@ -4,6 +4,8 @@ import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { prewarmGameState } from '$lib/packs/prewarm-state';
 import { remoteCameraActions } from '$lib/store/remoteCameraStore.svelte';
 import { requestCameraBroadcast } from '$lib/store/cameraStore.svelte';
+import { installJournal, journal } from '$lib/journal';
+import { createWsMetaData } from '$lib/utils/transforms/websocket';
 import toast from 'svelte-french-toast';
 
 /**
@@ -39,6 +41,11 @@ export async function initWebsocket(lobbyId: string, serverUrl?: string): Promis
 
 		// Set up event listeners for incoming messages
 		setupMessageHandlers();
+
+		// the action journal (tableplace-201): one ephemeral message per action
+		installJournal((entry) =>
+			sendMessage({ ...createWsMetaData(), type: 'journal', value: entry })
+		);
 
 		// Re-publish my player row now that the socket is open. addPlayer()
 		// above ran before connect(), so its patch was dropped (sendMessage has
@@ -128,6 +135,14 @@ function setupMessageHandlers(): void {
 				gameStore.updateStateSilently(message.value);
 				prewarmGameState(message.value, () => gameStore.updateStateSilently({}));
 				applyPresenceToCameras(message.value);
+				// a peer touching something I did last is what refuses my undo
+				if (message.playerId) journal.remotePatch(message.value, message.playerId);
+				break;
+
+			case 'journal':
+				// Ephemeral (SPEC.md §4c), like 'camera': one line in the log,
+				// never a patch — the action's own 'update' already carried the change
+				if (message.playerId) journal.receive(message.value, message.playerId);
 				break;
 
 			case 'camera':

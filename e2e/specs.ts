@@ -5079,5 +5079,130 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * tableplace-201: the action journal. Two players in two browser
+		 * contexts (two localStorages, so two player ids). The first moves a
+		 * piece under a real mouse; the second must see the log line — which
+		 * only ever arrives as the ephemeral `journal` relay message, never as
+		 * lobby state — and, after the first presses Ctrl+Z, both must see the
+		 * piece back where it started. Then the refusal: once the second player
+		 * has moved the piece too, the first player's undo says why and moves
+		 * nothing.
+		 */
+		name: 'journal: a peer sees the log line, and Ctrl+Z puts the piece back for both',
+		run: async (context) => {
+			const lobby = nextLobby('journal');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const peerContext = await context.browser.createBrowserContext();
+			let remote: Table | null = null;
+			const lines = (t: Table) =>
+				t.page.evaluate(() =>
+					[...document.querySelectorAll('[data-journal-line]')].map((li) => li.textContent ?? '')
+				);
+			const undo = async () => {
+				await table.page.keyboard.down('Control');
+				await table.page.keyboard.press('KeyZ');
+				await table.page.keyboard.up('Control');
+			};
+			try {
+				const deck = await table.seedDeck();
+				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
+				await table.settle();
+				remote = await openTable(peerContext, context.servers, lobby);
+				const peer = remote;
+				// the far side of the table, as a second player would sit
+				await peer.page.evaluate(() => window.__tableplace!.actions.setSeat(1));
+				await peer.settle(1500);
+				await assertRenders(peer, piece, 'the piece (second client)');
+				const home = (await table.positionOf(piece))!;
+
+				await table.dragBy(piece, DRAG.dx, DRAG.dy);
+				const moved = await eventually(
+					() => peer.positionOf(piece),
+					(p) => !!p && planarDistance(p, home) > 0.5
+				);
+				ok(
+					!!moved && planarDistance(moved, home) > 0.5,
+					`the second client never saw the move: ${JSON.stringify(moved)} vs ${JSON.stringify(home)}`
+				);
+				const seen = await eventually(
+					() => lines(peer),
+					(l) => l.some((line) => /moved Marker/.test(line))
+				);
+				ok(
+					seen.some((line) => /moved Marker/.test(line)),
+					`the second client's log has no line for the move: ${JSON.stringify(seen)}`
+				);
+				const mine = await lines(table);
+				ok(
+					mine.some((line) => /^\s*You\s+moved Marker/.test(line)),
+					`the mover's own log does not show the move as theirs: ${JSON.stringify(mine)}`
+				);
+
+				await undo();
+				for (const [who, t] of [
+					['the mover', table],
+					['the second client', peer]
+				] as const) {
+					const back = await eventually(
+						() => t.positionOf(piece),
+						(p) => !!p && planarDistance(p, home) < 0.05
+					);
+					ok(
+						!!back && planarDistance(back, home) < 0.05,
+						`after Ctrl+Z ${who} does not have the piece back: ${JSON.stringify(back)} vs ${JSON.stringify(home)}`
+					);
+				}
+				const undone = await eventually(
+					() => lines(peer),
+					(l) => l.some((line) => /undid: moved Marker/.test(line))
+				);
+				ok(
+					undone.some((line) => /undid: moved Marker/.test(line)),
+					`the undo was not logged for the second client: ${JSON.stringify(undone)}`
+				);
+
+				// the refusal: move it again, the peer moves it after, undo is refused
+				await table.dragBy(piece, DRAG.dx, DRAG.dy);
+				await sleep(1200); // the move settles into one journal action
+				const theirs: [number, number, number] = [home[0] + 2, home[1], home[2] - 1];
+				await peer.page.evaluate(
+					(id, to) => window.__tableplace!.actions.movePiece(id, to),
+					piece,
+					theirs
+				);
+				await eventually(
+					() => table.positionOf(piece),
+					(p) => !!p && planarDistance(p, theirs) < 0.05
+				);
+				await undo();
+				const refusal = await eventually(
+					() => table.page.evaluate(() => document.body.innerText),
+					(text) => /has touched it since/.test(text),
+					4000
+				);
+				ok(
+					/has touched it since you moved Marker/.test(refusal),
+					`an undo after the peer moved the piece was not refused with a reason`
+				);
+				await sleep(500);
+				const kept = await table.positionOf(piece);
+				ok(
+					!!kept && planarDistance(kept, theirs) < 0.05,
+					`the refused undo still moved the piece: ${JSON.stringify(kept)} vs ${JSON.stringify(theirs)}`
+				);
+
+				await assertDraggable(table, deck, 'deck (after an undo)');
+				assertClean(table, 'after moving and undoing with the journal');
+				assertClean(peer, 'on the second client, reading the journal');
+				await table.snap('journal');
+			} finally {
+				await remote?.close();
+				await peerContext.close();
+				await table.close();
+			}
+		}
 	}
 ];

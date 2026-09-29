@@ -46,6 +46,7 @@ import {
 	selectionHasCards
 } from '$lib/selection/actions';
 import type { PieceDTO } from '$lib/store/game/types';
+import { journal, journalVerb } from '$lib/journal';
 import type {
 	Hotkey,
 	PieceCapabilities,
@@ -197,6 +198,16 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		hotkey: key('KeyZ', 'Z'),
 		radial: true,
 		run: () => cameraTransforms.focus()
+	},
+	{
+		// your own last action, while nobody else has touched it since
+		// (tableplace-201). The one verb on a modifier: a bare Z is Focus.
+		id: 'undo',
+		label: 'Undo',
+		reference: 'Undo your last action',
+		applies: on('table'),
+		hotkey: { codes: ['KeyZ'], mod: true, label: 'Ctrl/⌘ + Z' },
+		run: () => void journal.undo()
 	},
 	{
 		// '?' is Shift + Slash on the layouts `code` matching assumes; the list
@@ -665,7 +676,13 @@ export function verbsFor(
 				...(def.hotkey ? { hotkey: def.hotkey } : {}),
 				...(def.gesture ? { gesture: def.gesture } : {}),
 				radial: def.radial ?? false,
-				run: pinned ? () => toastLocked() : (arg?: number) => def.run(ctx, arg),
+				run: pinned
+					? () => toastLocked()
+					: (arg?: number) => {
+							// the journal names what this run writes after the verb
+							journalVerb(def.id, ctx.target);
+							def.run(ctx, arg);
+						},
 				...(def.release ? { release: () => def.release!(ctx) } : {}),
 				enabled: reason === null,
 				...(reason === null ? {} : { reasonDisabled: reason })

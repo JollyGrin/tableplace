@@ -73,6 +73,7 @@ describe('verbs by kind', () => {
 			'reset-view',
 			'top-down',
 			'focus',
+			'undo',
 			'help'
 		]);
 	});
@@ -257,15 +258,18 @@ describe('the Keybinds folder is generated from the registry', () => {
 		expect(keyFor('Toggle top-down / seat view')).toBe('P');
 		expect(keyFor('Focus hovered card, deck or piece')).toBe('Z');
 		expect(keyFor('Focus what you moved last')).toBe('Z');
+		expect(keyFor('Undo your last action')).toBe('Ctrl/⌘ + Z');
 		expect(keyFor('Focus a card, deck or piece')).toBe('double-click');
 	});
 });
 
 describe('no two verbs on one target answer the same chord', () => {
-	const chords = (codes: readonly string[], shift?: boolean) =>
-		codes.flatMap((code) =>
-			shift === undefined ? [`${code}+shift`, `${code}`] : [shift ? `${code}+shift` : code]
-		);
+	const chords = (codes: readonly string[], shift?: boolean, mod?: boolean) =>
+		codes
+			.flatMap((code) =>
+				shift === undefined ? [`${code}+shift`, `${code}`] : [shift ? `${code}+shift` : code]
+			)
+			.map((chord) => (mod ? `mod+${chord}` : chord));
 
 	it.each([
 		['card', { kind: 'card', id: 'card:me:AS' }],
@@ -275,8 +279,22 @@ describe('no two verbs on one target answer the same chord', () => {
 		['table', { kind: 'table' }]
 	] as const)('%s', (_, target) => {
 		const all = verbsFor(target, me).flatMap((v) =>
-			v.hotkey ? chords(v.hotkey.codes, v.hotkey.shift) : []
+			v.hotkey ? chords(v.hotkey.codes, v.hotkey.shift, v.hotkey.mod) : []
 		);
 		expect(new Set(all).size).toBe(all.length);
+	});
+});
+
+describe('Ctrl/⌘ belongs to undo alone (tableplace-201)', () => {
+	it('Ctrl+Z and ⌘+Z undo; a bare Z still focuses; no bare key fires under Ctrl', async () => {
+		const { verbForKey } = await import('../keyboard');
+		const card = [{ kind: 'card', id: 'card:me:AS' }, { kind: 'table' }] as const;
+		const press = (code: string, mods: { ctrlKey?: boolean; metaKey?: boolean } = {}) =>
+			verbForKey({ code, shiftKey: false, ...mods }, [...card], me)?.id ?? null;
+		expect(press('KeyZ', { ctrlKey: true })).toBe('undo');
+		expect(press('KeyZ', { metaKey: true })).toBe('undo');
+		expect(press('KeyZ')).toBe('focus');
+		expect(press('KeyF')).toBe('flip');
+		expect(press('KeyF', { ctrlKey: true })).toBeNull();
 	});
 });
