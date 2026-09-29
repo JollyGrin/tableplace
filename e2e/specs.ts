@@ -383,19 +383,33 @@ export const SPECS: Spec[] = [
 			withTable(context, 'snap-guides', async (table) => {
 				const { page } = table;
 				const token = await table.spawn('token', { position: LANE(0) });
-				const ids = await page.evaluate(() => {
-					const actions = window.__tableplace!.actions;
-					const target = actions.addSnapPoint({ position: [2, 1] });
+				// every addSnapPoint is one patch on the wire, and the relay drops a
+				// client over its burst budget (15) — so the scenario is seeded in
+				// small paced batches, never one 34-patch burst
+				const add = (points: Record<string, unknown>[]) =>
+					page.evaluate(
+						(batch) => batch.map((p) => window.__tableplace!.actions.addSnapPoint(p as never)),
+						points
+					);
+				const [target, probe] = await add([
+					{ position: [2, 1] },
 					// a wide ring well clear of the landing: the pixel probe reads its band
-					const probe = actions.addSnapPoint({ position: [-2, 1], radius: 2 });
-					// a far row of 31 more — the 30+ scenario the guides must stay cheap for
-					for (let i = 0; i < 31; i++) {
-						actions.addSnapPoint({ position: [-15 + i, -9 + (i % 2)], radius: 0.4 });
-					}
-					// cells x ∈ {4,6,8}: only the column nearest the pointer is in reach
-					actions.addSnapPoint({ position: [6, 1], kind: 'grid', pitch: 2, cols: 3, rows: 3 });
-					return { target, probe };
-				});
+					{ position: [-2, 1], radius: 2 }
+				]);
+				const ids = { target, probe };
+				// a far row of 31 more — the 30+ scenario the guides must stay cheap for
+				for (let i = 0; i < 31; i += 3) {
+					await sleep(700);
+					await add(
+						Array.from({ length: Math.min(3, 31 - i) }, (_, k) => ({
+							position: [-15 + i + k, -9 + ((i + k) % 2)],
+							radius: 0.4
+						}))
+					);
+				}
+				await sleep(700);
+				// cells x ∈ {4,6,8}: only the column nearest the pointer is in reach
+				await add([{ position: [6, 1], kind: 'grid', pitch: 2, cols: 3, rows: 3 }]);
 				await table.settle();
 
 				const guides = () => page.evaluate(() => window.__tableplace!.snapGuides());
@@ -464,7 +478,11 @@ export const SPECS: Spec[] = [
 					ok(alt.rings === 0 && alt.target === null, `Alt left guides up: ${JSON.stringify(alt)}`);
 					await page.keyboard.up('Alt');
 					const back = await eventually(guides, (g) => g.opacity >= 0.69);
-					ok(back.target === ids.target, `releasing Alt did not bring the guides back`);
+					const state = await page.evaluate(() => window.__tableplace!.drag());
+					ok(
+						back.target === ids.target,
+						`releasing Alt did not bring the guides back: ${JSON.stringify(back)}, drag ${JSON.stringify(state)}`
+					);
 				} finally {
 					await page.mouse.up();
 				}

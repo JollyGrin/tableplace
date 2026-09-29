@@ -46,6 +46,7 @@ export type TestBridge = {
 		isHovered: string | null;
 		isBagHovered: string | null;
 		isDeckHovered: string | null;
+		noSnap: boolean;
 	};
 	/**
 	 * Where the table camera is right now. A pan — dragged with the right button
@@ -293,8 +294,8 @@ export function installTestBridge(handles: SceneHandles): void {
 		},
 		hits,
 		drag: () => {
-			const { isDragging, isHovered, isBagHovered, isDeckHovered } = get(dragStore);
-			return { isDragging, isHovered, isBagHovered, isDeckHovered };
+			const { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap } = get(dragStore);
+			return { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap: !!noSnap };
 		},
 		connected: () => isWebSocketConnected(),
 		snapGuides: () => {
