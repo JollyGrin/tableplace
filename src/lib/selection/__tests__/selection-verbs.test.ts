@@ -10,7 +10,6 @@ import { gameActions } from '$lib/store/game/actions';
 import { clearSelection, selectedIds, setSelection } from '$lib/store/selection';
 import { flipPatch, lockSelection, rotatePatch, groupSelection } from '../actions';
 import { entitiesInRect, rectBetween } from '../boxSelect';
-import { SNAP_GRID_YAW_STEP_DEFAULT } from '$lib/utils/constants-snap';
 
 vi.mock('svelte-french-toast', () => ({ default: vi.fn() }));
 
@@ -62,23 +61,33 @@ describe('F on a selection', () => {
 });
 
 describe('Q/E on a selection', () => {
-	it('E turns each thing clockwise by its own step, about its own centre', () => {
-		expect(rotatePatch(get(gameStore), [A, B, D, TOKEN, MODEL], 1)).toEqual({
-			cards: { [A]: { rotation: [0, 0, 90] }, [B]: { rotation: [180, 0, 180] } },
-			decks: { [D]: { rotation: [0, -90 * DEG2RAD, 0] } },
-			// a disc token has no facing to turn; a model turns by the grid step
-			pieces: { [MODEL]: { rotation: [0, (350 + SNAP_GRID_YAW_STEP_DEFAULT) % 360, 0] } }
+	it('E turns each thing clockwise by the rotation step, about its own centre', () => {
+		const patch = rotatePatch(get(gameStore), [A, B, D, TOKEN, MODEL], 1);
+		expect(patch).toMatchObject({
+			cards: { [A]: { rotation: [0, 0, 45] }, [B]: { rotation: [180, 0, 135] } },
+			// every piece turns by the step now (tableplace-200), a disc token too
+			pieces: { [TOKEN]: { rotation: [0, 45, 0] }, [MODEL]: { rotation: [0, 35, 0] } }
+		});
+		// a deck's yaw is radians with the opposite sign: clockwise 45° is -45°
+		const [, y] = patch!.decks![D]!.rotation!;
+		expect(y).toBeCloseTo((360 - 45) * DEG2RAD, 9);
+	});
+
+	it("uses the table's step", () => {
+		gameStore.updateState({ table: { rotationStep: 90 } });
+		expect(rotatePatch(get(gameStore), [A], 1)).toEqual({
+			cards: { [A]: { rotation: [0, 0, 90] } }
 		});
 	});
 
 	it('Q is the same turn the other way', () => {
 		expect(rotatePatch(get(gameStore), [A], -1)).toEqual({
-			cards: { [A]: { rotation: [0, 0, -90] } }
+			cards: { [A]: { rotation: [0, 0, 315] } }
 		});
 	});
 
 	it('changes nothing — and sends nothing — when nothing selected can turn', () => {
-		expect(rotatePatch(get(gameStore), [TOKEN, PINNED], 1)).toBeNull();
+		expect(rotatePatch(get(gameStore), [PINNED], 1)).toBeNull();
 	});
 });
 

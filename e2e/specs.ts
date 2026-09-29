@@ -4588,6 +4588,75 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * Rotation steps (tableplace-200): E over a pawn, twice, turns it 90° —
+		 * two steps of the default 45° — in synced state AND in what the
+		 * renderer draws, which springs there through the shortest arc. Q while
+		 * the pawn is held in a real drag turns the held pawn, not the table.
+		 * The deck beside it still renders and drags throughout.
+		 */
+		name: 'rotation steps: E twice turns a pawn 90°, Q turns it mid-drag',
+		run: async (context) => {
+			const lobby = nextLobby('rotate');
+			const table = await openTable(context.browser, context.servers, lobby);
+			try {
+				const page = table.page;
+				const deck = await table.seedDeck();
+				const pawn = await table.spawn('pawn', { name: 'Pawn', position: ON_FELT(0) });
+				await table.settle(1500);
+				assertClean(table, 'after spawning a pawn beside a deck');
+				await assertRenders(table, pawn, 'the pawn');
+
+				const storedYaw = () =>
+					page.evaluate(
+						(id) => window.__tableplace!.state()?.pieces?.[id]?.rotation?.[1] ?? null,
+						pawn
+					);
+				const drawnYaw = () => page.evaluate((id) => window.__tableplace!.yaw(id), pawn);
+				const near = (value: number | null, want: number) =>
+					value !== null && Math.abs(value - want) < 0.5;
+
+				// ── E, E: two steps of 45° ───────────────────────────────────────
+				const at = await table.locate(pawn);
+				ok(at, 'the pawn is not on screen to hover');
+				await page.mouse.move(at!.x, at!.y, { steps: 6 });
+				await table.settle(300);
+				await page.keyboard.press('KeyE');
+				await table.settle(200);
+				await page.keyboard.press('KeyE');
+				const stored = await eventually(storedYaw, (yaw) => yaw === 90, 3000);
+				ok(stored === 90, `E twice did not store a 90° yaw: ${JSON.stringify(stored)}`);
+				const drawn = await eventually(drawnYaw, (yaw) => near(yaw, 90));
+				ok(near(drawn, 90), `E twice did not DRAW the pawn turned 90°: ${drawn}`);
+				await table.snap('rotate-90');
+
+				// ── Q while carried: the held pawn turns back a step ───────────
+				const from = await table.locate(pawn);
+				ok(from, 'the turned pawn left the screen');
+				await page.mouse.move(from!.x, from!.y, { steps: 4 });
+				await page.mouse.down();
+				await page.mouse.move(from!.x, from!.y + 40, { steps: 6 });
+				await table.settle(300);
+				const held = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+				ok(held === pawn, `the pawn was not lifted into a drag: ${held}`);
+				await page.keyboard.press('KeyQ');
+				const turnedHeld = await eventually(storedYaw, (yaw) => yaw === 45, 3000);
+				await page.mouse.move(from!.x, from!.y + 80, { steps: 6 });
+				await page.mouse.up();
+				ok(turnedHeld === 45, `Q mid-drag did not turn the held pawn: ${turnedHeld}`);
+				const landed = await eventually(storedYaw, (yaw) => yaw === 45, 3000);
+				ok(landed === 45, `the drop threw away the mid-drag turn: ${landed}`);
+
+				// everything else still answers the pointer
+				await assertDraggable(table, deck, 'deck (beside a turned pawn)');
+				await assertDraggable(table, pawn, 'the turned pawn');
+				assertClean(table, 'after turning a pawn by key and mid-drag');
+			} finally {
+				await table.close();
+			}
+		}
+	},
+	{
+		/**
 		 * Peek (tableplace-193): a card played face-down out of a hand records
 		 * who played it, and that player's preview shows its face — captioned
 		 * that only they see it — while every other client previews the back.

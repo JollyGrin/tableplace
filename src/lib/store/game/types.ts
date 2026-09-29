@@ -315,6 +315,20 @@ export type SnapPointDTO = {
 	tags?: string[];
 };
 
+/**
+ * Table-wide settings a scenario lays down (tableplace-200). Synced like any
+ * entity, so a player who joins after the scenario was seeded turns things by
+ * the same step as everyone else.
+ */
+export type TableSettingsDTO = {
+	/**
+	 * How far Q and E turn a card, deck or piece, in degrees — any value in
+	 * (0, 360]. Absent means `ROTATION_STEP_DEFAULT` (45). T and R on a card
+	 * stay 90° taps whatever this says.
+	 */
+	rotationStep?: number;
+};
+
 // index signatures (not Record<…>) so the generated JSON Schema keeps the
 // entity value shapes — typescript-json-schema drops Record value types
 export interface GameDTO {
@@ -327,4 +341,6 @@ export interface GameDTO {
 	pieces?: { [pieceId: string]: Partial<PieceDTO> | null };
 	/** authored placement guides, keyed `snap:<n>`. null = remove */
 	snapPoints?: { [snapId: string]: Partial<SnapPointDTO> | null };
+	/** table-wide settings (`rotationStep`); a field set to null is removed */
+	table?: TableSettingsDTO;
 }

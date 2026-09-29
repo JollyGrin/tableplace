@@ -142,14 +142,14 @@ describe('hovering a piece or a hand card', () => {
 });
 
 describe('dragging', () => {
-	it('says what release will do, then Alt and Esc', () => {
+	it('says what release will do, then Q/E, Alt and Esc', () => {
 		const hint = line([TABLE], { dragging: 'card:me:up', dropKind: 'deck' });
 		expect(hint.name).toBe('Lantern');
 		expect(hint.parts.map((p) => p.text)).toEqual([
 			RELEASE_TEXT.deck,
 			...DRAG_MODIFIERS.map((row) => row.action)
 		]);
-		expect(hint.parts.map((p) => p.key)).toEqual(['', 'hold Alt', 'Esc']);
+		expect(hint.parts.map((p) => p.key)).toEqual(['', 'Q / E', 'hold Alt', 'Esc']);
 	});
 
 	it('a carried pile is named like a hovered one', () => {

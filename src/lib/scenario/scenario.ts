@@ -20,6 +20,7 @@ import {
 	composePlayers,
 	composeScenario,
 	composeSnapPoints,
+	composeTable,
 	isSeatPlaceholder,
 	placedCount,
 	seatPlaceholderId
@@ -36,6 +37,7 @@ import {
 	type SnapPoint
 } from './file';
 import { resolvePacks } from './resolve-packs';
+import { validRotationStep } from '$lib/utils/yaw';
 
 const STORAGE_KEY = 'scenarios:v1';
 
@@ -235,12 +237,15 @@ export function saveScenario(name: string): Scenario {
 	}
 
 	const snapPoints = collectSnapPoints(s);
+	// the table's settings have one home in the file too: top-level, not `state`
+	const rotationStep = validRotationStep(s?.table?.rotationStep);
 	const scenario: Scenario = {
 		name,
 		createdAt: Date.now(),
 		state,
 		...(placements.length ? { packs: [...refs.values()], placements } : {}),
-		...(snapPoints.length ? { snapPoints } : {})
+		...(snapPoints.length ? { snapPoints } : {}),
+		...(rotationStep !== undefined ? { rotationStep } : {})
 	};
 	const all = readAll();
 	all[name] = scenario;
@@ -283,7 +288,9 @@ function clearUpdate(): Record<string, Record<string, unknown>> {
 		pieces: {},
 		overlays: {},
 		snapPoints: {},
-		players: {}
+		players: {},
+		// the last scenario's settings go with its content
+		table: { rotationStep: null }
 	};
 	for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 		for (const key of Object.keys(current?.[collection] ?? {})) update[collection][key] = null;
@@ -319,6 +326,7 @@ function applyComposed(
 	for (const collection of ['cards', 'pieces', 'overlays', 'snapPoints', 'players'] as const) {
 		Object.assign(update[collection], composed[collection] ?? {});
 	}
+	if (composed.table) Object.assign((update.table ??= {}), composed.table);
 	gameStore.updateState(update as StateUpdate);
 	for (const [key, value] of Object.entries(composed.decks ?? {})) {
 		gameStore.updateState({ decks: { [key]: value } } as StateUpdate);
@@ -362,6 +370,7 @@ export async function applyScenario(scenario: Scenario): Promise<ApplyReport> {
 	Object.assign(update.players, composePlayers(scenario));
 	// snap points are pure data — they ride with the clear, no pack to resolve
 	Object.assign(update.snapPoints, composeSnapPoints(scenario.snapPoints));
+	Object.assign(update.table, composeTable(scenario).table);
 	gameStore.updateState(update as StateUpdate);
 
 	const { packs, failed } = await resolvePacks(scenario.packs ?? []);

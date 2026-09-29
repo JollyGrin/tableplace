@@ -15,6 +15,7 @@
 
 import type { GameDTO } from '../store/game/types';
 import { assertReadableSpecVersion, SCENARIO_SPEC_VERSION } from '../formats/spec-version';
+import { validRotationStep } from '../utils/yaw';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */
@@ -155,6 +156,16 @@ export type Scenario = {
 	 * the file version (a hand-placed table with snap points is still v1).
 	 */
 	snapPoints?: SnapPoint[];
+	/**
+	 * How far Q and E turn a card, deck or piece on this table, in degrees:
+	 * greater than 0, at most 360. Omitted means 45. T and R on a card stay 90°
+	 * taps. Seeded into the lobby's synced `state.table`, so every player turns
+	 * by the same step (tableplace-200).
+	 *
+	 * @exclusiveMinimum 0
+	 * @maximum 360
+	 */
+	rotationStep?: number;
 };
 
 /** The on-disk shape of a `.tbps.json` file. */
@@ -387,6 +398,15 @@ export function parseScenarioFile(text: string): Scenario {
 	if (obj.snapPoints !== undefined) {
 		if (!Array.isArray(obj.snapPoints)) throw new Error('`snapPoints` must be an array');
 		scenario.snapPoints = obj.snapPoints.map((p, i) => parseSnapPoint(p, `snapPoints[${i}]`));
+	}
+	if (obj.rotationStep !== undefined) {
+		const step = validRotationStep(obj.rotationStep);
+		if (step === undefined) {
+			throw new Error(
+				`\`rotationStep\` must be a number of degrees above 0 and at most 360, got ${JSON.stringify(obj.rotationStep)}`
+			);
+		}
+		scenario.rotationStep = step;
 	}
 	return scenario;
 }

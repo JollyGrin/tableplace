@@ -40,7 +40,7 @@ Every file carries an in-band discriminator at the top level: `"tbpp": 1` or `"t
 
 ### 2.1 Spec versions
 
-Current: **pack `1.8.0`**, **scenario `0.1.13`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
+Current: **pack `1.8.0`**, **scenario `0.1.14`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
 
 Two version fields exist and they answer different questions:
 
@@ -616,8 +616,8 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"x-tableplace-spec-version": "1.8.0",
-	"x-generated-at": "2026-09-29T17:43:00.205Z",
-	"x-tableplace-source-sha": "feda91cabf3fdf6b0ec40326f6c9cf86eae73aa1"
+	"x-generated-at": "2026-09-29T18:24:57.342Z",
+	"x-tableplace-source-sha": "0704ffcc5f7822821b2967031aa8aac78a9f60ba"
 }
 ```
 
@@ -759,7 +759,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
 
 ### 7.1 Fields
 
-- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.13`.
+- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.14`.
 - **`name`**, **`createdAt`** — title and a Unix epoch timestamp in milliseconds.
 - **`packs[]`** — `{ id, source? }` for every pack the scenario draws from. `source` is `"builtin"` for packs shipped with the app (currently only `standard-52`), `"local"` for a pack held in the reader's own browser-local pack library, or an `https://` URL a `.tbpp.json` can be fetched from. A remote pack goes through the same validation as a local import. A scenario meant to travel to other people must use `"builtin"` or a URL: `"local"` resolves only on the machine that has the pack, and fails loudly (naming the pack id) anywhere else.
 - **`placements[]`** — one entry per spawned thing:
@@ -774,6 +774,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
   - **`isFaceUp`** _(decks)_, **`value`** _(counter pieces)_, **`scale`** _(overlays)_ — override the pack's defaults.
   - **`locked`** _(any kind)_ — place it pinned (`true`), or unpin content the pack marks locked (`false`). Omit to keep the pack's default.
 - **`snapPoints[]`** _(optional)_ — placement guides on the felt (§7.2 below). Independent of `placements`: they steer what players drop, not what the scenario spawns.
+- **`rotationStep`** _(optional, degrees, above 0 and at most 360)_ — how far `Q` and `E` turn a card, deck or piece on this table. Omit for the default, 45°. A hex board wants `60`; a table where anything goes wants `15`. `T` and `R` on a card stay 90° taps whatever this says. A snap point's own `rotation` still decides the yaw of whatever lands on it.
 - **`state`** — a partial snapshot for everything _not_ pack-derived: hand-placed cards, ad-hoc pieces. Applied on top of the placements, so it can also override them. This is the part of the format most likely to change; keep as little in it as you can.
   - A card in `state.cards` may carry **`placedBy`** — the player who laid it face-down out of their hand. Only that player's zoomed preview shows its face ("Only you see this"); everyone else sees the back. It is a display rule, not secrecy: the face is in the file and on the wire for anyone to read. In a scenario it is only meaningful as a seat placeholder (`seat0`–`seat3`), which passes to whoever claims that seat. Flipping the card face up, taking it into a hand or putting it on a pile clears it.
 
@@ -1053,6 +1054,13 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 						"required": ["position"]
 					},
 					"title": "snapPoints"
+				},
+				"rotationStep": {
+					"description": "How far Q and E turn a card, deck or piece on this table, in degrees:\ngreater than 0, at most 360. Omitted means 45. T and R on a card stay 90°\ntaps. Seeded into the lobby's synced `state.table`, so every player turns\nby the same step (tableplace-200).",
+					"exclusiveMinimum": 0,
+					"maximum": 360,
+					"type": "number",
+					"title": "rotationStep"
 				}
 			},
 			"required": ["createdAt", "name", "state"]
@@ -1150,6 +1158,18 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 						]
 					},
 					"title": "snapPoints"
+				},
+				"table": {
+					"description": "table-wide settings (`rotationStep`); a field set to null is removed",
+					"type": "object",
+					"properties": {
+						"rotationStep": {
+							"description": "How far Q and E turn a card, deck or piece, in degrees — any value in\n(0, 360]. Absent means `ROTATION_STEP_DEFAULT` (45). T and R on a card\nstay 90° taps whatever this says.",
+							"type": "number",
+							"title": "rotationStep"
+						}
+					},
+					"title": "table"
 				}
 			}
 		},
@@ -1816,9 +1836,9 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.13",
-	"x-generated-at": "2026-09-29T17:43:00.205Z",
-	"x-tableplace-source-sha": "feda91cabf3fdf6b0ec40326f6c9cf86eae73aa1"
+	"x-tableplace-spec-version": "0.1.14",
+	"x-generated-at": "2026-09-29T18:24:57.342Z",
+	"x-tableplace-source-sha": "0704ffcc5f7822821b2967031aa8aac78a9f60ba"
 }
 ```
 
@@ -1830,7 +1850,7 @@ Two packs — one builtin, one fetched from `https://example.com/packs/ember-due
 {
 	"$schema": "https://table.place/scenario.schema.json",
 	"tbps": 2,
-	"specVersion": "0.1.13",
+	"specVersion": "0.1.14",
 	"name": "ember-duel-opening",
 	"createdAt": 1700000000000,
 	"packs": [
