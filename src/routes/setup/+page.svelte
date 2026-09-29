@@ -6,8 +6,6 @@
 	import { onMount } from 'svelte';
 	import { gameActions } from '$lib/store/game/actions';
 	import { disconnect } from '$lib/websocket/connection';
-	import PieceStateMenu from '$lib/PieceStateMenu.svelte';
-	import ModelMenu from '$lib/ModelMenu.svelte';
 	import RadialMenu from '$lib/RadialMenu.svelte';
 	import SetupPane from './SetupPane.svelte';
 
@@ -30,8 +28,6 @@
 <svelte:window on:keydown={handleVerbKeyDown} on:keyup|preventDefault={handleVerbKeyUp} />
 
 <SetupPane />
-<PieceStateMenu />
-<ModelMenu />
 <RadialMenu />
 
 <div class="h-screen w-screen overflow-clip bg-gray-700">

@@ -287,7 +287,7 @@ describe('presses that must not open anything', () => {
 		expect(get(radialMenu)).toBeNull();
 	});
 
-	it('leaves a piece its own right-click — the felt behind it must not answer', () => {
+	it('leaves a piece its own wheel — the felt behind it must not answer', () => {
 		hoveredPiece.set('piece:me:bag');
 		armRadialPress({
 			target: { kind: 'table' },

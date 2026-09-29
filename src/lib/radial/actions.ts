@@ -12,11 +12,13 @@
  * time you flick to a wedge the pointer has left it.
  */
 
+import { get } from 'svelte/store';
 import { gameActions } from '$lib/store/game/actions';
+import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { verbsFor } from '$lib/verbs/registry';
 import type { VerbTarget } from '$lib/verbs/types';
 
-export type RadialTargetKind = 'card' | 'deck' | 'table';
+export type RadialTargetKind = 'card' | 'deck' | 'piece' | 'table';
 
 /** what the press landed on; `id` is absent only for the table felt */
 export type RadialTarget = { kind: RadialTargetKind; id?: string };
@@ -25,6 +27,11 @@ export type RadialOption = {
 	/** stable slug — the wedge's `data-radial-action`, and what specs aim at */
 	id: string;
 	label: string;
+	/**
+	 * What else does this: the verb's hotkey, or failing that its click. The
+	 * wheel prints it beside the label, so using the wheel teaches the key.
+	 */
+	key?: string;
 	run: () => void;
 };
 
@@ -32,6 +39,10 @@ export type RadialOption = {
 export function radialTitle(target: RadialTarget): string {
 	if (target.kind === 'card') return 'Card';
 	if (target.kind === 'deck') return 'Deck';
+	// a piece has a name of its own more often than not (a card may not reveal
+	// one, so it never uses it)
+	if (target.kind === 'piece')
+		return (target.id && get(gameStore)?.pieces?.[target.id]?.name) || 'Piece';
 	return 'Table';
 }
 
@@ -43,7 +54,10 @@ export function radialTitle(target: RadialTarget): string {
 export function radialOptions(target: RadialTarget): RadialOption[] {
 	return verbsFor(toVerbTarget(target), { playerId: gameActions.getMe()?.id })
 		.filter((verb) => verb.radial)
-		.map(({ id, label, run }) => ({ id, label, run: () => run() }));
+		.map(({ id, label, hotkey, gesture, run }) => {
+			const key = hotkey?.label ?? gesture;
+			return { id, label, ...(key ? { key } : {}), run: () => run() };
+		});
 }
 
 /** an entity target that lost its id falls back to the table's wheel */

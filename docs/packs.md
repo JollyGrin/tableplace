@@ -96,15 +96,15 @@ A piece can carry several faces and be flipped between them in play — a double
 
 **`states[0]` is the base face.** The array is the piece's _complete_ ordered set of faces, not extra ones bolted onto `imageUrl`: a piece with `states` renders `states[n].face`, and starts at `n = 0` unless a scenario placement's `state` says otherwise. `imageUrl` is then a fallback for consumers that ignore states, and every exporter here writes it equal to `states[0].face` — a reader that only knows `imageUrl` still shows the right image.
 
-`face` is a face ref like any other (the three image schemes below all work, and may be mixed within one piece — `model:` is geometry, not an image, and never goes in a state); `name` is optional and labels the state on hover and in its menu. Only `token` and `counter` pieces render an image today, so states on a `pawn` change its label but not its shape.
+`face` is a face ref like any other (the three image schemes below all work, and may be mixed within one piece — `model:` is geometry, not an image, and never goes in a state); `name` is optional and labels the state on hover. Only `token` and `counter` pieces render an image today, so states on a `pawn` change its label but not its shape.
 
 A piece may also carry **`state`** — the index it _spawns_ showing, when that isn't the base face (a TTS import puts the state the mod was saved in here). A scenario placement's `state` overrides it.
 
-In play, `X` over a hovered piece shows the next state (`Shift+X` the previous), and right-clicking it opens a menu to pick one directly — cycling is enough for two faces, not for five. The current index lives on the piece in game state (`PieceDTO.state`), so it syncs to every client like any other mutation and survives a scenario save/load. On a _counter_ that also has states, the state menu takes over right-click, so healing it is left to `Shift`+click and the wheel.
+In play, `X` over a hovered piece shows the next state (`Shift+X` the previous); right-click or press-and-hold opens the piece's radial menu, where _Next state_ and _Previous state_ are wedges printed with those keys. The current index lives on the piece in game state (`PieceDTO.state`), so it syncs to every client like any other mutation and survives a scenario save/load.
 
 ### Bags — a hidden, blind-draw pool
 
-A piece of `kind: 'bag'` is a container: a pouch on the table holding a pool nobody can look into. Clicking it (or right-clicking, or "Draw one" in the Pieces pane) pulls **one** item out and drops it beside the bag; dragging a card or a piece onto the bag puts it back. It is the tbpp analog of TTS's `Bag` / `Infinite_Bag`.
+A piece of `kind: 'bag'` is a container: a pouch on the table holding a pool nobody can look into. Clicking it (or its radial menu's _Draw_ wedge, or "Draw one" in the Pieces pane) pulls **one** item out and drops it beside the bag; dragging a card or a piece onto the bag puts it back. It is the tbpp analog of TTS's `Bag` / `Infinite_Bag`.
 
 ```json
 {

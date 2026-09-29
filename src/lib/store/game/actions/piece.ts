@@ -54,6 +54,16 @@ function incrementCounter(pieceId: string, delta: number) {
 }
 
 /**
+ * Put a counter back to its maximum. A counter with no `maxValue` has no
+ * "full" to return to, so it is left alone.
+ */
+function resetCounter(pieceId: string) {
+	const piece = getPieceState(pieceId);
+	if (!piece || piece.kind !== 'counter' || piece.maxValue == null) return;
+	return gameStore.updateState({ pieces: { [pieceId]: { value: piece.maxValue } } });
+}
+
+/**
  * Show one of a multi-state piece's faces. Out-of-range indexes wrap, so
  * `setPieceState(id, current + 1)` is the cycle verb and a menu can pass an
  * absolute index. No-op on a piece with fewer than two states.
@@ -226,6 +236,7 @@ export const pieceActions = {
 	movePiece,
 	rotatePiece,
 	incrementCounter,
+	resetCounter,
 	currentPieceState,
 	setPieceState,
 	setPieceSnap,

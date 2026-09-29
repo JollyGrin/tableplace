@@ -6,10 +6,11 @@
 	import { gameStore } from './store/game/gameStore.svelte';
 	import { gameActions } from './store/game/actions';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
-	import { claimPointerDown } from '$lib/utils/single-hit-dispatch';
+	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
+	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
 	import { createCounterInput, DRAG_THRESHOLD_PX } from '$lib/utils/counter-input';
-	import { setPieceHover, clearPieceHover, openPieceMenu, openModelMenu } from '$lib/store/pieceUi';
+	import { setPieceHover, clearPieceHover } from '$lib/store/pieceUi';
 	import { createDieInput } from '$lib/utils/die-input';
 	import { createBagInput } from '$lib/utils/bag-input';
 	import { DEG2RAD } from 'three/src/math/MathUtils.js';
@@ -43,7 +44,7 @@
 	//
 	// Never a die. States are alternate face *images*; a die's faces are
 	// procedural geometry, so a hand-authored pack that puts `states` on one
-	// must not give it a state menu, a state name, or an image on top of the
+	// must not give it a state name, or an image on top of the
 	// numbers. The two concepts are orthogonal and this is where that is kept
 	// true — `kind` decides the body, `states` only ever decorates the disc.
 	const states = $derived(kind === 'die' ? [] : (piece?.states ?? []));
@@ -117,21 +118,19 @@
 		dragStart(id, position[1], piece?.position as [number, number, number] | undefined);
 	}
 
-	/**
-	 * Kinds that answer a plain click. They defer the lift until the pointer
-	 * actually travels, so clicking adjusts a counter / rolls a die / draws from
-	 * a bag without picking the piece up and dropping it — still draggable.
-	 */
-	const clickable = $derived(kind === 'counter' || kind === 'die' || kind === 'bag');
-
-	// Counters, dice and bags defer the lift until the pointer actually travels,
-	// so a plain click can act without picking the piece up and dropping it.
+	// Every piece defers the lift until the pointer actually travels — the
+	// same as a card — so a press that holds still can become the radial wheel,
+	// and a plain click on a counter / die / bag acts without picking the piece
+	// up and dropping it. Still draggable: the first travel lifts.
 	function onPendingMove(ne: PointerEvent) {
 		if (!pendingDrag) return;
 		if (Math.hypot(ne.clientX - pendingDrag.x, ne.clientY - pendingDrag.y) < DRAG_THRESHOLD_PX)
 			return;
 		cancelPendingDrag();
 		dragMoved = true;
+		// this travel is the drag, whichever listener saw it first — the wheel
+		// must not still be counting down behind it
+		cancelRadialPress();
 		liftIntoDrag();
 	}
 
@@ -143,25 +142,39 @@
 
 	$effect(() => cancelPendingDrag);
 
+	// the wheel took the press: nothing is lifted, and the release that closes
+	// a held wheel must not also land as a click (a counter's −1, a roll, a draw)
+	function yieldToWheel() {
+		cancelPendingDrag();
+		dragMoved = true;
+	}
+
+	// the right press has to reach exactly one piece in a pile, same as the
+	// drag does — but WITHOUT stopping the native event, so a right drag still
+	// pans the camera (see Card.svelte's matching guard)
+	const claimRadialPress = createSingleDispatchGuard();
+
 	function handlePointerDown(e: IntersectionEvent<PointerEvent>) {
+		const target = { kind: 'piece', id } as const;
+		// right press: a quick click or a still hold is the wheel, travel pans
+		if (e.nativeEvent.button === 2) {
+			if (claimRadialPress(e))
+				armRadialPress({ target, event: e.nativeEvent, onOpen: yieldToWheel });
+			return;
+		}
 		// claims the pointerdown for the topmost piece in a pile — see
 		// claimPointerDown — so the rest of the stack never sees this event
 		if (!claimPointerDown(e)) return;
-		// left button only: right-click is the state menu (and a counter's heal, and
-		// a bag's draw), and picking the piece up under the menu would drag it as
-		// you choose
-		if (e.nativeEvent.button !== 0) return;
-		if (!clickable) {
-			liftIntoDrag();
-			return;
-		}
 		dragMoved = false;
 		pendingDrag = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
+		// press-and-hold-still opens the wheel instead; the first travel past
+		// the threshold cancels it and lifts the piece exactly as before
+		armRadialPress({ target, event: e.nativeEvent, onOpen: yieldToWheel });
 		window.addEventListener('pointermove', onPendingMove);
 		window.addEventListener('pointerup', cancelPendingDrag);
 	}
 
-	// click / right-click / wheel on a counter. Lives in counter-input so the
+	// click / wheel on a counter. Lives in counter-input so the
 	// one-step-per-input guarantee is unit-tested against Threlte's dispatch
 	// loop — a counter group has 2-3 raycastable children and Threlte queues
 	// the group once per child the ray pierces (tableplace-84).
@@ -196,35 +209,9 @@
 		bagInput.onclick(e);
 	}
 
-	/**
-	 * Right-click, in precedence order: a bag draws (its faces are a pouch, so a
-	 * state picker on one would offer nothing to look at), a multi-state piece
-	 * opens the state picker instead of the counter's heal — with more than two
-	 * faces, cycling is not a control — and everything else falls through to the
-	 * counter. The menu itself is DOM (see PieceStateMenu.svelte), so all that
-	 * happens here is handing it the pointer position.
-	 */
-	function handleContextMenu(e: IntersectionEvent<MouseEvent>) {
-		if (kind === 'bag') return bagInput.oncontextmenu(e);
-		// a model opens its own menu (rotate / snap / remove) — it must not fall
-		// through to the counter branch, whose right-click means "+1"
-		if (kind === 'model') {
-			e.nativeEvent.preventDefault();
-			e.stopPropagation();
-			if (e.delta > DRAG_THRESHOLD_PX) return; // was a drag, not a click
-			openModelMenu(id, e.nativeEvent.clientX, e.nativeEvent.clientY);
-			return;
-		}
-		if (states.length < 2) return counterInput.oncontextmenu(e);
-		e.nativeEvent.preventDefault();
-		e.stopPropagation();
-		if (e.delta > DRAG_THRESHOLD_PX) return; // was a drag, not a click
-		openPieceMenu(id, e.nativeEvent.clientX, e.nativeEvent.clientY);
-	}
-
 	function handlePointerEnter() {
 		isHovered = true;
-		setPieceHover(id); // what the X hotkey acts on
+		setPieceHover(id); // what the piece hotkeys act on
 		// a bag under the pointer mid-drag is the drop target (see resolveDrop)
 		if (kind === 'bag') setBagHover(id);
 	}
@@ -290,7 +277,6 @@
 		rotation.y={yaw}
 		onpointerdown={handlePointerDown}
 		onclick={handleClick}
-		oncontextmenu={handleContextMenu}
 		onwheel={counterInput.onwheel}
 		onpointerenter={handlePointerEnter}
 		onpointerleave={handlePointerLeave}

@@ -7,8 +7,6 @@
 	import { initWrappers } from '$lib/websocket/storeIntegration';
 	import { initWebsocket } from '$lib/websocket';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
-	import PieceStateMenu from '$lib/PieceStateMenu.svelte';
-	import ModelMenu from '$lib/ModelMenu.svelte';
 	import RadialMenu from '$lib/RadialMenu.svelte';
 	import HintBar from '$lib/hint/HintBar.svelte';
 	import HelpOverlay from '$lib/hint/HelpOverlay.svelte';
@@ -78,8 +76,6 @@
 <Pane />
 <PaneDecks />
 <PlayerHud />
-<PieceStateMenu />
-<ModelMenu />
 <RadialMenu />
 <HintBar />
 <HelpOverlay />

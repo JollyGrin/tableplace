@@ -1774,11 +1774,11 @@ export const SPECS: Spec[] = [
 		 * to be read and clicked. Escape and a click on bare felt must dismiss it
 		 * without firing anything — an accidental right-click has to be free.
 		 *
-		 * The last section is the promise this ticket makes to Piece.svelte: a
-		 * piece still owns its own right-click (a counter heals), and the felt
-		 * behind it must not answer for it with a table wheel.
+		 * The last section: a piece's right-click is its own wheel (tableplace-187
+		 * moved a counter's +1 onto it), and the felt behind it must not answer
+		 * for it with a table wheel.
 		 */
-		name: 'radial: quick right-click sticks, Escape and click-away cancel, pieces keep theirs',
+		name: 'radial: quick right-click sticks, Escape and click-away cancel, pieces get their own',
 		run: (context) =>
 			withTable(context, 'radial-sticky', async (table) => {
 				const deck = await table.page.evaluate(() => {
@@ -1877,8 +1877,7 @@ export const SPECS: Spec[] = [
 				await table.settle(300);
 				ok(!(await table.radial()), 'the felt wheel would not dismiss');
 
-				// ── a piece still owns its right-click, and the felt behind it
-				//    must not open a table wheel over the top of it ────────────
+				// ── a piece's right-click is ITS wheel, never the felt's ──────
 				const counter = await table.spawn('counter', {
 					name: 'HP',
 					maxValue: 17,
@@ -1890,25 +1889,124 @@ export const SPECS: Spec[] = [
 				ok(over, 'the counter never mounted');
 				await table.page.mouse.move(over!.x, over!.y);
 				await table.settle(300); // let the hover register
-				await table.page.mouse.click(over!.x, over!.y, { button: 'right' });
-				await table.settle(600);
-				ok(!(await table.radial()), 'right-clicking a counter opened the radial menu over it');
-				const healed = await eventually(
-					() =>
-						table.page.evaluate(
-							(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
-							counter
-						),
-					(value) => value === 6
-				);
+				const counterWheel = await stickAt(over!);
 				ok(
-					healed === 6,
-					`the counter's own right-click stopped healing: ${JSON.stringify(healed)}`
+					counterWheel.actions.includes('count-up') && !counterWheel.actions.includes('reset-view'),
+					`right-clicking a counter did not open the counter's own wheel: ${JSON.stringify(counterWheel.actions)}`
 				);
+				const valueOf = () =>
+					table.page.evaluate(
+						(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
+						counter
+					);
+				ok((await valueOf()) === 5, 'the right-click itself changed the counter');
+				// +1 used to be the right-click itself; it is a wedge now
+				await table.page.mouse.click(
+					counterWheel.wedges['count-up']!.x,
+					counterWheel.wedges['count-up']!.y
+				);
+				const healed = await eventually(valueOf, (value) => value === 6);
+				ok(healed === 6, `the counter's +1 wedge did not heal it: ${JSON.stringify(healed)}`);
 
 				await assertDraggable(table, deck, 'deck (after the sticky wheel)');
 				assertClean(table, 'after the sticky wheel suite');
 				await table.snap('radial-sticky');
+			})
+	},
+	{
+		/**
+		 * tableplace-187: pieces open the same wheel as cards and decks, from the
+		 * verb registry, and every wedge prints its key — the wheel is how you
+		 * learn you no longer need it. The two piece menus it replaced are gone,
+		 * so this is the only way to reach a piece's verbs by pointer.
+		 *
+		 * The spine is the one every spec shares: after a piece has been pressed,
+		 * held, flicked and clicked, the table still raycasts and still drags.
+		 */
+		name: 'radial: a multi-state piece opens the wheel, prints its keys and cycles its state',
+		run: (context) =>
+			withTable(context, 'radial-piece', async (table) => {
+				const deck = await table.seedDeck([-4, 0.4, -2]);
+				const tile = await table.spawn('token', {
+					name: 'Tile',
+					position: LANE(1),
+					states: [
+						{ face: 'gen:std52/AS', name: 'one' },
+						{ face: 'gen:std52/KH', name: 'two' },
+						{ face: 'gen:std52/QD', name: 'three' }
+					]
+				});
+				await table.settle(1500);
+				const stateOf = () =>
+					table.page.evaluate((id) => window.__tableplace!.state()?.pieces?.[id]?.state ?? 0, tile);
+				const positionOf = () =>
+					table.page.evaluate(
+						(id) => JSON.stringify(window.__tableplace!.state()?.pieces?.[id]?.position ?? null),
+						tile
+					);
+				const printedKeys = () =>
+					table.page.evaluate(() =>
+						Object.fromEntries(
+							[...document.querySelectorAll('[data-radial-action]')].map((wedge) => [
+								wedge.getAttribute('data-radial-action'),
+								wedge.querySelector('[data-radial-key]')?.textContent?.trim() ?? null
+							])
+						)
+					);
+				ok((await stateOf()) === 0, 'the tile did not start on its first state');
+
+				// ── right press and hold: the piece's wheel, keys printed ─────
+				const wheel = await table.openRadial(tile, { button: 'right' });
+				const keys = await printedKeys();
+				ok(
+					keys['state-next'] === 'X' && keys['state-prev'] === 'Shift + X',
+					`the piece wheel does not print its keys: ${JSON.stringify(keys)}`
+				);
+				ok(
+					!wheel.actions.includes('reset-view'),
+					`the felt answered a press on the piece: ${JSON.stringify(wheel.actions)}`
+				);
+				// ── flick to Next state and release: the state cycles ─────────
+				await flickTo(table, wheel.wedges['state-next']!);
+				await table.page.mouse.up({ button: 'right' });
+				const next = await eventually(stateOf, (state) => state === 1);
+				ok(next === 1, `the Next state wedge did not cycle the tile: ${next}`);
+				ok(!(await table.radial()), 'the wheel stayed up after the release fired a wedge');
+
+				// ── left press and hold: the same wheel, and nothing lifts ────
+				const before = await positionOf();
+				const held = await table.openRadial(tile, { button: 'left', timeoutMs: 8000 });
+				ok(held.actions.includes('state-next'), 'a left hold did not open the piece wheel');
+				ok(
+					(await positionOf()) === before,
+					'the hold lifted the tile as well as opening its wheel'
+				);
+				await flickTo(table, held.wedges['state-next']!);
+				await table.page.mouse.up();
+				const third = await eventually(stateOf, (state) => state === 2);
+				ok(third === 2, `the held wheel's Next state did not cycle the tile: ${third}`);
+
+				// ── quick right-click: sticky wheel, click Previous state ─────
+				const at = await table.locate(tile);
+				ok(at, 'the tile moved off screen');
+				await table.page.mouse.click(at!.x, at!.y, { button: 'right' });
+				const sticky = await eventually(
+					() => table.radial(),
+					(open) => !!open
+				);
+				ok(!!sticky, 'a quick right-click on the tile did not leave its wheel up');
+				await table.page.mouse.click(
+					sticky!.wedges['state-prev']!.x,
+					sticky!.wedges['state-prev']!.y
+				);
+				const back = await eventually(stateOf, (state) => state === 1);
+				ok(back === 1, `clicking Previous state did not step the tile back: ${back}`);
+				ok(!(await table.radial()), 'the sticky wheel stayed up after its wedge was clicked');
+
+				await assertDraggable(table, tile, 'multi-state tile (after its wheel)');
+				await assertDraggable(table, deck, 'deck (after a piece wheel)');
+				assertClean(table, 'after the piece wheel');
+				await table.snap('radial-piece');
 			})
 	},
 	{
