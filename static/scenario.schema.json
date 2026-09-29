@@ -233,6 +233,12 @@
 					"maximum": 360,
 					"type": "number",
 					"title": "rotationStep"
+				},
+				"handPlayFace": {
+					"description": "Which face a card dragged out of a hand lands on by default: `\"down\"`\n(the default when omitted) or `\"up\"`, for games that play cards face up.\nHolding Shift at release plays the other face. Seeded into the lobby's\nsynced `state.table`, like `rotationStep` (tableplace-195).",
+					"enum": ["down", "up"],
+					"type": "string",
+					"title": "handPlayFace"
 				}
 			},
 			"required": ["createdAt", "name", "state"]
@@ -332,13 +338,19 @@
 					"title": "snapPoints"
 				},
 				"table": {
-					"description": "table-wide settings (`rotationStep`); a field set to null is removed",
+					"description": "table-wide settings (`rotationStep`, `handPlayFace`); a field set to null is removed",
 					"type": "object",
 					"properties": {
 						"rotationStep": {
 							"description": "How far Q and E turn a card, deck or piece, in degrees — any value in\n(0, 360]. Absent means `ROTATION_STEP_DEFAULT` (45). T and R on a card\nstay 90° taps whatever this says.",
 							"type": "number",
 							"title": "rotationStep"
+						},
+						"handPlayFace": {
+							"description": "How a card dragged out of a hand lands when no modifier is held\n(tableplace-195): `'down'` (absent) or `'up'`. Holding Shift at release\nplays the other face.",
+							"enum": ["down", "up"],
+							"type": "string",
+							"title": "handPlayFace"
 						}
 					},
 					"title": "table"
@@ -411,6 +423,11 @@
 					"description": "Player id of whoever laid this card face-down out of their hand\n(tableplace-193). For that player alone the zoomed preview shows the face\n— a peek. A display rule only: the face is in synced state for everyone,\nthis just decides what the UI draws. Cleared when the card is flipped\nface up or goes into a hand; a pile never carries it. Absent = nobody\nmay peek.",
 					"type": "string",
 					"title": "placedBy"
+				},
+				"handOrder": {
+					"description": "Where this card sits in its holder's hand, left to right (tableplace-195):\na sort key, lowest first, so a reorder is one patch of numbers and the\norder survives a reload (the relay does not keep object key order).\nOnly meaningful inside `players[id].tray`; a card leaving the hand drops\nit. Absent sorts after every numbered card.",
+					"type": "number",
+					"title": "handOrder"
 				}
 			}
 		},
@@ -519,7 +536,7 @@
 			"title": "CardInDeck",
 			"allOf": [
 				{
-					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%3E"
+					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%7C%22handOrder%22%3E"
 				},
 				{
 					"type": "object",
@@ -533,8 +550,8 @@
 				}
 			]
 		},
-		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\">": {
-			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\">",
+		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\">": {
+			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\">",
 			"type": "object",
 			"properties": {
 				"faceImageUrl": {
@@ -1008,7 +1025,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.14",
-	"x-generated-at": "2026-09-29T18:24:57.342Z",
-	"x-tableplace-source-sha": "0704ffcc5f7822821b2967031aa8aac78a9f60ba"
+	"x-tableplace-spec-version": "0.1.15",
+	"x-generated-at": "2026-09-29T19:02:06.578Z",
+	"x-tableplace-source-sha": "7dd0767c0a6d6b4714c99f3acf794d6cdbe669bb-dirty"
 }

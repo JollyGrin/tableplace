@@ -19,6 +19,7 @@ import { composePackDeck, composePackOverlay, composePackPiece, type ShuffleFn }
 import type { GamePackDef } from '../packs/types';
 import type { GameDTO } from '../store/game/types';
 import { validRotationStep } from '../utils/yaw';
+import { validHandPlayFace } from '../utils/hand';
 import type { PackPlacement, PackRef, Scenario, SeatIndex, SnapPoint } from '../scenario/file';
 
 export type { ShuffleFn };
@@ -225,7 +226,12 @@ export function composeScenario(
  */
 export function composeTable(scenario: Scenario): Pick<GameDTO, 'table'> {
 	const step = scenario.rotationStep ?? validRotationStep(scenario.state?.table?.rotationStep);
-	return step !== undefined ? { table: { rotationStep: step } } : {};
+	const face = scenario.handPlayFace ?? validHandPlayFace(scenario.state?.table?.handPlayFace);
+	const table = {
+		...(step !== undefined ? { rotationStep: step } : {}),
+		...(face !== undefined ? { handPlayFace: face } : {})
+	};
+	return Object.keys(table).length ? { table } : {};
 }
 
 /**

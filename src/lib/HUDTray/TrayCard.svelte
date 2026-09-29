@@ -5,70 +5,67 @@
 	import { ImageMaterial } from '@threlte/extras';
 	import { Spring, Tween } from 'svelte/motion';
 	import { cubicOut } from 'svelte/easing';
-	import { degrees } from '$lib/utils/constants-rotation';
-	import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
-	import { DEG2RAD } from 'three/src/math/MathUtils.js';
-	import { resolveCardImage, sheetRefCache, CARD_BACK_DEFAULT } from '$lib/packs';
-	import { dragStart, dragStore } from '$lib/store/dragStore.svelte';
+	import { resolveCardImage, sheetRefCache } from '$lib/packs';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { gameActions } from '$lib/store/game/actions';
-	import { hoveredTrayCard } from './trayHover';
+	import { HAND_CARD_H, HAND_CARD_W, type FanSlot } from '$lib/utils/hand';
 	import { FLIGHT_MS, getTableCamera, prefersReducedMotion, takeFlight } from './drawFlight';
 
-	// No interactivity() here on purpose — one call per card in hand meant one
-	// Raycaster and one full set of DOM listeners per card. The handlers below
-	// register into HUDTrayScene's context, which is the one that owns the tray's
-	// orthographic camera.
+	/**
+	 * One card of the fan. Where it sits, how big and how tilted is decided by
+	 * HUDTrayScene (`pose`: its slot, raised when hovered, under the pointer
+	 * when held) — this only springs toward it and draws the face. Pointer
+	 * handling lives in the scene too: the cards overlap, so which one the
+	 * pointer is on is worked out from the layout, not from a raycast here.
+	 */
 	let {
 		id,
-		offsetX = 0,
-		trayWidth = 0
-	}: { id: string; offsetX: number; trayWidth?: number } = $props();
+		pose,
+		landscape = false
+	}: {
+		id: string;
+		pose: FanSlot & { scale: number; z: number };
+		landscape?: boolean;
+	} = $props();
 
 	const myPlayerId = $derived(gameActions?.getMe()?.id ?? '');
 	const card = $derived($gameStore?.players?.[myPlayerId]?.tray?.[id] ?? {});
 	const trayUrl = $derived(resolveCardImage(card.faceImageUrl, $sheetRefCache));
-	// landscape cards lie on their side in the hand; the geometry stays portrait
-	// (the art is portrait in the texture) and the mesh rotates
-	const isLandscape = $derived(card.orientation === 'landscape');
 
-	const isCardHovered = $derived($hoveredTrayCard === id);
-	let emissiveIntensity = $state(0);
+	const SPRING = { stiffness: 0.15, damping: 0.7, precision: 0.0001 };
+	// the first pose is where the card starts: no swoop in from the origin
+	const cardX = new Spring(
+		untrack(() => pose.x),
+		SPRING
+	);
+	const cardY = new Spring(
+		untrack(() => pose.y),
+		SPRING
+	);
+	const cardAngle = new Spring(
+		untrack(() => pose.angle),
+		SPRING
+	);
+	const cardScale = new Spring(
+		untrack(() => pose.scale),
+		SPRING
+	);
 
+	// writes only the springs' targets, which nothing here reads back
 	$effect(() => {
-		emissiveIntensity = isCardHovered ? 0.05 : 0;
+		cardX.target = pose.x;
+		cardY.target = pose.y;
+		cardAngle.target = pose.angle;
+		cardScale.target = pose.scale;
 	});
 
-	// expansion follows the shared hover owner, not raw enter/leave events
-	$effect(() => {
-		if (isCardHovered) {
-			cardScale.target = 1.5;
-			cardY.target = 1.5;
-			cardZ = 1;
-		} else {
-			cardScale.target = 0.55;
-			cardY.target = 0;
-			cardZ = 0;
-		}
-	});
-
-	const cardSize = [1.4 * 1.4, 2 * 1.4];
-	let cardZ = $state(0); // z-index
-	const cardY = new Spring(0, {
-		stiffness: 0.15,
-		damping: 0.7,
-		precision: 0.0001
-	});
-	const cardScale = new Spring(0.55, {
-		stiffness: 0.15,
-		damping: 0.7,
-		precision: 0.0001
-	});
+	// the art is portrait in the texture: a landscape card's mesh lies on its side
+	const cardSize: [number, number] = [HAND_CARD_W, HAND_CARD_H];
 
 	/**
 	 * Deck → hand (tableplace-194): a card drawn into the hand starts over the
 	 * deck it left, and glides to its slot. `flight` is the offset from the
-	 * slot (and a scale factor), so it is zero/one at rest and the hover
+	 * slot (and a scale factor), so it is zero/one at rest and the pose
 	 * springs above keep working untouched. The deck's table point goes through
 	 * the table camera to the screen, and back out through this HUD's own
 	 * orthographic camera into the tray group's space.
@@ -114,38 +111,6 @@
 		);
 		flight.set({ x: 0, y: 0, s: 1 }, { delay: launch.delayMs }).then(() => (flying = false));
 	}
-
-	function handlePointerEnter() {
-		// a card still in the air isn't in the hand yet: sweeping over its path
-		// must not blow it up to the hover size mid-flight
-		if (flying) return;
-		hoveredTrayCard.set(id);
-	}
-	function handlePointerLeave() {
-		// guard: a stale leave (fired after a neighbor claimed hover) must not
-		// clear the neighbor's expansion
-		hoveredTrayCard.update((current) => (current === id ? null : current));
-	}
-	function handleDragStart() {
-		const { x = 0, z = 0 } = $dragStore.intersectionPoint as THREE.Vector3;
-
-		const movedCard = gameActions.moveCardOutOfTray(id, myPlayerId);
-		gameStore?.updateState({
-			cards: {
-				[id]: {
-					...movedCard,
-					position: [x, CARD_DRAG_Y, z],
-					// 180 on x = facedown (matches flipCard convention) — cards leave the hand hidden
-					rotation: [180, 0, -degrees[gameActions?.getMySeat()] / DEG2RAD],
-					// ...but not from me: my preview may still peek at it (tableplace-193)
-					placedBy: myPlayerId,
-					faceImageUrl: movedCard?.faceImageUrl ?? card?.faceImageUrl,
-					backImageUrl: movedCard?.backImageUrl ?? card.backImageUrl ?? CARD_BACK_DEFAULT // TODO: update this with its actual cardback
-				}
-			}
-		});
-		dragStart(id, CARD_DRAG_Y);
-	}
 </script>
 
 {#key trayUrl}
@@ -153,15 +118,12 @@
 		bind:ref={mesh}
 		name={id}
 		scale={cardScale.current * flight.current.s}
-		position.z={cardZ + (flying ? 2 : 0)}
+		position.z={pose.z + (flying ? 2 : 0)}
 		position.y={cardY.current + flight.current.y}
-		position.x={-trayWidth / 2 + 0.65 + offsetX + flight.current.x}
-		rotation.z={isLandscape ? -Math.PI / 2 : 0}
-		onpointerenter={handlePointerEnter}
-		onpointerleave={handlePointerLeave}
-		onpointerdown={handleDragStart}
+		position.x={cardX.current + flight.current.x}
+		rotation.z={cardAngle.current + (landscape ? -Math.PI / 2 : 0)}
 	>
 		<T.PlaneGeometry args={cardSize} />
-		<ImageMaterial url={trayUrl} side={2} radius={0.1} transparent={true} opacity={0.9} />
+		<ImageMaterial url={trayUrl} side={2} radius={0.1} transparent={true} />
 	</T.Mesh>
 {/key}

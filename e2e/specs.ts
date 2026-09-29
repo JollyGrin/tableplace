@@ -4843,5 +4843,240 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * tableplace-195: the hand is a fan you hold. Its cards stay on screen
+		 * however many and however narrow the window; a drag along it reorders
+		 * them, and the order is synced state that comes back after a reload; a
+		 * drag up and out plays one — face-down unless Shift is held, and the
+		 * carried card shows the face that will land; and a table card dropped
+		 * back on the fan goes into the hand.
+		 */
+		name: 'hand: fan fits 1/7/15 at 1280 and 400, reorder survives a reload, Shift plays face-up',
+		run: async (context) => {
+			const lobby = nextLobby('hand');
+			const table = await openTable(context.browser, context.servers, lobby);
+			try {
+				let page = table.page;
+				const deck = await page.evaluate(() => {
+					const bridge = window.__tableplace!;
+					const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A', '2'];
+					const cards = ranks.map((rank, i) => ({
+						id: `card:std:hand-${i}`,
+						faceImageUrl: `gen:std52/${rank}${i < 13 ? 'S' : 'H'}`,
+						backImageUrl: 'gen:std52/back',
+						name: `card ${i}`
+					}));
+					return String(bridge.actions.addDeck({ cards, position: [-8, 0.16, -2] } as never) ?? '');
+				});
+				ok(deck, 'seeding the deck failed');
+
+				type HandCard = { id: string; left: number; right: number; top: number; bottom: number };
+				const handCards = (): Promise<HandCard[]> =>
+					page.evaluate(() => window.__tableplace!.handCards());
+				/** the stored order, left to right: by handOrder, as the fan sorts it */
+				const storedOrder = () =>
+					page.evaluate(() => {
+						const bridge = window.__tableplace!;
+						const me = bridge.actions.getMyId();
+						const tray = (me && bridge.state()?.players?.[me]?.tray) || {};
+						return Object.entries(tray)
+							.filter(([, card]) => !!card)
+							.sort(([, a], [, b]) => (a?.handOrder ?? 1e9) - (b?.handOrder ?? 1e9))
+							.map(([id]) => id);
+					});
+				const draw = async (count: number) => {
+					const drawn = await page.evaluate(
+						(id, n) => window.__tableplace!.actions.drawToHand(id, n),
+						deck,
+						count
+					);
+					ok(drawn.ok, `drawing ${count} into the hand failed: ${JSON.stringify(drawn)}`);
+				};
+
+				// ── the fan stays inside the viewport ──────────────────────────
+				let held = 0;
+				for (const size of [1, 7, 15]) {
+					await draw(size - held);
+					held = size;
+					for (const [width, height] of [
+						[1280, 800],
+						[400, 800]
+					] as const) {
+						await page.setViewport({ width, height });
+						// off the hand, so nothing is raised
+						await page.mouse.move(width / 2, 40);
+						const inside = (cards: HandCard[]) =>
+							cards.length === size &&
+							cards.every(
+								(c) => c.left >= 0 && c.right <= width && c.top >= 0 && c.bottom <= height
+							);
+						// the springs have to arrive — and the newest cards finish their flight
+						const cards = await eventually(handCards, inside);
+						if (size === 15 && width === 400) await table.snap('hand-fan-15-at-400');
+						ok(
+							inside(cards),
+							`a hand of ${size} does not fit ${width}×${height}: ` +
+								JSON.stringify(
+									cards
+										.filter((c) => c.left < 0 || c.right > width || c.top < 0 || c.bottom > height)
+										.map((c) => ({ ...c, id: c.id.slice(-8) }))
+								) +
+								` (${cards.length} drawn)`
+						);
+					}
+				}
+				await page.setViewport({ width: 1280, height: 800 });
+				await page.mouse.move(640, 40);
+				await table.settle(900);
+				await table.snap('hand-fan-15-at-1280');
+
+				// the fan draws the stored order, left to right
+				const before = await storedOrder();
+				ok(before.length === 15, `the hand holds ${before.length}, not 15`);
+				const drawnOrder = async () => (await handCards()).map((c) => c.id);
+				ok(
+					JSON.stringify(await drawnOrder()) === JSON.stringify(before),
+					`the fan does not draw the stored order: ${JSON.stringify(await drawnOrder())} vs ${JSON.stringify(before)}`
+				);
+
+				// ── reorder: the first card, dragged along the fan past the third ─
+				const cards = await handCards();
+				const first = cards[0]!;
+				const third = cards[2]!;
+				const fourth = cards[3]!;
+				const y = (first.top + first.bottom) / 2 + 20;
+				const from = { x: (first.left + first.right) / 2, y };
+				const to = { x: (third.right + fourth.left) / 2 + 8, y };
+				ok(
+					(await table.elementAt(from)).startsWith('canvas'),
+					`something covers the hand at ${JSON.stringify(from)}: ${await table.elementAt(from)}`
+				);
+				await page.mouse.move(from.x, from.y, { steps: 4 });
+				await sleep(250);
+				await page.mouse.down();
+				await page.mouse.move(to.x, to.y, { steps: 12 });
+				await sleep(250);
+				ok(
+					(await page.evaluate(() => window.__tableplace!.drag().isDragging)) === null,
+					'a drag along the hand lifted the card onto the table instead of reordering'
+				);
+				await page.mouse.up();
+				const expected = [before[1], before[2], before[0], ...before.slice(3)];
+				const after = await eventually(
+					storedOrder,
+					(order) => JSON.stringify(order) === JSON.stringify(expected)
+				);
+				ok(
+					JSON.stringify(after) === JSON.stringify(expected),
+					`dragging the first card past the third did not reorder the hand: ${JSON.stringify(after)}`
+				);
+				ok(
+					(await page.evaluate((id) => !!window.__tableplace!.state()?.cards?.[id], before[0]!)) ===
+						false,
+					'the reordered card also landed on the table'
+				);
+
+				// ── reload: the order is synced state, not local ──────────────
+				await page.reload({ waitUntil: 'networkidle2', timeout: 60_000 });
+				await page.waitForFunction('window.__tableplace?.ready === true', { timeout: 60_000 });
+				await table.settle(1500);
+				page = table.page;
+				const reloaded = await eventually(
+					storedOrder,
+					(order) => JSON.stringify(order) === JSON.stringify(expected),
+					15_000
+				);
+				ok(
+					JSON.stringify(reloaded) === JSON.stringify(expected),
+					`the hand order did not survive a reload: ${JSON.stringify(reloaded)}`
+				);
+				await page.mouse.move(640, 40);
+				const redrawn = await eventually(
+					drawnOrder,
+					(order) => JSON.stringify(order) === JSON.stringify(expected)
+				);
+				ok(
+					JSON.stringify(redrawn) === JSON.stringify(expected),
+					`after a reload the fan draws ${JSON.stringify(redrawn)}, not the stored order`
+				);
+
+				// ── Shift plays face-up, and the carried card shows it ─────────
+				const middle = (await handCards())[7]!;
+				const playing = middle.id;
+				const pressAt = { x: (middle.left + middle.right) / 2, y: middle.bottom - 30 };
+				const dropAt = await page.evaluate((at) => window.__tableplace!.project(at), ON_FELT(1));
+				ok(dropAt, 'the drop point on the felt does not project');
+				await page.mouse.move(pressAt.x, pressAt.y, { steps: 4 });
+				await sleep(250);
+				await page.mouse.down();
+				// up and out of the hand: now it is a play, face-down by default
+				await page.mouse.move(pressAt.x, pressAt.y - 220, { steps: 10 });
+				const lifted = await eventually(
+					() =>
+						page.evaluate((id) => {
+							const bridge = window.__tableplace!;
+							return {
+								dragging: bridge.drag().isDragging,
+								flip: bridge.state()?.cards?.[id]?.rotation?.[0] ?? null
+							};
+						}, playing),
+					(seen) => seen.dragging === playing
+				);
+				ok(
+					lifted.dragging === playing && lifted.flip === 180,
+					`dragging out of the hand did not carry the card face-down: ${JSON.stringify(lifted)}`
+				);
+				await page.keyboard.down('Shift');
+				const turned = await eventually(
+					() =>
+						page.evaluate(
+							(id) => window.__tableplace!.state()?.cards?.[id]?.rotation?.[0] ?? null,
+							playing
+						),
+					(flip) => flip === 0
+				);
+				ok(turned === 0, `holding Shift did not turn the carried card face-up (x = ${turned})`);
+				await page.mouse.move(dropAt!.x, dropAt!.y, { steps: 12 });
+				await sleep(250);
+				await page.mouse.up();
+				await page.keyboard.up('Shift');
+				const played = await eventually(
+					() => page.evaluate((id) => window.__tableplace!.state()?.cards?.[id] ?? null, playing),
+					(card) => !!card && (card.position?.[1] ?? 9) < 1
+				);
+				ok(
+					!!played && played.rotation?.[0] === 0 && played.placedBy === undefined,
+					`the Shift play did not land face-up and unmarked: ${JSON.stringify(played && { rotation: played.rotation, placedBy: played.placedBy, position: played.position })}`
+				);
+				ok(!(await storedOrder()).includes(playing), 'the played card is still in the hand');
+				await table.settle(600);
+				await table.snap('hand-played-face-up');
+
+				// ── and a table card dropped on the fan goes back into the hand ─
+				const onTable = await eventually(
+					() => table.locate(playing),
+					(point) => !!point
+				);
+				ok(onTable, 'the played card never drew on the table');
+				const handAt = { x: 640, y: 800 - 50 };
+				await page.mouse.move(onTable!.x, onTable!.y, { steps: 4 });
+				await sleep(250);
+				await page.mouse.down();
+				await page.mouse.move(handAt.x, handAt.y, { steps: 14 });
+				await sleep(300);
+				await page.mouse.up();
+				const back = await eventually(storedOrder, (order) => order.includes(playing));
+				ok(
+					back.includes(playing) && back.length === 15,
+					`dropping the card on the hand did not take it back: ${JSON.stringify(back)}`
+				);
+
+				assertClean(table, 'after fanning, reordering, reloading and playing out of the hand');
+			} finally {
+				await table.close();
+			}
+		}
 	}
 ];

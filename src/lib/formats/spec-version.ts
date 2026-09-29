@@ -54,6 +54,12 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
  *
+ * 0.1.15 — top-level `handPlayFace` (`"down"` | `"up"`): the face a card
+ * dragged out of a hand lands on without Shift, seeded into the synced
+ * `state.table`; and `state` cards in a hand can carry `handOrder`, the
+ * hand's left-to-right sort key (tableplace-195). Optional fields — additive,
+ * so PATCH.
+ *
  * 0.1.14 — top-level `rotationStep` (degrees, 0 < step ≤ 360): how far Q
  * and E turn a card, deck or piece on the table, seeded into the synced
  * `state.table` (tableplace-200). One optional field — additive, so PATCH.
@@ -92,7 +98,7 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.14';
+export const SCENARIO_SPEC_VERSION = '0.1.15';
 
 export type Semver = { major: number; minor: number; patch: number };
 

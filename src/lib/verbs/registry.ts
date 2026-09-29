@@ -34,6 +34,7 @@ import { openDeckSearch, SEARCH_NOT_MINE } from '$lib/deckSearch/deckSearch';
 import { isLocked, type LockableKind } from '$lib/store/game/actions/lock';
 import { LOCKED_REFUSAL, toastLocked, toggleLockOn } from '$lib/hotkeys/lock';
 import { rotationStep } from '$lib/store/game/actions/rotate';
+import { handPlayFace } from '$lib/utils/hand';
 import type { DropKind } from '$lib/utils/transforms/drop';
 import { dragStore } from '$lib/store/dragStore.svelte';
 import {
@@ -273,6 +274,37 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		movesTarget: true,
 		hotkey: key('ArrowDown', 'Arrow Down'),
 		run: (ctx) => gameActions.incrementHeight(-0.01, idOf(ctx))
+	},
+
+	// ---- a card in your hand (tableplace-195) ----
+	// Gestures, not commands: HUDTrayScene reads the drag itself. Listed so the
+	// hint bar names them over a hand card and `?` shows them. The face a play
+	// lands on is the table's (a scenario's `handPlayFace`); Shift, the other.
+	{
+		id: 'hand-play',
+		label: 'Play',
+		labelFor: () => `Play ${handPlayFace(get(gameStore)) === 'up' ? 'face-up' : 'face-down'}`,
+		reference: 'Play out of your hand (the table decides the face)',
+		applies: on('hand-card'),
+		gesture: 'drag out',
+		run: () => {}
+	},
+	{
+		id: 'hand-play-other',
+		label: 'Play the other face',
+		labelFor: () => `Play ${handPlayFace(get(gameStore)) === 'up' ? 'face-down' : 'face-up'}`,
+		reference: 'Play with the other face up',
+		applies: on('hand-card'),
+		gesture: 'Shift + drag out',
+		run: () => {}
+	},
+	{
+		id: 'hand-reorder',
+		label: 'Reorder',
+		reference: 'Reorder your hand',
+		applies: on('hand-card'),
+		gesture: 'drag along the hand',
+		run: () => {}
 	},
 
 	// ---- a deck ----
@@ -724,7 +756,14 @@ export const TARGET_NOUNS: Readonly<Record<VerbTargetKind, string>> = {
 };
 
 /** reference section order, and the heading each one reads under */
-const REFERENCE_KINDS: readonly VerbTargetKind[] = ['table', 'card', 'deck', 'piece', 'selection'];
+const REFERENCE_KINDS: readonly VerbTargetKind[] = [
+	'table',
+	'card',
+	'hand-card',
+	'deck',
+	'piece',
+	'selection'
+];
 
 export type VerbReferenceSection = { title: string; rows: KeybindRow[] };
 

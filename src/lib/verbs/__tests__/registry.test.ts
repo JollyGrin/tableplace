@@ -90,8 +90,13 @@ describe('verbs by kind', () => {
 		expect(verb({ kind: 'deck', id: 'deck:them:0' }, 'draw-table').enabled).toBe(true);
 	});
 
-	it('hand cards are a reserved kind with nothing on them yet', () => {
-		expect(verbsFor({ kind: 'hand-card', id: 'card:me:AS' }, me)).toEqual([]);
+	it('hand cards have gestures only — no key a hovered hand card could steal (tableplace-195)', () => {
+		const verbs = verbsFor({ kind: 'hand-card', id: 'card:me:AS' }, me);
+		expect(verbs.map((verb) => [verb.id, verb.gesture, verb.hotkey])).toEqual([
+			['hand-play', 'drag out', undefined],
+			['hand-play-other', 'Shift + drag out', undefined],
+			['hand-reorder', 'drag along the hand', undefined]
+		]);
 	});
 
 	it('a selection takes F, Q/E, G and L, and lists Esc (tableplace-202)', () => {

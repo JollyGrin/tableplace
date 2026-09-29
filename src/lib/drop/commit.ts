@@ -7,6 +7,7 @@ import { modelSurfaceYAt } from '$lib/models/surface';
 import { resolveDrop, type DropTarget } from '$lib/utils/transforms/drop';
 import { resolveGroupDrop } from '$lib/utils/transforms/group-drop';
 import { collectionOf } from '$lib/store/selection';
+import { handDropIndex } from '$lib/HUDTray/handGesture';
 import type { GameDTO } from '$lib/store/game/types';
 
 /**
@@ -64,7 +65,13 @@ export function commitActiveDrag() {
 	);
 
 	if (drop?.kind === 'tray') {
-		gameActions.moveCardToTray(id, gameActions?.getMe()?.id as string);
+		// into the gap the fan opened under the pointer (tableplace-195)
+		gameActions.moveCardToTray(
+			id,
+			gameActions?.getMe()?.id as string,
+			get(handDropIndex) ?? undefined
+		);
+		handDropIndex.set(null);
 	} else if (drop?.kind === 'deck' && drop.targetId) {
 		gameActions.placeOnTopOfDeck(drop.targetId, id);
 	} else if (drop?.kind === 'bag' && drop.targetId) {
