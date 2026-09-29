@@ -388,6 +388,80 @@ function drawToHand(id: string, count = 1): DrawToHandResult {
 	return { ok: true, deckId: id, cardIds };
 }
 
+export type TakeFromDeckResult =
+	| { ok: true; deckId: string; cardId: string }
+	| { ok: false; reason: 'no-deck' | 'not-yours' | 'no-card' | 'no-player' };
+
+/**
+ * Take one named card out of a deck, wherever it sits in the pile — deck
+ * search (tableplace-196). `to: 'hand'` puts it in your hand like a draw;
+ * `to: 'table'` lays it face-up on the felt in front of the deck, where
+ * drawFromTop would land a draw.
+ *
+ * The card is picked by its deck-card id, so a remote reorder between opening
+ * the search and clicking can't hand you a different card. Same ownership as
+ * drawToHand — your own decks and table-scoped ones — and the same single
+ * patch, deck shrink and destination together.
+ */
+function takeFromDeck(
+	id: string,
+	deckCardId: string,
+	to: 'hand' | 'table' = 'hand'
+): TakeFromDeckResult {
+	const deck = get(gameStore)?.decks?.[id];
+	if (!deck) return { ok: false, reason: 'no-deck' };
+	const playerId = gameActions.getMyId();
+	const player = playerId ? get(gameStore)?.players?.[playerId] : undefined;
+	if (!playerId || !player) return { ok: false, reason: 'no-player' };
+	if (!canDrawToHand(id, playerId)) return { ok: false, reason: 'not-yours' };
+	const available = deck.cards ?? [];
+	const index = available.findIndex((card) => card.id === deckCardId);
+	if (index < 0) return { ok: false, reason: 'no-card' };
+
+	const remaining = [...available];
+	const [card] = remaining.splice(index, 1);
+	const { id: takenId, ...body } = card!;
+	const taken = new Set([
+		...Object.keys(get(gameStore)?.cards ?? {}),
+		...Object.keys(player.tray ?? {})
+	]);
+	const cardId = allocateCardId(takenId, `${id}:search-0`, taken);
+	const faces = {
+		...body,
+		faceImageUrl: body.faceImageUrl ?? '',
+		...(body.backImageUrl || deck.deckBackImageUrl
+			? { backImageUrl: body.backImageUrl ?? (deck.deckBackImageUrl as string) }
+			: {})
+	};
+
+	if (to === 'hand') {
+		gameStore.updateState({
+			decks: { [id]: { cards: remaining } },
+			players: { [playerId]: { tray: { [cardId]: faces } } }
+		} as Partial<GameDTO>);
+		return { ok: true, deckId: id, cardId };
+	}
+
+	const seatYaw = degrees[gameActions.getMySeat()] ?? 0;
+	const [deckX = 0, , deckZ = 0] = deck.position ?? [];
+	const [x, z] = clampToTable(
+		deckX + Math.sin(seatYaw) * DRAW_LANDING_DISTANCE,
+		deckZ + Math.cos(seatYaw) * DRAW_LANDING_DISTANCE
+	);
+	gameStore.updateState({
+		decks: { [id]: { cards: remaining } },
+		cards: {
+			[cardId]: {
+				...faces,
+				position: [x, CARD_REST_Y, z],
+				// face-up whatever the pile: you picked it by its face
+				rotation: [0, 0, -seatYaw / DEG2RAD]
+			}
+		}
+	});
+	return { ok: true, deckId: id, cardId };
+}
+
 /**
  * Draw the top card straight into an in-flight drag (tableplace-103): the
  * card spawns already airborne — at the pointer's table point, at
@@ -513,6 +587,7 @@ export const deckActions = {
 	drawFromTop,
 	drawToHand,
 	canDrawToHand,
+	takeFromDeck,
 	drawIntoDrag,
 	flipDeck,
 	getDeckLength,
