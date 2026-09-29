@@ -144,6 +144,32 @@ export type UngroupResult =
 	| { ok: true; deckId: string; cardIds: string[] }
 	| { ok: false; reason: 'no-deck' | 'not-mine' | 'empty' | 'too-many'; count?: number };
 
+export type UngroupRefusal = Extract<UngroupResult, { ok: false }>;
+
+/** Decks belong to the player their id names: `deck:<playerId>:<slot>`. */
+export function isDeckOwnedBy(deckId: string, playerId: string | null | undefined): boolean {
+	return !!playerId && deckId.startsWith(`deck:${playerId}:`);
+}
+
+/**
+ * Why `playerId` may not spread `deckId` right now, or null when they may.
+ * Pure over the store, so the verb registry can grey the verb out before
+ * anyone presses it and `ungroupDeck` refuses with the very same rule.
+ */
+export function ungroupRefusal(
+	deckId: string | null | undefined,
+	playerId: string | null | undefined
+): UngroupRefusal | null {
+	if (!deckId) return { ok: false, reason: 'no-deck' };
+	const deck = get(gameStore)?.decks?.[deckId];
+	if (!deck) return { ok: false, reason: 'no-deck' };
+	if (!isDeckOwnedBy(deckId, playerId)) return { ok: false, reason: 'not-mine' };
+	const count = deck.cards?.length ?? 0;
+	if (count === 0) return { ok: false, reason: 'empty' };
+	if (count > UNGROUP_MAX_CARDS) return { ok: false, reason: 'too-many', count };
+	return null;
+}
+
 /**
  * Reuse the card's own id when nothing on the table holds it — a deck built
  * by `G` still carries the ids its loose cards had, so a round trip lands the
@@ -169,16 +195,10 @@ function allocateCardId(preferred: string, fallback: string, taken: Set<string>)
  */
 function ungroupDeck(deckId?: string): UngroupResult {
 	const id = deckId ?? get(dragStore).isDeckHovered;
-	if (!id) return { ok: false, reason: 'no-deck' };
-
-	const deck = get(gameStore)?.decks?.[id];
-	if (!deck) return { ok: false, reason: 'no-deck' };
-	if (!getMyDecks().some(([key]) => key === id)) return { ok: false, reason: 'not-mine' };
-
+	const refusal = ungroupRefusal(id, gameActions.getMe()?.id);
+	const deck = id ? get(gameStore)?.decks?.[id] : undefined;
+	if (refusal || !id || !deck) return refusal ?? { ok: false, reason: 'no-deck' };
 	const deckCards = deck.cards ?? [];
-	if (deckCards.length === 0) return { ok: false, reason: 'empty' };
-	if (deckCards.length > UNGROUP_MAX_CARDS)
-		return { ok: false, reason: 'too-many', count: deckCards.length };
 
 	const isFaceUp = deck.isFaceUp ?? false;
 	// orderForDeck is its own inverse: fed the deck's array it hands back the

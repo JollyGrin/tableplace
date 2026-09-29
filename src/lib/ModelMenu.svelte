@@ -13,6 +13,10 @@
 	import { gameActions } from '$lib/store/game/actions';
 	import { modelMenu, closeModelMenu } from '$lib/store/pieceUi';
 	import { SNAP_GRID_YAW_STEP_DEFAULT } from '$lib/utils/constants-snap';
+	import { hotkeyLabel } from '$lib/verbs/registry';
+
+	// printed from the registry, so the footer cannot drift from the binding
+	const rotateKeys = `${hotkeyLabel('rotate-cw', 'piece')} / ${hotkeyLabel('rotate-ccw', 'piece')}`;
 
 	const piece = $derived($modelMenu ? $gameStore?.pieces?.[$modelMenu.id] : undefined);
 	const snaps = $derived(piece?.snap !== false);
@@ -102,6 +106,8 @@
 		>
 			Remove
 		</button>
-		<div class="border-t border-white/10 px-3 py-1.5 text-xs text-gray-500">T / R — rotate</div>
+		<div class="border-t border-white/10 px-3 py-1.5 text-xs text-gray-500">
+			{rotateKeys} — rotate
+		</div>
 	</div>
 {/if}
