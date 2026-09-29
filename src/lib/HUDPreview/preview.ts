@@ -9,6 +9,11 @@
  * Hidden information stays hidden: a face-down card previews its back with no
  * caption, and a face-down deck previews its back with only its count. Your
  * own hand is always shown face up — it is already face up to you in the tray.
+ *
+ * One exception, the peek (tableplace-193): a face-down card you laid out of
+ * your own hand (`placedBy` is you) previews its face, captioned so you know
+ * the others see its back. Hidden here means hidden in the UI — the face is
+ * in synced state — so the copy never claims more than that.
  */
 
 import { currentPieceState } from '$lib/compose/piece';
@@ -50,6 +55,9 @@ export function isPreviewOpen(state: {
 	return !state.isDragging && !!(state.isPreview || state.noSnap);
 }
 
+/** The caption on a peeked card: it only says who sees it, never that it is safe. */
+export const PEEK_CAPTION = 'Only you see this';
+
 function cardCount(n: number): string {
 	return n === 1 ? '1 card' : `${n} cards`;
 }
@@ -78,14 +86,17 @@ export function previewTarget(
 		const card = game.cards?.[hover.card];
 		if (card) {
 			const faceDown = (card.rotation ?? [0])[0] === 180;
-			const face = faceDown ? card.backImageUrl || CARD_BACK_DEFAULT : card.faceImageUrl;
+			const peek = faceDown && !!myPlayerId && card.placedBy === myPlayerId;
+			const hidden = faceDown && !peek;
+			const face = hidden ? card.backImageUrl || CARD_BACK_DEFAULT : card.faceImageUrl;
 			if (face) {
+				const name = hidden ? '' : (card.name ?? '');
 				return {
 					id: hover.card,
 					face,
 					shape: 'card',
 					landscape: card.orientation === 'landscape',
-					caption: faceDown ? '' : (card.name ?? '')
+					caption: peek ? (name ? `${name} · ${PEEK_CAPTION}` : PEEK_CAPTION) : name
 				};
 			}
 		}

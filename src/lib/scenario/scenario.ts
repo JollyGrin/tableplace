@@ -202,7 +202,7 @@ export function saveScenario(name: string): Scenario {
 	const placements: PackPlacement[] = [];
 	const refs = new Map<string, PackRef>();
 	const state: Partial<GameDTO> = {
-		cards: s?.cards ?? {},
+		cards: portableCards(s?.cards),
 		decks: {},
 		pieces: {},
 		overlays: {},
@@ -246,6 +246,23 @@ export function saveScenario(name: string): Scenario {
 	all[name] = scenario;
 	writeAll(all);
 	return scenario;
+}
+
+/**
+ * A peek mark (`placedBy`, tableplace-193) is kept only when it names a seat
+ * placeholder — a real player's id means nothing in the next lobby, the same
+ * reason real players themselves are not saved.
+ */
+function portableCards(cards: GameDTO['cards'] | undefined): GameDTO['cards'] {
+	const out: GameDTO['cards'] = {};
+	for (const [id, card] of Object.entries(cards ?? {})) {
+		out[id] = card;
+		if (card?.placedBy && !isSeatPlaceholder(card.placedBy)) {
+			out[id] = { ...card };
+			delete out[id].placedBy;
+		}
+	}
+	return out;
 }
 
 /** Placeholder players hold a seat's tray + seat index until a real player claims them. */
@@ -408,6 +425,13 @@ export function claimSeat(seat: SeatIndex): boolean {
 			update[collection][renameOwner(key, placeholder, myId)] = value;
 			update[collection][key] = null;
 		}
+	}
+	// a card the seat laid face-down is mine to peek at now (tableplace-193),
+	// wherever it lies and whoever's id it carries
+	for (const [key, card] of Object.entries(s?.cards ?? {})) {
+		if (card?.placedBy !== placeholder) continue;
+		const target = key.includes(`:${placeholder}:`) ? renameOwner(key, placeholder, myId) : key;
+		update.cards[target] = { ...(update.cards[target] as object), placedBy: myId };
 	}
 	update.players[placeholder] = null;
 	update.players[myId] = { seat, tray: ph?.tray ?? {} };

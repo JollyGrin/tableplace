@@ -28,7 +28,13 @@ function flipCard(cardId?: string) {
 	const isFlipped = card?.rotation?.[0] === 180; // 180 = backFace of card is visible
 	const x = isFlipped ? 0 : 180;
 	return gameStore.updateState({
-		cards: { [id as string]: { rotation: [x, y, z] } }
+		cards: {
+			[id as string]: {
+				rotation: [x, y, z],
+				// face up is public: the placer's peek has nothing left to hide
+				...(isFlipped && card?.placedBy ? { placedBy: null } : {})
+			}
+		}
 	});
 }
 

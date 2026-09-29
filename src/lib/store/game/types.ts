@@ -28,10 +28,24 @@ export type CardDTO = {
 	 * means unlocked.
 	 */
 	locked?: boolean;
+	/**
+	 * Player id of whoever laid this card face-down out of their hand
+	 * (tableplace-193). For that player alone the zoomed preview shows the face
+	 * — a peek. A display rule only: the face is in synced state for everyone,
+	 * this just decides what the UI draws. Cleared when the card is flipped
+	 * face up or goes into a hand; a pile never carries it. Absent = nobody
+	 * may peek.
+	 */
+	placedBy?: string;
 };
 
-/** a card in a pile has no place of its own to be pinned to */
-export type CardInDeck = Omit<CardDTO, 'position' | 'rotation' | 'locked'> & { id: string };
+/**
+ * a card in a pile has no place of its own to be pinned to, and nobody's peek
+ * survives the shuffle into one
+ */
+export type CardInDeck = Omit<CardDTO, 'position' | 'rotation' | 'locked' | 'placedBy'> & {
+	id: string;
+};
 
 /**
  * Provenance stamped on pack-spawned entities so a scenario export (tbps v2)
