@@ -1,3 +1,4 @@
+import { allowIntent } from '$lib/gate';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { attachIntents, INTENTS_KEY, mintIntent } from '$lib/store/game/intents';
 import type { GameDTO } from '$lib/store/game/types';
@@ -126,6 +127,14 @@ export function wsWrapperUpdateGameState(fn: Function) {
 	let positionTimeout: ReturnType<typeof setTimeout> | null = null;
 	let pendingPayload: any = null;
 	return function passArgs(...args: any[]) {
+		// The referee's veto (tableplace-171), ahead of EVERYTHING this wrapper
+		// does. A refused action must not reach the relay, so this cannot sit any
+		// later: the send below is the point of no return, and once a peer has the
+		// patch there is no un-telling it. Returning here also skips `fn`, so the
+		// store never applies it either and no intent is minted. Free when no
+		// validator is registered, and memoised per action call, so the store's
+		// own check underneath reads the same verdict rather than a second one.
+		if (!allowIntent()) return;
 		console.log('ws update gamestate: spread args', ...args);
 		const metadata = createWsMetaData();
 		if (!metadata.playerId || metadata.playerId === '') {

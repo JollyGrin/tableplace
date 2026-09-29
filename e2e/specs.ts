@@ -18,7 +18,7 @@ import type { Browser } from 'puppeteer-core';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { ok, planarDistance } from './assert';
 import type { Servers } from './servers';
-import { openTable, type Intent, type Table } from './table';
+import { openTable, type Intent, type Table, type TableOptions, type WireFrame } from './table';
 
 export type Spec = {
 	name: string;
@@ -128,12 +128,83 @@ async function assertRenders(table: Table, id: string, label: string): Promise<v
 	ok(shape!.meshes > 0, `${label} (${id}) mounted an empty group — no meshes to draw`);
 }
 
+/**
+ * Everything about an outbound frame that legitimately differs between two runs
+ * of the same gesture, taken out: the clock (`timestamp`), the per-actor intent
+ * counter (`seq`), and every number — which for a drag's positions is a mouse
+ * pixel nobody can hit twice.
+ *
+ * Entity IDS, field KEYS, intent VERBS and message ORDER all survive, which is
+ * what "identical on the wire" has to mean for the referee seam
+ * (tableplace-171): a gate that added a message, a field or a verb, or that
+ * withheld one, changes at least one of those on every single frame.
+ */
+const VOLATILE = new Set(['timestamp', 'seq']);
+function wireShape(value: unknown): unknown {
+	if (typeof value === 'number') return 0;
+	if (Array.isArray(value)) return value.map(wireShape);
+	if (value && typeof value === 'object')
+		return Object.fromEntries(
+			Object.entries(value)
+				.filter(([key]) => !VOLATILE.has(key))
+				.sort(([a], [b]) => a.localeCompare(b))
+				.map(([key, nested]) => [key, wireShape(nested)])
+		);
+	return value;
+}
+
+const wireKey = (frames: WireFrame[]) => JSON.stringify(frames.map(wireShape));
+
+/** the reserved key the intents ride under — `store/game/intents.ts` */
+const INTENTS_KEY = '__intents';
+
+/**
+ * Outbound traffic sorted into the three things it actually is, so each can be
+ * compared by the standard it can actually meet:
+ *
+ *  - `actions` — `update` frames carrying an intent. ONE FOR ONE AND IN ORDER:
+ *    a gesture mints exactly one, so a gate that swallowed, doubled or
+ *    re-ordered an action shows up here on the first frame.
+ *  - `patches` — `update` frames with no verb behind them, i.e. the anonymous
+ *    per-frame drag stream. Compared as a SET OF SHAPES, because how many of
+ *    them the 200ms throttle coalesces depends on real mouse timing and never
+ *    was reproducible. What must not change is the KINDS that appear.
+ *  - `transport` — everything that is not a patch at all: the camera presence
+ *    samples and the socket's `ping` keepalive, each on a timer of its own.
+ *    Compared as a set of message TYPES: a gate has no business inventing one.
+ */
+function outbound(frames: WireFrame[]) {
+	const updates = frames.filter((frame) => frame.type === 'update');
+	const acted = (frame: WireFrame) => Array.isArray(frame.value?.[INTENTS_KEY]);
+	const shapes = (of: WireFrame[]) =>
+		[...new Set(of.map((frame) => JSON.stringify(wireShape(frame))))].sort();
+	const actions = updates.filter(acted);
+	return {
+		actions: wireKey(actions),
+		verbs: actions.flatMap((frame) =>
+			(frame.value![INTENTS_KEY] as Intent[]).map((intent) => intent.verb)
+		),
+		patches: shapes(updates.filter((frame) => !acted(frame))),
+		transport: [
+			...new Set(
+				frames.filter((frame) => frame.type !== 'update').map((frame) => frame.type ?? '?')
+			)
+		].sort()
+	};
+}
+
+/** the only top-level keys an `update` message has ever had (see createWsMetaData) */
+const FRAME_KEYS = ['playerId', 'timestamp', 'type', 'value'];
+/** GameDTO's collections, plus the intent channel's piggyback (tableplace-169) */
+const VALUE_KEYS = ['cards', 'decks', 'players', 'overlays', 'pieces', 'snapPoints', '__intents'];
+
 async function withTable(
 	context: { browser: Browser; servers: Servers },
 	name: string,
-	body: (table: Table) => Promise<void>
+	body: (table: Table) => Promise<void>,
+	options: TableOptions = {}
 ): Promise<void> {
-	const table = await openTable(context.browser, context.servers, nextLobby(name));
+	const table = await openTable(context.browser, context.servers, nextLobby(name), options);
 	try {
 		await body(table);
 	} finally {
@@ -2069,6 +2140,394 @@ export const SPECS: Spec[] = [
 
 					assertClean(host, 'on the acting client after the scripted gesture');
 					assertClean(guest, 'on the watching client after the scripted gesture');
+				} finally {
+					await guest.close();
+				}
+			} finally {
+				await host.close();
+			}
+		}
+	},
+	{
+		/**
+		 * The referee seam's headline requirement (tableplace-171): a table with no
+		 * validator registered must behave EXACTLY as it did before the gate
+		 * existed. Games with no rules engine pay nothing.
+		 *
+		 * Proven at the wire rather than asserted. The same scripted gesture — two
+		 * flips, two rotations and two real mouse drags over fixed entities — runs
+		 * three times against a live relay while CDP records what actually left the
+		 * socket: ungated, with the stub validator on (which allows everything the
+		 * acting seat owns), and ungated again. All three must produce the same
+		 * frames, in the same order, carrying the same collections, fields, ids and
+		 * verbs. The third leg is not redundant: without it, a match between the
+		 * first two could just mean the recording is insensitive.
+		 *
+		 * The frame-shape assertion is the other half. A gate that leaked anything
+		 * of itself onto the wire — a verdict, a flag, a second message — would put
+		 * a key here that a pre-gate build never sent, and the allowlists below are
+		 * exactly what #169 left behind.
+		 */
+		name: 'gate: pass-through — an ungated gesture is identical on the wire',
+		run: (context) =>
+			withTable(
+				context,
+				'gate-passthrough',
+				async (table) => {
+					const owner = await table.myId();
+					ok(owner, 'the table never rolled a player id — nothing owns anything');
+					// owned by this seat, so the stub validator allows every leg below:
+					// what is under test is the COST of a referee, not its rulings.
+					//
+					// Spaced out on purpose. The relay DISCONNECTS a client that sustains
+					// more than ~7 messages a second, and a seed + spawn + draw fired back
+					// to back on top of the join handshake trips it often enough to matter —
+					// after which nothing this client sends reaches the socket at all, which
+					// looks exactly like the silence a gate spec exists to prove.
+					const deck = await table.seedDeck({ owner });
+					await table.settle(500);
+					const token = await table.spawn('token', { name: 'Scout', position: LANE(1) });
+					await table.settle(500);
+					const card = await table.page.evaluate((deckId) => {
+						const before = new Set(Object.keys(window.__tableplace!.state()?.cards ?? {}));
+						window.__tableplace!.actions.drawFromTop(deckId, 1);
+						return (
+							Object.keys(window.__tableplace!.state()?.cards ?? {}).find(
+								(id) => !before.has(id)
+							) ?? ''
+						);
+					}, deck);
+					ok(card, 'drawFromTop put no card on the table to flip');
+					await table.settle(1000);
+					// and if the limit tripped anyway, say so here rather than three
+					// assertions later as an inexplicably empty recording
+					ok(
+						await table.connected(),
+						'the lobby socket closed during setup — nothing this client sends from here ' +
+							'on reaches the wire, so the comparison below would be vacuous. The page ' +
+							`said:\n  ${table.problems.map((p) => `[${p.kind}] ${p.text}`).join('\n  ')}`
+					);
+
+					/**
+					 * Fixed entities and self-cancelling amounts, so the gesture leaves the
+					 * table where it found it and can be replayed verbatim. Deliberately
+					 * mixed: two immediate verbs (sent straight out) and two mouse drags
+					 * (whose landing patches go through the 200ms coalescing throttle).
+					 */
+					const gesture = async () => {
+						for (const angle of [90, -90]) {
+							await table.page.evaluate(
+								(id, by) => window.__tableplace!.actions.rotatePiece(id, by),
+								token,
+								angle
+							);
+							await table.settle(400);
+						}
+						for (let flip = 0; flip < 2; flip++) {
+							await table.page.evaluate((id) => window.__tableplace!.actions.flipCard(id), card);
+							await table.settle(400);
+						}
+						await table.dragBy(token, 0, 120);
+						await table.settle(700);
+						await table.dragBy(token, 0, -120);
+						await table.settle(700);
+					};
+
+					const legs: {
+						label: string;
+						sent: ReturnType<typeof outbound>;
+						recorded: WireFrame[];
+					}[] = [];
+					for (const [label, stub] of [
+						['ungated', false],
+						['stub validator on', true],
+						['ungated again', false]
+					] as const) {
+						await table.setStubValidator(stub);
+						await table.clearWire();
+						await gesture();
+						const recorded = await table.wire();
+						legs.push({ label, sent: outbound(recorded), recorded });
+					}
+					await table.setStubValidator(false);
+
+					const EXPECTED = [
+						'rotatePiece',
+						'rotatePiece',
+						'flipCard',
+						'flipCard',
+						'moveEntity',
+						'moveEntity'
+					];
+					const base = legs[0]!;
+					ok(
+						JSON.stringify(base.sent.verbs) === JSON.stringify(EXPECTED),
+						`the ungated gesture did not reach the socket as ${JSON.stringify(EXPECTED)} — ` +
+							`the comparison below would be comparing the wrong thing: ` +
+							`${JSON.stringify(base.sent.verbs)}\n  ` +
+							`socket open: ${await table.connected()}; ` +
+							`${base.recorded.length} frame(s) recorded at all:\n  ` +
+							base.recorded.map((frame) => JSON.stringify(frame)).join('\n  ')
+					);
+					ok(
+						base.sent.patches.length > 0,
+						'no drag-stream traffic was recorded at all — the comparison below would be vacuous'
+					);
+					// nothing but the presence stream and the socket's own keepalive rides
+					// outside the patch channel — a gate that invented a message shows here
+					ok(
+						base.sent.transport.every((type) => type === 'camera' || type === 'ping'),
+						`an outbound message type no pre-gate build sent: ${JSON.stringify(base.sent.transport)}`
+					);
+					for (const leg of legs.slice(1)) {
+						for (const [what, mine, theirs] of [
+							['ACTIONS', leg.sent.actions, base.sent.actions],
+							[
+								'unnamed patch KINDS',
+								JSON.stringify(leg.sent.patches),
+								JSON.stringify(base.sent.patches)
+							]
+						] as const) {
+							ok(
+								mine === theirs,
+								`"${leg.label}" put different ${what} on the wire than "${base.label}" — ` +
+									`the gate is not free:\n  ${base.label} ${theirs}\n  ${leg.label} ${mine}`
+							);
+						}
+					}
+
+					// and nothing of the gate itself is on the wire in the ungated case.
+					// Only the patch channel is in scope: a `camera` frame's value is a
+					// pose (`{p, t}`), not a GameDTO patch, and never was.
+					const patches = (await table.wire()).filter((frame) => frame.type === 'update');
+					const strayFrame = patches.find((frame) =>
+						Object.keys(frame).some((key) => !FRAME_KEYS.includes(key))
+					);
+					ok(
+						!strayFrame,
+						`an outbound message carries a key no pre-gate build sent: ` +
+							`${JSON.stringify(Object.keys(strayFrame ?? {}))}`
+					);
+					const strayValue = patches
+						.flatMap((frame) => Object.keys(frame.value ?? {}))
+						.find((key) => !VALUE_KEYS.includes(key));
+					ok(
+						!strayValue,
+						`an outbound patch carries a collection no pre-gate build sent: ${strayValue}`
+					);
+
+					// an allowing referee refuses nothing, and says nothing
+					const refusals = await table.refusals();
+					ok(
+						refusals.length === 0,
+						`the referee refused an action on the acting seat's own entities: ${JSON.stringify(refusals)}`
+					);
+					assertClean(table, 'after the same gesture ran gated and ungated');
+				},
+				// what leaves the socket IS the assertion here, so the recorder is armed
+				// before the page ever opens one (see TableOptions.wire)
+				{ wire: true }
+			)
+	},
+	{
+		/**
+		 * The gate ruling (tableplace-171), from both sides of the wire.
+		 *
+		 * With the stub validator on — one toy rule, "you may only act on entities
+		 * your own seat owns" — the guest reaches for the host's token and the
+		 * host's card. What must happen locally is a snap-back for the drag, a
+		 * no-op for the flip and a toast carrying the validator's own reason. What
+		 * must happen everywhere else is NOTHING: no patch, no broadcast, no minted
+		 * intent, so the host's state and intent log are untouched and the guest's
+		 * own socket carries not one frame naming either entity.
+		 *
+		 * That last assertion is the load-bearing one, and it is why this reads the
+		 * wire directly: a drag streams positions per frame, so a gate that only
+		 * ruled on the DROP would have shown the host the whole gesture before
+		 * undoing it. The peer must be unable to tell it was attempted at all.
+		 *
+		 * Two browser contexts, not two tabs — see `TableOptions.isolated`.
+		 */
+		name: 'gate: the referee refuses another seat, and the peer never hears of it',
+		run: async (context) => {
+			const lobby = nextLobby('gate-deny');
+			const host = await openTable(context.browser, context.servers, lobby);
+			try {
+				const hostId = await host.myId();
+				ok(hostId, 'the host never rolled a player id — nothing would own the deck');
+				const deck = await host.seedDeck({ owner: hostId });
+				const hostToken = await host.spawn('token', { name: 'Sentry', position: LANE(1) });
+				const hostCard = await host.page.evaluate((deckId) => {
+					const before = new Set(Object.keys(window.__tableplace!.state()?.cards ?? {}));
+					window.__tableplace!.actions.drawFromTop(deckId, 1);
+					return (
+						Object.keys(window.__tableplace!.state()?.cards ?? {}).find((id) => !before.has(id)) ??
+						''
+					);
+				}, deck);
+				ok(hostCard, 'drawFromTop put no host-owned card on the table to reach for');
+				await host.settle(1200);
+
+				// `wire: true` on the guest only: it is the acting client, and what has to
+				// be provable is that ITS socket stayed silent
+				const guest = await openTable(context.browser, context.servers, lobby, {
+					isolated: true,
+					wire: true
+				});
+				try {
+					await guest.settle(1500); // join, sync, prewarm the seeded deck's faces
+					const guestId = await guest.myId();
+					ok(
+						guestId && guestId !== hostId,
+						`the two clients are the same player (${hostId} / ${guestId}) — the relay ` +
+							`excludes a sender from its own broadcast, so neither would receive the other`
+					);
+					// the guest has to actually HAVE the host's entities before it can be
+					// refused them; a fixed sleep would read a slow sync as a lost patch
+					ok(
+						await eventually(
+							async () => (await guest.positionOf(hostToken)) && (await guest.positionOf(hostCard)),
+							(arrived) => !!arrived
+						),
+						"the host's token and card never reached the guest — nothing to reach for"
+					);
+
+					await guest.setStubValidator(true);
+					ok(
+						await guest.page.evaluate(() => window.__tableplace!.stubValidatorEnabled()),
+						'the stub validator did not install — is this a dev build?'
+					);
+					await guest.clearRefusals();
+					await Promise.all([host.clearIntents(), guest.clearIntents()]);
+					await guest.clearWire();
+
+					const tokenBefore = await guest.positionOf(hostToken);
+					const hostTokenBefore = await host.positionOf(hostToken);
+					const hostCardBefore = await host.page.evaluate(
+						(id) => window.__tableplace!.state()?.cards?.[id]?.rotation ?? null,
+						hostCard
+					);
+
+					// ─── a refused drag: it lifts, follows the pointer, and snaps back ───
+					await guest.dragBy(hostToken, 0, 130);
+					const tokenAfter = await eventually(
+						() => guest.positionOf(hostToken),
+						(position) => planarDistance(tokenBefore, position) < 0.1
+					);
+					ok(
+						planarDistance(tokenBefore, tokenAfter) < 0.1,
+						`the refused drag did not snap back: ${JSON.stringify(tokenBefore)} → ` +
+							`${JSON.stringify(tokenAfter)}`
+					);
+					ok(
+						(await guest.page.evaluate(() => window.__tableplace!.drag().isDragging)) === null,
+						'the refused drag never let go of the token'
+					);
+
+					// ─── a refused instantaneous verb: it simply does not apply ───
+					await guest.page.evaluate((id) => window.__tableplace!.actions.flipCard(id), hostCard);
+					await guest.settle(700);
+					const guestCardRotation = await guest.page.evaluate(
+						(id) => window.__tableplace!.state()?.cards?.[id]?.rotation ?? null,
+						hostCard
+					);
+					ok(
+						JSON.stringify(guestCardRotation) === JSON.stringify(hostCardBefore),
+						`the refused flip turned the card anyway: ${JSON.stringify(hostCardBefore)} → ` +
+							`${JSON.stringify(guestCardRotation)}`
+					);
+
+					// ─── the player was told why, in the validator's own words ───
+					const refusals = await guest.refusals();
+					ok(
+						refusals.length === 2 &&
+							refusals[0]?.verb === 'moveEntity' &&
+							refusals[1]?.verb === 'flipCard',
+						`the referee did not refuse exactly the drag and the flip: ${JSON.stringify(refusals)}`
+					);
+					const reason = refusals[0]!.reason;
+					ok(
+						/yours/.test(reason),
+						`the refusal carries no reason a player could read: ${JSON.stringify(reason)}`
+					);
+					const shown = await guest.toasts();
+					ok(
+						shown.some((text) => text.includes(reason)),
+						`the reason never reached the screen — toasts say ${JSON.stringify(shown)}, ` +
+							`expected one carrying ${JSON.stringify(reason)}`
+					);
+
+					// ─── and the host heard none of it ───
+					const hostTokenAfter = await host.positionOf(hostToken);
+					ok(
+						planarDistance(hostTokenBefore, hostTokenAfter) < 0.001,
+						`the host's token moved for a refused drag: ${JSON.stringify(hostTokenBefore)} → ` +
+							`${JSON.stringify(hostTokenAfter)}`
+					);
+					const hostCardAfter = await host.page.evaluate(
+						(id) => window.__tableplace!.state()?.cards?.[id]?.rotation ?? null,
+						hostCard
+					);
+					ok(
+						JSON.stringify(hostCardAfter) === JSON.stringify(hostCardBefore),
+						`the host's card turned for a refused flip: ${JSON.stringify(hostCardAfter)}`
+					);
+					const hostSaw = await host.intents();
+					ok(
+						hostSaw.length === 0,
+						`the host was told about refused actions: ${JSON.stringify(hostSaw)}`
+					);
+					// the wire itself, not a report about it: not one frame the guest sent
+					// may so much as name the entities it was refused
+					const leaked = (await guest.wire()).filter(
+						(frame) =>
+							JSON.stringify(frame).includes(hostToken) || JSON.stringify(frame).includes(hostCard)
+					);
+					ok(
+						leaked.length === 0,
+						`the guest put ${leaked.length} frame(s) naming a refused entity on the socket:\n  ` +
+							leaked.map((frame) => JSON.stringify(frame)).join('\n  ')
+					);
+					// and no minted intent stayed behind locally either
+					const guestSaw = await guest.intents();
+					ok(
+						guestSaw.length === 0,
+						`a refused action minted an intent on the acting client: ${JSON.stringify(guestSaw)}`
+					);
+
+					// ─── its own entities still work exactly as in #169's specs ───
+					const guestToken = await guest.spawn('token', { name: 'Runner', position: LANE(2) });
+					await guest.settle(900);
+					await guest.dragBy(guestToken, 0, 130);
+					await guest.settle(900);
+					const moved = await guest.positionOf(guestToken);
+					ok(
+						planarDistance(LANE(2), moved) > 0.5,
+						`the guest could not move its own token: ${JSON.stringify(moved)}`
+					);
+					const delivered = await eventually(
+						() => host.intents(),
+						(seen) => seen.some((intent) => intent.verb === 'moveEntity'),
+						12_000
+					);
+					ok(
+						JSON.stringify(delivered.map((i) => i.verb)) ===
+							JSON.stringify(['addPiece', 'moveEntity']),
+						`the allowed gesture did not reach the host as ["addPiece","moveEntity"]: ` +
+							`${JSON.stringify(delivered.map((i) => i.verb))}`
+					);
+					ok(
+						delivered.every((intent) => intent.seat === guestId),
+						`the delivered intents are not attributed to the guest: ` +
+							`${JSON.stringify(delivered.map((i) => i.seat))}`
+					);
+					ok(
+						!!(await host.positionOf(guestToken)),
+						"the guest's own token never reached the host at all"
+					);
+
+					assertClean(host, 'on the watching client after the referee refused the guest');
+					assertClean(guest, 'on the refused client');
 				} finally {
 					await guest.close();
 				}

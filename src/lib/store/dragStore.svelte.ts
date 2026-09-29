@@ -1,5 +1,6 @@
 import { get, writable } from 'svelte/store';
 import type { Vector3 } from 'three';
+import { MOVE_ENTITY, refuse, refusalToMove } from '$lib/gate';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { collectStackGroup } from '$lib/utils/transforms/stacking';
 
@@ -33,6 +34,19 @@ interface DragState {
 	 * drawn out of a deck or tray has no table origin to return to.
 	 */
 	origin?: [number, number, number];
+	/**
+	 * Why the referee refused this drag (tableplace-171), when it did.
+	 *
+	 * A refused drag still HAPPENS — locally. The entity follows the pointer, and
+	 * on release it goes back to `origin` and says why; none of it is broadcast,
+	 * so a peer sees nothing at all. Letting the gesture play out is the point:
+	 * the table teaches the rule, where an entity that simply would not lift
+	 * leaves the player guessing whether the game is refereed or broken.
+	 *
+	 * Decided once, at the pickup, so the answer cannot change under the pointer
+	 * halfway through. Render-only, like everything else here.
+	 */
+	denied?: string;
 }
 
 const initialState: DragState = {
@@ -45,6 +59,7 @@ const initialState: DragState = {
 	dragHeight: undefined,
 	intersectionPoint: undefined,
 	origin: undefined,
+	denied: undefined,
 	hoveredStack: null,
 	noSnap: false
 };
@@ -53,12 +68,24 @@ const dragStore = writable<DragState>(initialState);
 
 // Start dragging a card
 function dragStart(id: string, height: number, origin?: [number, number, number]) {
+	// The referee gets asked at the PICKUP, not only at the drop: the per-frame
+	// positions a drag streams are patches like any other, and a refused gesture
+	// that broadcast them would show a peer a move that is about to be undone.
+	// `refusalToMove` costs nothing when no validator is registered.
+	//
+	// Without an origin there is nowhere to snap back TO — a card coming out of a
+	// deck or a hand never had a table position — so a refusal there ends the
+	// gesture before it starts rather than leaving the entity stranded mid-air.
+	const denied = refusalToMove(id) ?? undefined;
+	if (denied && !origin) return refuse(MOVE_ENTITY, denied);
+
 	dragStore.update((state) => ({
 		...state,
 		isDragging: id,
 		isHovered: id,
 		dragHeight: height,
 		origin,
+		denied,
 		// the pile you just picked a card out of is no longer a pile to preview
 		hoveredStack: null
 	}));
@@ -79,7 +106,12 @@ function updateIntersection(point: Vector3) {
 
 // End dragging and reset state
 function dragEnd() {
-	dragStore.update((state) => ({ ...state, isDragging: null, origin: undefined }));
+	dragStore.update((state) => ({
+		...state,
+		isDragging: null,
+		origin: undefined,
+		denied: undefined
+	}));
 }
 
 // Set hover state, and with it the loose stack the hovered card belongs to —

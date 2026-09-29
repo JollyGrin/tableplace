@@ -53,6 +53,17 @@ export type IntentEvent = {
 	args: unknown[];
 };
 
+/**
+ * An action as a referee sees it, before anything at all has happened
+ * (tableplace-171): everything an `IntentEvent` carries except the `seq`.
+ *
+ * The number is deliberately absent. `seq` is the replay guard every other
+ * client counts on, and a refused action that burnt one would leave a hole in a
+ * stream that is supposed to be identical everywhere — so a proposal has no
+ * number until it is allowed.
+ */
+export type ProposedIntent = Omit<IntentEvent, 'seq'>;
+
 export type IntentListener = (intent: IntentEvent) => void;
 
 /** How much of one argument is worth carrying before it is summarised instead. */
@@ -118,7 +129,7 @@ function admit(intent: IntentEvent): boolean {
  * rather than imported so the intent channel has no cycle back through the
  * actions bag that wraps itself with it.
  */
-function actingSeat(): string {
+export function actingSeat(): string {
 	try {
 		return localStorage.getItem('myPlayerId') ?? 'local';
 	} catch {
@@ -183,6 +194,36 @@ export function withIntents<T extends Record<string, unknown>>(actions: T): T {
 				: value;
 	}
 	return named as T;
+}
+
+/**
+ * The identity of the `gameActions` call currently running — an opaque token,
+ * not something to read fields off — or null when no verb is in scope at all.
+ *
+ * The referee seam (tableplace-171) is asked twice per action: once by the
+ * websocket wrapper, before it puts anything on the wire, and once by the store
+ * underneath it. Both must get the SAME answer and a player must be refused
+ * once rather than twice, so the gate memoises its verdict against this token.
+ * Deliberately the cheap half of the pair: `proposedIntent` below does the
+ * argument reduction, and only a memo MISS should pay for it.
+ *
+ * Null means the patch is not an action — a raw `gameStore.updateState` (the
+ * per-frame drag stream, a scenario load) — and there is nothing to rule on.
+ */
+export function currentActionCall(): object | null {
+	return frames[0] ?? null;
+}
+
+/**
+ * The action currently running, as a validator sees it: the OUTERMOST verb, the
+ * acting seat, and the same JSON-reduced arguments that would ride the wire —
+ * so a referee and a game log are looking at exactly the same thing, elisions
+ * included (see `reduceArg`).
+ */
+export function proposedIntent(): ProposedIntent | null {
+	const frame = frames[0];
+	if (!frame) return null;
+	return { seat: actingSeat(), verb: frame.verb, args: reduceArgs(frame.args) };
 }
 
 /**

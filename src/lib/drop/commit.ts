@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { MOVE_ENTITY, refuse } from '$lib/gate';
 import { dragEnd, dragStore } from '$lib/store/dragStore.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
@@ -23,9 +24,17 @@ export function commitActiveDrag() {
 		isDeckHovered,
 		isBagHovered,
 		isTrayHovered,
-		noSnap
+		noSnap,
+		denied,
+		origin
 	} = get(dragStore);
 	if (!id) return;
+
+	// A drag the referee refused at the pickup (tableplace-171) commits nothing
+	// at all: no drop is resolved, so none of the landing verbs run and there is
+	// no patch, no broadcast and no minted intent. It goes back where it came
+	// from instead, and says why.
+	if (denied) return snapBack(id, denied, origin);
 
 	// resolved by the same pure function the DropIndicator previews with, so
 	// what the player saw while dragging is what gets committed — including
@@ -73,11 +82,35 @@ type Landing = { position: [number, number, number]; rotation?: [number, number,
  * verb per pointer move is a flood, not a log. Only where it comes to rest is
  * an intent.
  */
-const land = withIntent('moveEntity', (id: string, patch: Landing) => {
-	if (id.startsWith('piece:')) gameStore.updateState({ pieces: { [id]: patch } });
-	else if (id.startsWith('deck:')) gameStore.updateState({ decks: { [id]: patch } });
-	else gameStore.updateState({ cards: { [id]: patch } });
-});
+const land = withIntent(MOVE_ENTITY, (id: string, patch: Landing) =>
+	gameStore.updateState(landingPatch(id, patch))
+);
+
+/** Which collection an entity id belongs to — the only thing a landing branches on. */
+function landingPatch(id: string, patch: Landing) {
+	if (id.startsWith('piece:')) return { pieces: { [id]: patch } };
+	if (id.startsWith('deck:')) return { decks: { [id]: patch } };
+	return { cards: { [id]: patch } };
+}
+
+/**
+ * Put a refused entity back where it was picked up, and say why
+ * (tableplace-171).
+ *
+ * Deliberately `updateStateSilently` — the apply-without-broadcast path an
+ * INBOUND patch uses. The refused drag never left this client (TableScene
+ * streams a denied drag through the same silent path), so undoing it must not
+ * leave either: a broadcast here would tell the peers about a position they were
+ * carefully never shown, and the whole point of a denial is that nothing
+ * crossed the wire. Their copy of the entity is still at `origin`, so a local
+ * restore is what converges the table.
+ */
+function snapBack(id: string, reason: string, origin?: [number, number, number]) {
+	// no origin means the drag never started (see dragStart) — belt and braces
+	if (origin) gameStore.updateStateSilently(landingPatch(id, { position: origin }));
+	refuse(MOVE_ENTITY, reason);
+	dragEnd();
+}
 
 /**
  * The state patch a landing writes. Position always; rotation only when the
@@ -98,8 +131,13 @@ function dropPatch(drop: DropTarget): Landing {
  * which at least never leaves it stuck in the air.
  */
 export function cancelActiveDrag() {
-	const { isDragging: id, origin } = get(dragStore);
+	const { isDragging: id, origin, denied } = get(dragStore);
 	if (!id) return;
+
+	// Esc on a refused drag lands in the same place a release does: back at the
+	// origin, locally, with the reason said out loud. `land` here would be vetoed
+	// at the seam and leave the entity wherever the local rehearsal left it.
+	if (denied) return snapBack(id, denied, origin);
 
 	if (!origin) {
 		// settle in place: resolve against the entity's own XZ, not the pointer

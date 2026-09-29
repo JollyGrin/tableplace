@@ -31,11 +31,23 @@ async function main() {
 	console.log('▸ starting vite dev + Go relay…');
 	const servers = await startServers();
 	console.log(`  web ${servers.web}   relay ${servers.relay}`);
-	const browser = await launchBrowser();
 
 	let failed = 0;
 	for (const spec of specs) {
 		const started = Date.now();
+		// A BROWSER PER SPEC, not one for the run.
+		//
+		// Every table here draws through SwiftShader, and a software rasteriser's
+		// cost does not go away when the page that made it closes: run twenty-odd
+		// specs through one Chrome and the last ones are starting behind everything
+		// the earlier ones left in the GPU process. That is not a hypothesis — the
+		// suite reached a length where identical two-client specs passed in the
+		// middle and timed out waiting for the bridge at the end, on the same
+		// commit, while a spec between them took five minutes to do thirty seconds
+		// of work. A spec's result has to mean something about the spec, not about
+		// its position in the list, and a launch is a couple of seconds against
+		// runs that are minutes each.
+		const browser = await launchBrowser();
 		try {
 			await spec.run({ browser, servers });
 			console.log(`  ✓ ${spec.name} (${Date.now() - started}ms)`);
@@ -48,10 +60,11 @@ async function main() {
 					.map((line) => `      ${line}`)
 					.join('\n')
 			);
+		} finally {
+			await browser.close().catch(() => {});
 		}
 	}
 
-	await browser.close();
 	await servers.stop();
 
 	console.log(failed ? `\n${failed}/${specs.length} failed` : `\n${specs.length} passed`);

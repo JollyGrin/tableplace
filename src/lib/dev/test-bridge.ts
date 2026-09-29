@@ -25,6 +25,12 @@ import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
 import { clearIntentLog, intentLog, type IntentEvent } from '$lib/store/game/intents';
+import { clearIntentRefusals, intentRefusals, type Refusal } from '$lib/gate';
+import {
+	installStubValidator,
+	isStubValidatorInstalled,
+	removeStubValidator
+} from './stub-validator';
 import type { GameDTO } from '$lib/store/game/types';
 
 export type ScreenPoint = { x: number; y: number };
@@ -71,6 +77,22 @@ export type TestBridge = {
 	intents: () => IntentEvent[];
 	/** forget the log, so a spec can bracket one gesture and compare just that */
 	clearIntents: () => void;
+	/**
+	 * The dev-only stub validator (tableplace-171) — "you may only act on
+	 * entities your own seat owns". Default OFF, because the gate's headline
+	 * property is that a table with none registered behaves exactly as it did
+	 * before the gate existed; the harness proves that by running the same
+	 * gesture with it off and on and comparing what left over the wire.
+	 */
+	enableStubValidator: () => void;
+	disableStubValidator: () => void;
+	stubValidatorEnabled: () => boolean;
+	/**
+	 * Every refusal the referee has voiced on this client, oldest first, with the
+	 * validator's own reason — the machine-readable half of the toast.
+	 */
+	refusals: () => Refusal[];
+	clearRefusals: () => void;
 	/** what an entity is actually made of — null if it never mounted at all */
 	describe: (id: string) => EntityShape | null;
 	/**
@@ -289,6 +311,11 @@ export function installTestBridge(handles: SceneHandles): void {
 		connected: () => isWebSocketConnected(),
 		intents: () => intentLog(),
 		clearIntents: () => clearIntentLog(),
+		enableStubValidator: () => installStubValidator(),
+		disableStubValidator: () => removeStubValidator(),
+		stubValidatorEnabled: () => isStubValidatorInstalled(),
+		refusals: () => intentRefusals(),
+		clearRefusals: () => clearIntentRefusals(),
 		camera: () => {
 			const camera = handles.camera();
 			if (!camera) return null;

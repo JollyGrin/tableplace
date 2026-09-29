@@ -86,14 +86,21 @@
 				// so the floating entity can never track somewhere it can't land
 				const [cx, cz] = clampToTable(intersectionPoint.x, intersectionPoint.z);
 				const dragId = $dragStore.isDragging as string;
+				// A drag the referee refused at the pickup (tableplace-171) is a LOCAL
+				// rehearsal: the entity follows the pointer here and snaps back on
+				// release, and not one frame of it is broadcast — a peer has to be
+				// unable to tell the gesture was ever attempted. `updateStateSilently`
+				// is the existing apply-without-broadcast path (it is what an inbound
+				// patch uses), so nothing new is needed to hold a drag back.
+				const apply = $dragStore.denied ? gameStore.updateStateSilently : gameStore.updateState;
 				if (dragId.startsWith('piece:')) {
-					gameStore.updateState({ pieces: { [dragId]: { position: [cx, PIECE_DRAG_Y, cz] } } });
+					apply({ pieces: { [dragId]: { position: [cx, PIECE_DRAG_Y, cz] } } });
 				} else if (dragId.startsWith('deck:')) {
 					// decks float at card height while dragged; these stream through
 					// the same position throttle as cards (see storeIntegration.ts)
-					gameStore.updateState({ decks: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
+					apply({ decks: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
 				} else {
-					gameStore.updateState({ cards: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
+					apply({ cards: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
 				}
 			}
 

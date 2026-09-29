@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import type { GameDTO } from './types';
 import { merge } from '../transform-helpers';
 import { mintIntent, receiveIntents, splitIntents } from './intents';
+import { allowIntent } from '$lib/gate';
 
 const initGameState = {
 	players: {},
@@ -10,10 +11,7 @@ const initGameState = {
 };
 const game = writable<Partial<GameDTO>>(initGameState);
 
-function findNullPaths(
-	obj: Record<string, any>,
-	currentPath: string[] = []
-): string[][] {
+function findNullPaths(obj: Record<string, any>, currentPath: string[] = []): string[][] {
 	const nullPaths: string[][] = [];
 
 	for (const [key, value] of Object.entries(obj)) {
@@ -69,9 +67,7 @@ function deepFilterNulls<T>(obj: T): T {
  * the original type, a partial object of that type (for nested objects), or null.
  * */
 type PartialWithNull<T> = {
-	[P in keyof T]?: T[P] extends object
-		? PartialWithNull<T[P]> | null
-		: T[P] | null;
+	[P in keyof T]?: T[P] extends object ? PartialWithNull<T[P]> | null : T[P] | null;
 };
 
 function applyPatch(update: PartialWithNull<GameDTO>) {
@@ -100,8 +96,17 @@ function applyPatch(update: PartialWithNull<GameDTO>) {
  * patch, no intent. `mintIntent` is idempotent per action call, so the
  * websocket wrapper minting first (to put the event on the wire) leaves this
  * one a no-op rather than a second event.
+ *
+ * `allowIntent` (tableplace-171) is the referee's veto, and it comes FIRST:
+ * a refused action leaves no patch and no minted intent behind, so nothing
+ * downstream — the store, an observer, a game log — ever hears about it. With
+ * no validator registered it is a single null check and this function behaves
+ * exactly as it did before the gate existed. The websocket wrapper asks the
+ * same question before it sends; the verdict is memoised per action call, so
+ * asking twice cannot refuse a player twice.
  */
 function updateState(update: PartialWithNull<GameDTO>) {
+	if (!allowIntent()) return;
 	mintIntent();
 	applyPatch(update);
 }
