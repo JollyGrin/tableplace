@@ -45,6 +45,10 @@ export const PACK_SPEC_VERSION = '1.6.0';
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
  *
+ * 0.1.10 — `state.cards` (deck cards and hand cards too) can carry `name`,
+ * the zoomed preview's caption (tableplace-192). One optional field —
+ * additive, so PATCH.
+ *
  * 0.1.9 — `state.pieces` can be `kind: 'model'` and carry the `model:` catalog
  * ref (tableplace-135). A widened union plus one optional field — additive, so
  * PATCH, not minor, per the 0.x rule above.
@@ -59,7 +63,7 @@ export const PACK_SPEC_VERSION = '1.6.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.9';
+export const SCENARIO_SPEC_VERSION = '0.1.10';
 
 export type Semver = { major: number; minor: number; patch: number };
 

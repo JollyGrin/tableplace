@@ -351,6 +351,11 @@
 					"type": "string",
 					"title": "backImageUrl"
 				},
+				"name": {
+					"description": "Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the\nzoomed preview's caption, and only while the card is face up to the\nviewer — a face-down card never reveals it. Absent = no caption.",
+					"type": "string",
+					"title": "name"
+				},
 				"orientation": {
 					"description": "Default resting orientation (pack `PackCardDef.orientation`). Landscape\ncards render turned 90° in every renderer, while `rotation` stays\norientation-relative — `tapCard` is additive on `rotation[2]` and the\nsnap/group logic assumes a squared-up yaw is `z % 180 == 0`, so the\nquarter turn must never be baked into the persisted rotation. Its own\nfield (not part of `rotation`) so it survives the `CardInDeck` hop,\nwhich strips `rotation`. Absent = 'portrait'.",
 					"enum": ["landscape", "portrait"],
@@ -483,6 +488,11 @@
 				"backImageUrl": {
 					"type": "string",
 					"title": "backImageUrl"
+				},
+				"name": {
+					"description": "Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the\nzoomed preview's caption, and only while the card is face up to the\nviewer — a face-down card never reveals it. Absent = no caption.",
+					"type": "string",
+					"title": "name"
 				},
 				"orientation": {
 					"description": "Default resting orientation (pack `PackCardDef.orientation`). Landscape\ncards render turned 90° in every renderer, while `rotation` stays\norientation-relative — `tapCard` is additive on `rotation[2]` and the\nsnap/group logic assumes a squared-up yaw is `z % 180 == 0`, so the\nquarter turn must never be baked into the persisted rotation. Its own\nfield (not part of `rotation`) so it survives the `CardInDeck` hop,\nwhich strips `rotation`. Absent = 'portrait'.",
@@ -911,7 +921,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.9",
-	"x-generated-at": "2026-07-27T14:05:26.496Z",
-	"x-tableplace-source-sha": "7926a2a9b68dfae55ac2529560c329ffea742f4f-dirty"
+	"x-tableplace-spec-version": "0.1.10",
+	"x-generated-at": "2026-09-29T13:07:57.425Z",
+	"x-tableplace-source-sha": "cdc3606410617c8f1de44e2326af89eb94467cab-dirty"
 }

@@ -2392,5 +2392,175 @@ export const SPECS: Spec[] = [
 					host.close();
 				}
 			})
+	},
+	{
+		/**
+		 * tableplace-192: the zoomed preview follows whatever is under the
+		 * pointer — a hand card, a table card, a deck, a piece — while Space or
+		 * Alt is held, and never while something is being dragged.
+		 *
+		 * The hand card is the case the ticket names: the tray is its own HUD
+		 * scene, so this aims through the tray's camera (`locateInHand`), holds
+		 * Space with a real keyboard, and asserts the preview mesh's texture IS
+		 * that card's face — then reads the pixels back, because a texture that
+		 * loaded is not yet a texture that drew.
+		 */
+		name: 'preview: Space over a hand card zooms its face; Alt, decks, pieces; never mid-drag',
+		run: (context) =>
+			withTable(context, 'preview', async (table) => {
+				const preview = () => table.page.evaluate(() => window.__tableplace!.preview());
+				const { deck, hand, loose } = await table.page.evaluate(() => {
+					const bridge = window.__tableplace!;
+					const named = [
+						['AS', 'Ace of Spades'],
+						['7C', 'Seven of Clubs'],
+						['QH', 'Queen of Hearts']
+					].map(([code, name]) => ({
+						id: `card:std:preview-${code}`,
+						faceImageUrl: `gen:std52/${code}`,
+						backImageUrl: 'gen:std52/back',
+						name
+					}));
+					const deck = String(
+						bridge.actions.addDeck({ cards: named, position: [-4, 0.16, -2] } as never) ?? ''
+					);
+					// face-down: the top is the END of the array — QH, then 7C
+					const hand = bridge.actions.drawFromTop(deck, 1)[0]?.id ?? '';
+					const me = bridge.actions.getMyId() ?? '';
+					bridge.actions.moveCardToTray(hand, me);
+					const loose = bridge.actions.drawFromTop(deck, 1)[0]?.id ?? '';
+					bridge.actions.flipCard(loose); // drawn face-down; turn it up
+					return { deck, hand, loose };
+				});
+				ok(deck && hand && loose, `seeding failed: ${JSON.stringify({ deck, hand, loose })}`);
+				const token = await table.spawn('token', {
+					name: 'Marker',
+					position: ON_FELT(2),
+					states: [
+						{ face: 'gen:std52/KS', name: 'Front' },
+						{ face: 'gen:std52/KD', name: 'Back' }
+					]
+				});
+				await table.settle(1500);
+
+				// ── Space over a hand card: its face, its name ─────────────────
+				const inHand = await eventually(
+					() => table.page.evaluate((id) => window.__tableplace!.locateInHand(id), hand),
+					(point) => !!point
+				);
+				ok(inHand, `the hand card ${hand} never drew in the tray`);
+				ok(
+					(await table.elementAt(inHand!)).startsWith('canvas'),
+					`a HUD pane covers the hand card at ${JSON.stringify(inHand)}: ${await table.elementAt(inHand!)}`
+				);
+				await table.page.mouse.move(inHand!.x, inHand!.y, { steps: 5 });
+				await sleep(300);
+				ok((await preview()) === null, 'the preview opened on hover alone, before Space');
+
+				await table.page.keyboard.down('Space');
+				const zoomed = await eventually(preview, (p) => !!p && !!p.shown && p.shown === p.url);
+				ok(zoomed, 'holding Space over a hand card opened no preview');
+				ok(
+					zoomed!.id === hand && zoomed!.face === 'gen:std52/QH',
+					`the preview shows ${zoomed!.id} (${zoomed!.face}), not the hovered hand card ${hand} (gen:std52/QH)`
+				);
+				ok(
+					zoomed!.shown === zoomed!.url,
+					`the preview mesh holds ${String(zoomed!.shown).slice(0, 60)}…, not the hand card's face`
+				);
+				ok(
+					zoomed!.caption === 'Queen of Hearts',
+					`the caption reads ${JSON.stringify(zoomed!.caption)}, not the card's name`
+				);
+				// a card face is white paper; the felt the preview sits over is not.
+				// Sampled off-centre so a pip in the middle cannot decide it.
+				ok(zoomed!.at, 'the preview has no screen position');
+				const { x, y } = zoomed!.at!;
+				const samples = await table.pixels([
+					{ x: x - 90, y: y - 150 },
+					{ x: x + 90, y: y - 150 },
+					{ x: x - 90, y: y + 150 },
+					{ x: x + 90, y: y + 150 }
+				]);
+				ok(
+					samples.filter((s) => Math.min(...s.rgb) > 170).length >= 3,
+					`the preview area does not draw a card face: ${JSON.stringify(samples.map((s) => s.rgb))}`
+				);
+				await table.snap('preview-hand');
+				await table.page.keyboard.up('Space');
+				ok(
+					(await eventually(preview, (p) => p === null)) === null,
+					'releasing Space left the preview open'
+				);
+
+				// ── Alt over a face-up table card ───────────────────────────────
+				const onTable = await table.locate(loose);
+				ok(onTable, `the table card ${loose} never mounted`);
+				await table.page.mouse.move(onTable!.x, onTable!.y, { steps: 8 });
+				await sleep(300);
+				await table.page.keyboard.down('Alt');
+				const alt = await eventually(preview, (p) => p?.id === loose);
+				ok(
+					alt?.id === loose && alt.face === 'gen:std52/7C' && alt.caption === 'Seven of Clubs',
+					`Alt over a face-up table card previews ${JSON.stringify(alt)}`
+				);
+				await table.page.keyboard.up('Alt');
+				ok((await eventually(preview, (p) => p === null)) === null, 'releasing Alt left it open');
+
+				// ── face-down deck: its back and its count, never its top card ──
+				const deckAt = await table.locate(deck);
+				ok(deckAt, 'the deck never mounted');
+				await table.page.mouse.move(deckAt!.x, deckAt!.y, { steps: 8 });
+				await sleep(300);
+				await table.page.keyboard.down('Space');
+				const pile = await eventually(preview, (p) => p?.id === deck);
+				ok(
+					pile?.id === deck && pile.face === 'gen:std52/back' && pile.caption === '1 card',
+					`a face-down deck previews ${JSON.stringify(pile)} — expected its back and "1 card"`
+				);
+				await table.page.keyboard.up('Space');
+
+				// ── a multi-state token: its current face and state name ────────
+				const tokenAt = await table.locate(token);
+				ok(tokenAt, 'the token never mounted');
+				await table.page.mouse.move(tokenAt!.x, tokenAt!.y, { steps: 8 });
+				await sleep(300);
+				await table.page.keyboard.down('Space');
+				const piece = await eventually(preview, (p) => p?.id === token);
+				ok(
+					piece?.id === token &&
+						piece.face === 'gen:std52/KS' &&
+						piece.caption === 'Marker — Front',
+					`a two-state token previews ${JSON.stringify(piece)}`
+				);
+				await eventually(preview, (p) => !!p?.shown && p.shown === p.url);
+				await table.snap('preview-token');
+				await table.page.keyboard.up('Space');
+				await eventually(preview, (p) => p === null);
+
+				// ── never while dragging: Space and Alt both stay shut ──────────
+				const grab = await table.locate(loose);
+				ok(grab, 'the table card vanished');
+				await table.page.mouse.move(grab!.x, grab!.y, { steps: 5 });
+				await sleep(200);
+				await table.page.mouse.down();
+				await table.page.mouse.move(grab!.x, grab!.y - 30, { steps: 4 });
+				await table.page.mouse.move(grab!.x, grab!.y - 60, { steps: 4 });
+				const dragging = await eventually(
+					() => table.page.evaluate(() => window.__tableplace!.drag().isDragging),
+					(id) => id === loose
+				);
+				ok(dragging === loose, `the table card never lifted: dragging ${dragging}`);
+				await table.page.keyboard.down('Space');
+				await table.page.keyboard.down('Alt');
+				await sleep(400);
+				const midDrag = await preview();
+				await table.page.mouse.up();
+				await table.page.keyboard.up('Alt');
+				await table.page.keyboard.up('Space');
+				ok(midDrag === null, `the preview opened mid-drag: ${JSON.stringify(midDrag)}`);
+
+				assertClean(table, 'after previewing hand, table, deck and piece');
+			})
 	}
 ];

@@ -26,6 +26,9 @@ import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
 import { snapGuideDimMaterial } from '$lib/drop/snap-guide-dim';
 import type { GameDTO } from '$lib/store/game/types';
+import { resolveCardImage, sheetRefCache } from '$lib/packs';
+import { preview as previewStore } from '$lib/HUDPreview/previewStore';
+import { huds } from './hud-registry';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -38,6 +41,27 @@ export type TestBridge = {
 	project: (world: [number, number, number]) => ScreenPoint | null;
 	/** where a card / deck / piece currently draws, by store id */
 	locate: (id: string) => ScreenPoint | null;
+	/**
+	 * Where a card in MY hand draws, in the same CSS pixels as `locate`. The
+	 * tray is its own HUD scene with its own orthographic camera, so the table
+	 * camera `locate` projects through can never see it.
+	 */
+	locateInHand: (id: string) => ScreenPoint | null;
+	/**
+	 * The zoomed preview as it is on screen right now, or null while closed.
+	 * `face` is the unresolved ref the preview chose, `url` what it resolves
+	 * to, and `shown` the image the preview mesh's texture actually holds —
+	 * null until it has loaded. `shown === url` is "it is drawing that face".
+	 * `at` is the centre of the zoomed art on screen, for a pixel check.
+	 */
+	preview: () => {
+		id: string;
+		face: string;
+		url: string;
+		caption: string;
+		shown: string | null;
+		at: ScreenPoint | null;
+	} | null;
 	/** the raycast the shared interactivity context runs, minus the dispatch */
 	hits: (screen: ScreenPoint) => string[];
 	/** what is being dragged / hovered right now — distinguishes "never lifted" from "lifted and snapped back" */
@@ -233,8 +257,10 @@ function setStall(options: { ms: number; everyMs?: number } | null): number {
 export function installTestBridge(handles: SceneHandles): void {
 	const raycaster = new THREE.Raycaster();
 
-	const project = (world: [number, number, number]): ScreenPoint | null => {
-		const camera = handles.camera();
+	const project = (
+		world: [number, number, number],
+		camera = handles.camera()
+	): ScreenPoint | null => {
 		const canvas = handles.canvas();
 		if (!camera || !canvas) return null;
 		const ndc = new THREE.Vector3(...world).project(camera);
@@ -291,6 +317,40 @@ export function installTestBridge(handles: SceneHandles): void {
 			const scene = handles.scene();
 			const centre = scene ? renderedCentre(scene, id) : null;
 			return centre ? project([centre.x, centre.y, centre.z]) : null;
+		},
+		locateInHand: (id) => {
+			const tray = huds.get('tray');
+			const scene = tray?.scene();
+			const camera = tray?.camera();
+			const centre = scene && camera ? renderedCentre(scene, id) : null;
+			return centre ? project([centre.x, centre.y, centre.z], camera) : null;
+		},
+		preview: () => {
+			const target = get(previewStore);
+			if (!target) return null;
+			let shown: string | null = null;
+			const hud = huds.get('preview');
+			const camera = hud?.camera();
+			const group = hud?.scene()?.getObjectByName('hud-preview');
+			const centre = group?.getWorldPosition(new THREE.Vector3());
+			group?.traverse((node) => {
+				const mesh = node as THREE.Mesh;
+				if (shown || !mesh.isMesh) return;
+				// ImageMaterial (cards) keeps its texture in a uniform; PieceFace
+				// (discs) is a plain MeshBasicMaterial map
+				const material = mesh.material as THREE.ShaderMaterial & THREE.MeshBasicMaterial;
+				const texture: THREE.Texture | null = material.uniforms?.map?.value ?? material.map ?? null;
+				const image = texture?.image as { src?: string } | undefined;
+				if (image?.src) shown = image.src;
+			});
+			return {
+				id: target.id,
+				face: target.face,
+				url: resolveCardImage(target.face, get(sheetRefCache)),
+				caption: target.caption,
+				shown,
+				at: centre && camera ? project([centre.x, centre.y, centre.z], camera) : null
+			};
 		},
 		hits,
 		drag: () => {
