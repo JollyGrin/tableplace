@@ -1700,8 +1700,9 @@ export const SPECS: Spec[] = [
 					() => Object.keys(window.__tableplace!.state()?.cards ?? {})[0] ?? ''
 				);
 				// sideways, toward the middle of the table: it lies in front of the
-				// deck, low on screen, so the default drag down drops it into the
-				// hand and a drag up drops it back on the deck
+				// deck, low on screen, and since #214's seat camera both the default
+				// drag down and a drag up take it off the felt (most likely into the
+				// hand and back onto the deck — not confirmed)
 				await assertDraggable(table, onFelt, 'the Shift-drawn card', { dx: -150, dy: 0 }).catch(
 					async (error: Error) => {
 						throw new Error(
