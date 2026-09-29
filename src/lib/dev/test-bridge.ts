@@ -33,6 +33,8 @@ import { resolveCardImage, sheetRefCache } from '$lib/packs';
 import { preview as previewStore } from '$lib/HUDPreview/previewStore';
 import { huds } from './hud-registry';
 import { activePings, pingArrows, ping as sendPing } from '$lib/ping';
+import { remotePointersEnabled } from '$lib/pointers/settings';
+import { remoteCameraStore } from '$lib/store/remoteCameraStore.svelte';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -208,6 +210,26 @@ export type TestBridge = {
 	pings: () => PingShape[];
 	/** ping a table point as this player, through the same rate limit a double-click hits */
 	ping: (x: number, z: number) => boolean;
+	/**
+	 * Other players' pointers as this page draws them right now
+	 * (tableplace-197): where each cursor is (mid-glide), the table point it
+	 * is gliding to, whether it is up, its opacity and its drawn colour.
+	 */
+	remotePointers: () => RemotePointerShape[];
+	/** the Settings "Remote pointers" toggle — tweakpane cannot be driven synthetically */
+	setRemotePointers: (on: boolean) => void;
+};
+
+export type RemotePointerShape = {
+	playerId: string;
+	x: number;
+	z: number;
+	target: [number, number] | null;
+	visible: boolean;
+	opacity: number;
+	color: string | null;
+	/** ms since the store last saw this pointer move; null while it has none */
+	idleMs: number | null;
 };
 
 export type PingShape = {
@@ -644,7 +666,33 @@ export function installTestBridge(handles: SceneHandles): void {
 			samplePings(handles.scene());
 			return [...seenPings.values()].map((p) => ({ ...p }));
 		},
-		ping: (x, z) => sendPing(x, z)
+		ping: (x, z) => sendPing(x, z),
+		remotePointers: () => {
+			const out: RemotePointerShape[] = [];
+			const cams = get(remoteCameraStore);
+			handles.scene()?.traverse((object) => {
+				const playerId = object.userData?.remotePointer as string | undefined;
+				if (!playerId) return;
+				let color: string | null = null;
+				object.traverse((child) => {
+					const material = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+					if (!color && child instanceof THREE.Mesh && material?.color)
+						color = `#${material.color.getHexString()}`;
+				});
+				out.push({
+					playerId,
+					x: object.position.x,
+					z: object.position.z,
+					target: (object.userData.target as [number, number] | undefined) ?? null,
+					visible: object.visible,
+					opacity: (object.userData.opacity as number | undefined) ?? 0,
+					color,
+					idleMs: cams[playerId]?.c ? Date.now() - cams[playerId].pointerAt : null
+				});
+			});
+			return out;
+		},
+		setRemotePointers: (on) => remotePointersEnabled.set(on)
 	};
 }
 

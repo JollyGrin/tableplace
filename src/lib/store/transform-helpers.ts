@@ -60,9 +60,7 @@ export function localStateUpdater<T>(
 	payload: Record<string, T | null>,
 	updater: (fn: (state: Record<string, T>) => Record<string, T>) => void
 ) {
-	const isNull = Object.values(payload).every(
-		(value) => value === undefined || value === null
-	);
+	const isNull = Object.values(payload).every((value) => value === undefined || value === null);
 
 	if (isNull) {
 		// on silent update, receives a payload of {cardId: null}

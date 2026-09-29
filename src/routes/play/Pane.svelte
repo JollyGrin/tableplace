@@ -24,6 +24,7 @@
 	import { weightEnabled } from '$lib/utils/weight.svelte';
 	import { soundEnabled } from '$lib/sound';
 	import { classicMouse } from '$lib/store/mouseMode';
+	import { remotePointersEnabled } from '$lib/pointers/settings';
 	import { connectionStore } from '$lib/store/connectionStore.svelte';
 	import {
 		listScenarios,
@@ -211,6 +212,9 @@
 		<!-- lean, landing bounce and flip hop (tableplace-203); always off under
 		     prefers-reduced-motion, whatever this says -->
 		<Checkbox label="Weight" bind:value={$weightEnabled} />
+		<!-- the other players' cursors on the felt (tableplace-197); hiding them is
+		     local, ours still show for them -->
+		<Checkbox label="Remote pointers" bind:value={$remotePointersEnabled} />
 		<!-- table sounds (tableplace-204); the same switch as the speaker on the table -->
 		<Checkbox label="Sound" bind:value={$soundEnabled} />
 		<!-- tableplace-202 moved orbit to right-drag so left-drag on the felt can
