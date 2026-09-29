@@ -5331,6 +5331,75 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-204: table sounds. Synthesised in the page, so what a spec
+		 * can see is which sounds STARTED (`sounds()`), not what came out of a
+		 * speaker. The gates: none before a user gesture (a programmatic move on
+		 * a fresh page is silent), the first real mouse gesture arms audio and a
+		 * drag then lifts and drops, and none while muted — and the mute is
+		 * remembered across a reload.
+		 */
+		name: 'sound: silent before a gesture and while muted, lift and drop once armed',
+		run: (context) =>
+			withTable(context, 'sound', async (table) => {
+				const { page } = table;
+				const token = await table.spawn('token', { position: ON_FELT(1) });
+				const deck = await table.seedDeck();
+				await table.settle(2500);
+				const sounds = () => page.evaluate(() => window.__tableplace!.sounds());
+				const total = (s: Record<string, number | boolean>) =>
+					Object.entries(s).reduce((n, [, v]) => n + (typeof v === 'number' ? v : 0), 0);
+
+				// no gesture yet: a raised-and-lowered token makes no sound
+				const armed = await sounds();
+				ok(
+					armed.gestured === false,
+					`audio was armed before any gesture: ${JSON.stringify(armed)}`
+				);
+				await page.evaluate((id) => {
+					const bridge = window.__tableplace!;
+					bridge.actions.movePiece(id, [0, 2, 0]);
+					bridge.actions.movePiece(id, [0, 0.1, 0]);
+				}, token);
+				await sleep(300);
+				ok(
+					total(await sounds()) === 0,
+					`sound played before a gesture: ${JSON.stringify(await sounds())}`
+				);
+
+				// the first real gesture arms audio; a drag then lifts and drops
+				await table.dragBy(token, 120, 0);
+				const heard = await eventually(sounds, (s) => (s.drop as number) > 0);
+				ok(heard.gestured === true, `the gesture did not arm audio: ${JSON.stringify(heard)}`);
+				ok(
+					(heard.lift as number) > 0 && (heard.drop as number) > 0,
+					`a drag did not lift and drop: ${JSON.stringify(heard)}`
+				);
+
+				// muted: the visible toggle silences the same drag
+				await page.click('[data-testid="sound-toggle"]');
+				ok(
+					(await page.evaluate(() => localStorage.getItem('sound:v1'))) === 'off',
+					'the mute was not remembered in localStorage'
+				);
+				const muted = total(await sounds());
+				await table.dragBy(token, -120, 0);
+				await sleep(400);
+				ok(
+					total(await sounds()) === muted,
+					`sound played while muted: ${JSON.stringify(await sounds())}`
+				);
+
+				// unmuted again: it plays
+				await page.click('[data-testid="sound-toggle"]');
+				await table.dragBy(token, 120, 0);
+				await eventually(sounds, (s) => total(s) > muted);
+
+				await assertDraggable(table, deck, 'deck (beside sound)');
+				assertClean(table, 'after playing table sounds');
+			})
+	},
+	{
+		/**
 		 * tableplace-198: ping. Two players in two browser contexts. The first
 		 * double-clicks bare felt under a real mouse; the second must draw the
 		 * ripple, in the pinger's seat colour, at that spot — and it only ever
