@@ -9,8 +9,7 @@ function resetView() {
 
 function togglePreviewHud(isPreview?: boolean) {
 	const currentPreviewState = get(dragStore).isPreview;
-	const targetPreviewState =
-		isPreview !== undefined ? isPreview : !currentPreviewState;
+	const targetPreviewState = isPreview !== undefined ? isPreview : !currentPreviewState;
 	dragStore.update((state) => ({
 		...state,
 		isPreview: targetPreviewState

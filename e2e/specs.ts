@@ -1800,6 +1800,10 @@ export const SPECS: Spec[] = [
 				const deck = await table.seedDeck();
 				await table.settle(1000);
 				const eye = async () => (await table.cameraPose())!.position;
+				// C fits the content now: the map overlay (±6 at the origin) plus the seat deck
+				// puts the fitted eye near x = 1.75, at the default height (nothing spread is
+				// wide enough to pull it out)
+				const deckEye = [1.75, 25, 0];
 
 				// ── a right drag that never holds still is a pan ──────────────
 				const felt = await table.page.evaluate(() => window.__tableplace!.project([0, 0.26, 4]));
@@ -1888,8 +1892,8 @@ export const SPECS: Spec[] = [
 				await table.settle(1200);
 				const home = await eye();
 				ok(
-					planarDistance(home, [0, 25, 0]) < 0.5,
-					`C did not bring the camera home after panning: ${JSON.stringify(home)}`
+					planarDistance(home, deckEye) < 1 && Math.abs(home[1]! - 25) < 0.5,
+					`C did not bring the camera home after panning: ${JSON.stringify(home)} vs ${JSON.stringify(deckEye)}`
 				);
 				await table.dragTo(deck, 0, 0);
 				await table.settle(600);
@@ -1908,7 +1912,9 @@ export const SPECS: Spec[] = [
 		name: 'camera: full zoom-out frames all four felt corners at 16:10 and 16:9',
 		run: (context) =>
 			withTable(context, 'camera-frame-felt', async (table) => {
-				await table.seedDeck();
+				// on the felt's centre: C now fits the *content*, and a deck off-centre
+				// would pull the fitted view (and so the zoom-out) off the felt
+				await table.seedDeck([0, 0.26, 0]);
 				await table.settle(1000);
 				for (const [label, width, height] of [
 					['16x10', 1280, 800],
@@ -1938,6 +1944,98 @@ export const SPECS: Spec[] = [
 					await table.snap(`camera-frame-felt-${label}`);
 				}
 			})
+	},
+	{
+		/**
+		 * A seat used to open zoomed in on the centre, with its own edge off-screen
+		 * (#179). Pieces spread over 40×25 — well past the old 25×16 close-up — and a
+		 * fresh join at each common aspect must have every one of them inside the
+		 * canvas without a single wheel notch. Then C after moving the camera must
+		 * refit, and a seat-1 join must still be turned 180°.
+		 */
+		name: 'camera: joining and C fit the table content at 16:10, 16:9 and 4:3',
+		run: async (context) => {
+			const lobby = nextLobby('camera-fit-content');
+			const host = await openTable(context.browser, context.servers, lobby);
+			try {
+				const spots: [number, number][] = [
+					[-20, -12.5],
+					[20, -12.5],
+					[-20, 12.5],
+					[20, 12.5],
+					[0, 0],
+					[-20, 0],
+					[20, 0]
+				];
+				for (const [x, z] of spots) await host.spawn('token', { position: [x, PIECE_REST_Y, z] });
+				await host.settle(800);
+
+				for (const [label, width, height] of [
+					['16x10', 1280, 800],
+					['16x9', 1280, 720],
+					['4x3', 1024, 768]
+				] as const) {
+					const seat = await openTable(context.browser, context.servers, lobby);
+					try {
+						await seat.page.setViewport({ width, height });
+						await seat.page.reload({ waitUntil: 'networkidle2', timeout: 60_000 });
+						await seat.page.waitForFunction('window.__tableplace?.ready === true', {
+							timeout: 60_000
+						});
+						await seat.settle(1500);
+						const project = () =>
+							seat.page.evaluate(
+								(pts, y) => pts.map(([x, z]) => window.__tableplace!.project([x, y, z])),
+								spots,
+								PIECE_REST_Y
+							);
+						const bad = (pts: Awaited<ReturnType<typeof project>>) =>
+							pts.filter((c) => c === null || c.x < 0 || c.x > width || c.y < 0 || c.y > height);
+						const joined = await project();
+						ok(
+							bad(joined).length === 0,
+							`${label}: pieces are off-screen on join: ${JSON.stringify(joined)}`
+						);
+						await seat.snap(`camera-fit-join-${label}`);
+						// the seat's orientation survives the fit: the spread is centred on
+						// z = 0, so a seat-1 eye sits 0.01 toward -z (that offset IS the 180°)
+						const mine = await seat.page.evaluate(
+							() =>
+								window.__tableplace!.state()?.players?.[window.__tableplace!.actions.getMyId()!]
+									?.seat
+						);
+						const eye = (await seat.cameraPose())!.position;
+						if (mine === 1)
+							ok(eye[2]! < -0.005, `seat 1 lost its 180° turn: ${JSON.stringify(eye)}`);
+
+						// C after moving the camera refits (a wheel notch in, then a pan away)
+						await seat.page.mouse.move(width / 2, height / 2);
+						for (let i = 0; i < 6; i++) await seat.page.mouse.wheel({ deltaY: -400 });
+						await seat.page.keyboard.down('KeyD');
+						await sleep(400);
+						await seat.page.keyboard.up('KeyD');
+						await seat.settle(1200);
+						ok(
+							bad(await project()).length > 0,
+							`${label}: the camera did not move — the refit check would prove nothing`
+						);
+						await seat.page.keyboard.press('KeyC');
+						await seat.settle(1200);
+						const refit = await project();
+						ok(
+							bad(refit).length === 0,
+							`${label}: C did not refit the content: ${JSON.stringify(refit)}`
+						);
+						assertClean(seat, `after fitting at ${label}`);
+					} finally {
+						await seat.close();
+					}
+				}
+				assertClean(host, 'after the fit suite');
+			} finally {
+				await host.close();
+			}
+		}
 	},
 	{
 		// acceptance criterion 4: one table carrying all four at once

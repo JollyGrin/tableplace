@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { T, useTask } from '@threlte/core';
+	import { T, useTask, useThrelte } from '@threlte/core';
 	import { OrbitControls } from '@threlte/extras';
 	import type { OrbitControls as OrbitControlsType } from 'three/examples/jsm/controls/OrbitControls.js';
 	import * as THREE from 'three';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { dragStore } from '$lib/store/dragStore.svelte';
 	import { cameraBroadcastSignal, cameraResetSignal } from '$lib/store/cameraStore.svelte';
@@ -18,6 +18,7 @@
 		CAMERA_MAX_DISTANCE,
 		CAMERA_MIN_DISTANCE
 	} from '$lib/utils/constants-camera';
+	import { contentBounds, fitCamera, type CameraFit } from '$lib/utils/camera-fit';
 	import { isPanKey, panDelta } from '$lib/utils/transforms/pan';
 
 	const isDragging = $derived($dragStore.isDragging !== null);
@@ -33,17 +34,72 @@
 	const myId = gameActions?.getMyId() ?? '';
 	const seat = $derived($gameStore?.players?.[myId]?.seat ?? 0);
 
+	const { invalidate } = useThrelte();
+
 	let camera: THREE.PerspectiveCamera | undefined = $state();
 	let controls: OrbitControlsType | undefined = $state();
 
-	// reset to the seat's default birds-eye view when requested (keybind C)
+	/**
+	 * The seat's home pose: straight down over the table's content at the distance
+	 * that fits it at the viewport aspect. Null = the seat's default close-up (an
+	 * empty table). It feeds the camera's `position` prop too, so a seat change
+	 * that lands after the fit (players arrive in the store after the camera
+	 * mounts) re-seats onto the fitted pose instead of the default one.
+	 */
+	let fit = $state<CameraFit | null>(null);
+	const homePosition = $derived.by((): [number, number, number] => {
+		const [ox, , oz] = seating[seat];
+		return fit
+			? [fit.x + ox, fit.distance, fit.z + oz]
+			: (seating[seat] as [number, number, number]);
+	});
+
+	const homeTarget = $derived<[number, number, number]>([fit?.x ?? 0, 0, fit?.z ?? 0]);
+
+	/**
+	 * Fit the seat's view to the content (xz box of every card, deck, piece and
+	 * overlay). The seat's tiny x/z offset is what fixes the screen's "up" (seat 1
+	 * is turned 180°), so it rides along with the target.
+	 */
+	function frameContent() {
+		if (!camera || !controls) return;
+		const bounds = contentBounds($gameStore);
+		fit = bounds ? fitCamera(bounds, camera.aspect, seat >= 2) : null;
+		const [x, , z] = homePosition;
+		camera.position.set(x, homePosition[1], z);
+		controls.target.set(fit?.x ?? 0, 0, fit?.z ?? 0);
+		controls.update();
+		invalidate();
+	}
+
+	// reset to the seat's fitted birds-eye view when requested (keybind C)
 	$effect(() => {
 		if ($cameraResetSignal === 0) return;
-		const [px, py, pz] = seating[seat];
-		if (!camera || !controls) return;
-		camera.position.set(px, py, pz);
-		controls.target.set(0, 0, 0);
-		controls.update();
+		untrack(frameContent);
+	});
+
+	// Fit once on join, once the table has stopped filling in: the snapshot lands
+	// in pieces (the default map overlay first), so fitting on the first content
+	// would frame a table that is still arriving. Skipped if the player has
+	// already touched the camera — and never again after, since refitting under
+	// a player mid-game would yank the view away.
+	const JOIN_FIT_QUIET_MS = 350;
+	let joinFitted = false;
+	let userMoved = false;
+	$effect(() => {
+		if (joinFitted || !camera || !controls) return;
+		if (!contentBounds($gameStore)) return;
+		const timer = setTimeout(() => {
+			joinFitted = true;
+			if (!userMoved) frameContent();
+		}, JOIN_FIT_QUIET_MS);
+		return () => clearTimeout(timer);
+	});
+	$effect(() => {
+		if (!controls) return;
+		const mark = () => (userMoved = true);
+		controls.addEventListener('start', mark);
+		return () => controls?.removeEventListener('start', mark);
 	});
 
 	/**
@@ -117,7 +173,10 @@
 		// table hotkey uses)
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (isTyping(event.target)) return;
-			if (isPanKey(event.code)) held.add(event.code);
+			if (isPanKey(event.code)) {
+				userMoved = true;
+				held.add(event.code);
+			}
 		};
 		const onKeyUp = (event: KeyboardEvent) => held.delete(event.code);
 		// alt-tabbing away never delivers the keyup, and a key stuck down pans forever
@@ -177,7 +236,7 @@
 <T.PerspectiveCamera
 	makeDefault
 	bind:ref={camera}
-	position={seating[seat] as [number, number, number]}
+	position={homePosition}
 	fov={CAMERA_FOV_DEG}
 	near={0.5}
 	far={200}
@@ -195,7 +254,7 @@
 		enableRotate={!isDragging}
 		enableDamping
 		maxPolarAngle={Math.PI / 2 - 0.1}
-		target={[0, 0, 0]}
+		target={homeTarget}
 		minDistance={CAMERA_MIN_DISTANCE}
 		maxDistance={CAMERA_MAX_DISTANCE}
 	/>
