@@ -85,14 +85,35 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		run: () => cameraTransforms.togglePreviewHud(true),
 		release: () => cameraTransforms.togglePreviewHud(false)
 	},
+	// the camera presets (tableplace-185), the table wheel's three wedges
 	{
 		id: 'reset-view',
-		label: 'Reset view',
-		reference: 'Reset camera',
+		label: 'Seat view',
+		reference: 'Seat view (reset camera)',
 		applies: on('table'),
 		hotkey: key('KeyC', 'C'),
 		radial: true,
 		run: () => cameraTransforms.resetView()
+	},
+	{
+		id: 'top-down',
+		label: 'Top-down',
+		reference: 'Toggle top-down / seat view',
+		applies: on('table'),
+		hotkey: key('KeyP', 'P'),
+		radial: true,
+		run: () => cameraTransforms.toggleTopDown()
+	},
+	{
+		// only reached with nothing on the table under the pointer: a hovered
+		// card, deck or piece takes Z first (the entity verb below)
+		id: 'focus',
+		label: 'Focus last moved',
+		reference: 'Focus what you moved last',
+		applies: on('table'),
+		hotkey: key('KeyZ', 'Z'),
+		radial: true,
+		run: () => cameraTransforms.focus()
 	},
 	{
 		// '?' is Shift + Slash on the layouts `code` matching assumes; the list
@@ -322,6 +343,21 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		applies: on('piece', (piece) => piece.isRemovable),
 		radial: true,
 		run: (ctx) => void gameActions.removePiece(idOf(ctx))
+	},
+	// ---- anything on the table: last, so it never reorders a kind's own verbs ----
+	{
+		id: 'focus',
+		label: 'Focus',
+		reference: 'Focus hovered card, deck or piece',
+		applies: (ctx) =>
+			ctx.target.kind === 'card' || ctx.target.kind === 'deck' || ctx.target.kind === 'piece',
+		hotkey: key('KeyZ', 'Z'),
+		gesture: 'double-click',
+		run: (ctx) => {
+			const { kind } = ctx.target;
+			if (kind === 'card' || kind === 'deck' || kind === 'piece')
+				cameraTransforms.focus({ kind, id: idOf(ctx) });
+		}
 	}
 ];
 
@@ -391,7 +427,9 @@ const POINTER_BEFORE: KeybindRow[] = [
 	{ action: 'Actions on anything (card, deck, piece, table)', key: 'right-click' },
 	{ action: 'Same wheel, no right button', key: 'press & hold' },
 	// held, auto-repeating camera motion (utils/transforms/pan.ts)
-	{ action: 'Pan camera', key: 'W A S D' }
+	{ action: 'Pan camera', key: 'W A S D' },
+	// TableCamera.svelte's own listener, not a key
+	{ action: 'Focus a card, deck or piece', key: 'double-click' }
 ];
 const POINTER_AFTER: KeybindRow[] = [
 	// both read by the drag itself (TableScene.svelte)

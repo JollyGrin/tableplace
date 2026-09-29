@@ -49,16 +49,24 @@ describe('verbs by kind', () => {
 			'tap-reverse',
 			'group',
 			'raise',
-			'lower'
+			'lower',
+			'focus'
 		]);
 		expect(ids(verbsFor({ kind: 'deck', id: 'deck:me:0' }, me))).toEqual([
 			'draw',
 			'flip',
 			'shuffle',
 			'ungroup',
-			'move'
+			'move',
+			'focus'
 		]);
-		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual(['preview', 'reset-view', 'help']);
+		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual([
+			'preview',
+			'reset-view',
+			'top-down',
+			'focus',
+			'help'
+		]);
 	});
 
 	it('hand cards and selections are reserved kinds with nothing on them yet', () => {
@@ -68,7 +76,9 @@ describe('verbs by kind', () => {
 });
 
 describe('verbs by capability, never by game', () => {
-	const piece = (id: string) => ids(verbsFor({ kind: 'piece', id }, me));
+	// every piece can be focused; what differs by capability is everything else
+	const piece = (id: string) =>
+		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => verb !== 'focus');
 
 	it('grid-rotatable → rotate; has states → next/previous state', () => {
 		expect(piece('piece:me:m')).toEqual(['rotate-cw', 'rotate-ccw', 'snap-toggle', 'remove']);
@@ -90,10 +100,12 @@ describe('verbs by capability, never by game', () => {
 		expect(one('piece:me:m-free', 'snap-toggle')?.label).toBe('Snap to grid');
 	});
 
+	// focus is the one exception: a camera move, offered by key and double-click
+	// focus is the one exception: a camera move, offered by key and double-click
 	it('every piece verb is offered on the wheel', () => {
 		for (const id of ['piece:me:m', 'piece:me:s', 'piece:me:c', 'piece:me:b', 'piece:me:d'])
 			for (const verb of verbsFor({ kind: 'piece', id }, me))
-				expect(verb.radial, verb.id).toBe(true);
+				if (verb.id !== 'focus') expect(verb.radial, verb.id).toBe(true);
 	});
 
 	it('a plain token, or a piece that is gone, has nothing', () => {
@@ -167,7 +179,7 @@ describe('the Keybinds folder is generated from the registry', () => {
 			['Actions on anything (card, deck, piece, table)', 'right-click'],
 			['Same wheel, no right button', 'press & hold'],
 			['Pan camera', 'W A S D'],
-			['Reset camera', 'C'],
+			['Seat view (reset camera)', 'C'],
 			['Preview hovered (card, hand, deck, piece)', 'hold Space or Alt'],
 			['Tap card', 'T'],
 			['Reverse tap card', 'R'],
@@ -190,6 +202,13 @@ describe('the Keybinds folder is generated from the registry', () => {
 		expect(keyFor('Draw that many from hovered deck')).toBe('1 – 9');
 		expect(keyFor("Hovered piece's next state")).toBe('X');
 		expect(keyFor("Hovered piece's previous state")).toBe('Shift + X');
+	});
+
+	it('lists the camera presets (tableplace-185)', () => {
+		expect(keyFor('Toggle top-down / seat view')).toBe('P');
+		expect(keyFor('Focus hovered card, deck or piece')).toBe('Z');
+		expect(keyFor('Focus what you moved last')).toBe('Z');
+		expect(keyFor('Focus a card, deck or piece')).toBe('double-click');
 	});
 });
 

@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import type { GameDTO } from './types';
 import { merge } from '../transform-helpers';
+import { noteLocalMoves } from '../lastMoved';
 
 const initGameState = {
 	players: {},
@@ -92,10 +93,16 @@ function updateState(update: PartialWithNull<GameDTO>) {
 	});
 }
 
+/** a patch this client made (as opposed to one relayed from a peer) */
+function updateLocalState(update: PartialWithNull<GameDTO>) {
+	noteLocalMoves(update);
+	updateState(update);
+}
+
 export const gameStore = {
 	...game,
 	// NOTE: wrapped in storeIntegration.ts to broadcast messages
-	updateState,
+	updateState: updateLocalState,
 	// NOTE: silent used in websocket/index.ts to sync received messages without rebroadcasting
 	updateStateSilently: updateState
 };
