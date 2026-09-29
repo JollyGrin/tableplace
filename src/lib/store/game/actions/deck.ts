@@ -14,6 +14,7 @@ import {
 } from '$lib/utils/constants-cards';
 import { TABLE_TOP_Y } from '$lib/utils/constants-table';
 import { clampToTable } from '$lib/utils/transforms/drop';
+import { nextHandOrder } from '$lib/utils/hand';
 import { degrees } from '$lib/utils/constants-rotation';
 import type { CardInDeck, GameDTO } from '../types';
 
@@ -394,6 +395,8 @@ function drawToHand(id: string, count = 1): DrawToHandResult {
 	]);
 	const tray: Record<string, Partial<GameDTO['cards'][string]>> = {};
 	const cardIds: string[] = [];
+	// drawn cards join the right-hand end of the fan, in draw order
+	const firstOrder = nextHandOrder(player.tray);
 	for (let i = 0; i < Math.min(count, available.length); i++) {
 		const card = isFaceUp ? remaining.shift() : remaining.pop();
 		if (!card) break;
@@ -403,6 +406,7 @@ function drawToHand(id: string, count = 1): DrawToHandResult {
 		cardIds.push(cardId);
 		tray[cardId] = {
 			...body,
+			handOrder: firstOrder + i,
 			faceImageUrl: body.faceImageUrl ?? '',
 			...(body.backImageUrl || deck.deckBackImageUrl
 				? { backImageUrl: body.backImageUrl ?? (deck.deckBackImageUrl as string) }
@@ -466,7 +470,9 @@ function takeFromDeck(
 	if (to === 'hand') {
 		gameStore.updateState({
 			decks: { [id]: { cards: remaining } },
-			players: { [playerId]: { tray: { [cardId]: faces } } }
+			players: {
+				[playerId]: { tray: { [cardId]: { ...faces, handOrder: nextHandOrder(player.tray) } } }
+			}
 		} as Partial<GameDTO>);
 		return { ok: true, deckId: id, cardId };
 	}

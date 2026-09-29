@@ -366,3 +366,58 @@ describe('diff', () => {
 		expect(stillAsLeft(inverse, left, { pieces: { p: { position: [2, 0, 0] } } })).toBe(false);
 	});
 });
+
+describe('the hand (tableplace-195)', () => {
+	const withHand = (): State => ({
+		...start(),
+		players: {
+			alice: {
+				id: 'alice',
+				seat: 0,
+				tray: {
+					'card:alice:q': { name: 'Queen', faceImageUrl: 'q', handOrder: 0 },
+					'card:alice:k': { name: 'King', faceImageUrl: 'k', handOrder: 1 }
+				}
+			}
+		}
+	});
+
+	it('a reorder is one line that names no card, and undo puts the order back', () => {
+		const t = table(withHand());
+		t.write({
+			players: {
+				alice: { tray: { 'card:alice:q': { handOrder: 1 }, 'card:alice:k': { handOrder: 0 } } }
+			}
+		});
+		t.settle();
+		expect(t.lines()).toEqual(['reordered their hand']);
+		expect(t.sent[0]?.targets).toEqual([]);
+		t.journal.undo();
+		expect(t.state().players.alice.tray['card:alice:q'].handOrder).toBe(0);
+	});
+
+	it('a face-down play turned face-up and back by Shift mid-drag still names nothing', () => {
+		const t = table(withHand());
+		t.setDragging(true);
+		t.write({
+			players: { alice: { tray: { 'card:alice:q': null } } },
+			cards: {
+				'card:alice:q': {
+					name: 'Queen',
+					faceImageUrl: 'q',
+					position: [0, 2, 0],
+					rotation: [180, 0, 0],
+					placedBy: 'alice'
+				}
+			}
+		});
+		t.write({ cards: { 'card:alice:q': { rotation: [0, 0, 0], placedBy: null } } });
+		t.write({ cards: { 'card:alice:q': { rotation: [180, 0, 0], placedBy: 'alice' } } });
+		t.write({ cards: { 'card:alice:q': { position: [3, 0.2, 1] } } });
+		t.setDragging(false);
+		t.settle();
+		expect(t.lines()).toEqual(['played a card']);
+		expect(JSON.stringify(t.sent)).not.toContain('Queen');
+		expect(JSON.stringify(t.sent)).not.toContain('card:alice:q');
+	});
+});

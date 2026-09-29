@@ -9,6 +9,9 @@ import { previewDrop } from '$lib/drop/preview';
 import { targetsUnder } from '$lib/verbs/keyboard';
 import { selectedIds } from '$lib/store/selection';
 import { classicMouse } from '$lib/store/mouseMode';
+import { handGesture } from '$lib/HUDTray/handGesture';
+import { handPlay } from '$lib/HUDTray/handPlay';
+import { handPlayFace } from '$lib/utils/hand';
 import { hintFor, type Hint } from './hint';
 
 /**
@@ -18,8 +21,18 @@ import { hintFor, type Hint } from './hint';
  * event, so the line is current by the next paint.
  */
 export const hint = derived(
-	[dragStore, gameStore, hoveredPiece, hoveredTrayCard, tableFeatures, selectedIds, classicMouse],
-	([$drag, $game, $piece, $trayCard, $features, $selected, $classic]): Hint => {
+	[
+		dragStore,
+		gameStore,
+		hoveredPiece,
+		hoveredTrayCard,
+		tableFeatures,
+		selectedIds,
+		classicMouse,
+		handPlay,
+		handGesture
+	],
+	([$drag, $game, $piece, $trayCard, $features, $selected, $classic, $play, $gesture]): Hint => {
 		const dragging = $drag.isDragging;
 		// the same resolution, with the same options, as DropIndicator and the
 		// commit — so the words say what the landing will actually be
@@ -31,7 +44,9 @@ export const hint = derived(
 			dragging,
 			carrying: ($drag.group?.length ?? 0) + (dragging ? 1 : 0),
 			classicMouse: $classic,
-			dropKind: drop?.kind ?? null
+			dropKind: drop?.kind ?? null,
+			handPlay: $play ? { face: $play.face, defaultFace: handPlayFace($game) } : null,
+			reordering: $gesture?.id ?? null
 		});
 	}
 );

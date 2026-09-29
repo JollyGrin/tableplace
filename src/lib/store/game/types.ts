@@ -37,13 +37,24 @@ export type CardDTO = {
 	 * may peek.
 	 */
 	placedBy?: string;
+	/**
+	 * Where this card sits in its holder's hand, left to right (tableplace-195):
+	 * a sort key, lowest first, so a reorder is one patch of numbers and the
+	 * order survives a reload (the relay does not keep object key order).
+	 * Only meaningful inside `players[id].tray`; a card leaving the hand drops
+	 * it. Absent sorts after every numbered card.
+	 */
+	handOrder?: number;
 };
 
 /**
  * a card in a pile has no place of its own to be pinned to, and nobody's peek
  * survives the shuffle into one
  */
-export type CardInDeck = Omit<CardDTO, 'position' | 'rotation' | 'locked' | 'placedBy'> & {
+export type CardInDeck = Omit<
+	CardDTO,
+	'position' | 'rotation' | 'locked' | 'placedBy' | 'handOrder'
+> & {
 	id: string;
 };
 
@@ -327,7 +338,16 @@ export type TableSettingsDTO = {
 	 * stay 90° taps whatever this says.
 	 */
 	rotationStep?: number;
+	/**
+	 * How a card dragged out of a hand lands when no modifier is held
+	 * (tableplace-195): `'down'` (absent) or `'up'`. Holding Shift at release
+	 * plays the other face.
+	 */
+	handPlayFace?: HandPlayFace;
 };
+
+/** which face a card played out of a hand lands on */
+export type HandPlayFace = 'down' | 'up';
 
 // index signatures (not Record<…>) so the generated JSON Schema keeps the
 // entity value shapes — typescript-json-schema drops Record value types
@@ -341,6 +361,6 @@ export interface GameDTO {
 	pieces?: { [pieceId: string]: Partial<PieceDTO> | null };
 	/** authored placement guides, keyed `snap:<n>`. null = remove */
 	snapPoints?: { [snapId: string]: Partial<SnapPointDTO> | null };
-	/** table-wide settings (`rotationStep`); a field set to null is removed */
+	/** table-wide settings (`rotationStep`, `handPlayFace`); a field set to null is removed */
 	table?: TableSettingsDTO;
 }

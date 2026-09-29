@@ -16,6 +16,7 @@
 import type { GameDTO } from '../store/game/types';
 import { assertReadableSpecVersion, SCENARIO_SPEC_VERSION } from '../formats/spec-version';
 import { validRotationStep } from '../utils/yaw';
+import { validHandPlayFace } from '../utils/hand';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */
@@ -166,6 +167,13 @@ export type Scenario = {
 	 * @maximum 360
 	 */
 	rotationStep?: number;
+	/**
+	 * Which face a card dragged out of a hand lands on by default: `"down"`
+	 * (the default when omitted) or `"up"`, for games that play cards face up.
+	 * Holding Shift at release plays the other face. Seeded into the lobby's
+	 * synced `state.table`, like `rotationStep` (tableplace-195).
+	 */
+	handPlayFace?: 'down' | 'up';
 };
 
 /** The on-disk shape of a `.tbps.json` file. */
@@ -407,6 +415,15 @@ export function parseScenarioFile(text: string): Scenario {
 			);
 		}
 		scenario.rotationStep = step;
+	}
+	if (obj.handPlayFace !== undefined) {
+		const face = validHandPlayFace(obj.handPlayFace);
+		if (face === undefined) {
+			throw new Error(
+				`\`handPlayFace\` must be "down" or "up", got ${JSON.stringify(obj.handPlayFace)}`
+			);
+		}
+		scenario.handPlayFace = face;
 	}
 	return scenario;
 }

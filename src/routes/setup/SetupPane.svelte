@@ -37,6 +37,7 @@
 	import { setSelectedDeck } from '$lib/store/deckSelection';
 	import { snapPointIds } from '$lib/store/game/actions/snap';
 	import { rotationStep } from '$lib/store/game/actions/rotate';
+	import { handPlayFace } from '$lib/utils/hand';
 	import { ROTATION_STEP_DEFAULT } from '$lib/utils/constants-rotation';
 	import {
 		snapEditor,
@@ -258,7 +259,7 @@
 			overlays: {},
 			snapPoints: {},
 			players: {},
-			table: { rotationStep: null }
+			table: { rotationStep: null, handPlayFace: null }
 		};
 		for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 			for (const key of Object.keys(s?.[collection] ?? {})) update[collection][key] = null;
@@ -426,6 +427,16 @@
 		gameActions.setRotationStep(next);
 	}
 
+	// the scenario's `handPlayFace` (tableplace-195): how a hand play lands
+	const tableHandPlayFace = $derived(handPlayFace($gameStore));
+
+	function setHandPlayFace(face: 'down' | 'up') {
+		// a remount re-emits the current value; only a real edit is a patch
+		if (face === tableHandPlayFace) return;
+		// face-down is the default: say nothing rather than 'down'
+		gameActions.setHandPlayFace(face === 'up' ? 'up' : null);
+	}
+
 	function addSnapPoint() {
 		gameActions.addSnapPoint({
 			position: [0, 0],
@@ -586,6 +597,12 @@
 		<Button
 			title="Default turn step ({ROTATION_STEP_DEFAULT}°)"
 			on:click={() => gameActions.setRotationStep(null)}
+		/>
+		<!-- saved as the scenario's handPlayFace; Shift at release plays the other -->
+		<Checkbox
+			label="hand plays face-up"
+			value={tableHandPlayFace === 'up'}
+			on:change={(e) => setHandPlayFace(e.detail.value ? 'up' : 'down')}
 		/>
 	</Folder>
 	<Folder title="Snap points" expanded={false}>
