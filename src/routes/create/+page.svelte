@@ -2,6 +2,7 @@
 	import { Canvas } from '@threlte/core';
 	import { ACESFilmicToneMapping } from 'three';
 	import TableScene from '$lib/TableScene.svelte';
+	import { ROOM_COLOR } from '$lib/utils/constants-table';
 	import { cameraTransforms } from '$lib/utils/transforms/camera';
 	import { onMount } from 'svelte';
 	import { gameActions } from '$lib/store/game/actions';
@@ -58,7 +59,7 @@
 	right of the column belongs to the table, which is what makes the spread
 	fully visible and clickable.
 -->
-<div class="flex h-screen w-screen overflow-clip bg-gray-700">
+<div class="flex h-screen w-screen overflow-clip" style:background-color={ROOM_COLOR}>
 	<!--
 		The pane's width plus a stable scrollbar gutter, so the pane's right edge
 		is never under the scrollbar and never shifts when a folder opens. A flex
