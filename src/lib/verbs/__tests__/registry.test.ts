@@ -56,7 +56,7 @@ describe('verbs by kind', () => {
 			'ungroup',
 			'move'
 		]);
-		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual(['preview', 'reset-view']);
+		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual(['preview', 'reset-view', 'help']);
 	});
 
 	it('hand cards and selections are reserved kinds with nothing on them yet', () => {
