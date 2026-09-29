@@ -216,6 +216,7 @@ export function composePackPiece(
 		sides: def.sides,
 		model: def.model,
 		snap: def.snap,
+		reach: def.reach,
 		value: opts.value,
 		...(def.kind === 'bag'
 			? { contents: bagContents(def), drawMode: def.drawMode, infinite: def.infinite }

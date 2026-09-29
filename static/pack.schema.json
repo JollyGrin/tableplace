@@ -173,6 +173,11 @@
 								"type": "boolean",
 								"title": "snap"
 							},
+							"reach": {
+								"description": "How many snap-point links this piece usually travels. Advisory: lifted\noff a linked snap point, the points within `reach` links glow brighter.\nNothing is blocked. A non-negative whole number; omitted means none.",
+								"type": "number",
+								"title": "reach"
+							},
 							"contents": {
 								"description": "bags only — what a draw pulls out. Hidden from every player in play.",
 								"type": "array",
@@ -338,7 +343,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "1.6.0",
-	"x-generated-at": "2026-09-29T13:07:57.425Z",
-	"x-tableplace-source-sha": "cdc3606410617c8f1de44e2326af89eb94467cab-dirty"
+	"x-tableplace-spec-version": "1.7.0",
+	"x-generated-at": "2026-09-29T14:01:58.429Z",
+	"x-tableplace-source-sha": "d635a25c43d00fa4901949e8c35419be808e38ec-dirty"
 }

@@ -87,6 +87,17 @@ function setPieceSnap(pieceId: string, snap: boolean) {
 	} as Parameters<typeof gameStore.updateState>[0]);
 }
 
+/**
+ * How many snap-point links a piece usually travels — advisory reach rings
+ * (tableplace-190). 0 or less deletes the field: no reach, no bright set.
+ */
+function setPieceReach(pieceId: string, reach: number) {
+	const whole = Math.round(reach);
+	return gameStore.updateState({
+		pieces: { [pieceId]: { reach: whole > 0 ? whole : null } }
+	} as Parameters<typeof gameStore.updateState>[0]);
+}
+
 /** Step a multi-state piece to its next (or previous) face. Never a die or bag. */
 function cyclePieceState(pieceId: string, delta = 1) {
 	const piece = getPieceState(pieceId);
@@ -218,6 +229,7 @@ export const pieceActions = {
 	currentPieceState,
 	setPieceState,
 	setPieceSnap,
+	setPieceReach,
 	cyclePieceState,
 	rollDie
 };

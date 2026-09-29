@@ -223,6 +223,11 @@ function parsePiece(v: unknown, path: string): PackPieceDef {
 	}
 	if (v.infinite !== undefined) piece.infinite = Boolean(v.infinite);
 	if (v.snap !== undefined) piece.snap = Boolean(v.snap);
+	if (v.reach !== undefined) {
+		const reach = num(v.reach, `${path}.reach`);
+		if (!Number.isInteger(reach) || reach < 0) fail(`${path}.reach`, 'must be a whole number ≥ 0');
+		piece.reach = reach;
+	}
 	return piece;
 }
 
