@@ -116,6 +116,19 @@ describe('recording', () => {
 		expect(t.state()).toEqual(original);
 	});
 
+	it('each Q/E press is its own "turned" entry, even in quick succession', () => {
+		const t = table(start());
+		for (const yaw of [45, 90]) {
+			t.journal.verb('turn-cw', [['pieces', PIECE]]);
+			t.write({ pieces: { [PIECE]: { rotation: [0, yaw, 0] } } });
+			vi.advanceTimersByTime(100);
+		}
+		t.settle();
+		expect(t.lines()).toEqual(['turned Marker', 'turned Marker']);
+		t.journal.undo();
+		expect(t.state().pieces[PIECE].rotation).toEqual([0, 45, 0]);
+	});
+
 	it('a selection verb is one entry for all its members', () => {
 		const t = table(start());
 		t.journal.verb('flip-selection', [

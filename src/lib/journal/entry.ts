@@ -191,6 +191,8 @@ export const VERB_TEXT: Readonly<Record<string, string>> = {
 	flip: 'flipped',
 	'flip-selection': 'flipped',
 	tap: 'turned',
+	'turn-cw': 'turned',
+	'turn-ccw': 'turned',
 	'tap-reverse': 'turned',
 	'rotate-cw': 'turned',
 	'rotate-ccw': 'turned',
