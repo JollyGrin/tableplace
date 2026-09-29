@@ -17,7 +17,7 @@ export type VerbTarget =
 	| { kind: 'piece'; id: string }
 	/** a card in the local player's tray. Nothing acts on one by key today. */
 	| { kind: 'hand-card'; id: string }
-	/** several entities at once. No selection exists yet; the kind is reserved. */
+	/** the box selection (tableplace-202): every selected entity at once */
 	| { kind: 'selection'; ids: string[] }
 	| { kind: 'table' };
 

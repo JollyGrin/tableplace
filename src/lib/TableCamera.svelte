@@ -43,6 +43,27 @@
 	} from '$lib/utils/camera-fit';
 	import { distanceOf, easeInOutCubic, interpolatePose } from '$lib/utils/camera-tween';
 	import { isPanKey, panDelta } from '$lib/utils/transforms/pan';
+	import { classicMouse } from '$lib/store/mouseMode';
+
+	/**
+	 * The mouse mapping (tableplace-202). Left-drag on the felt belongs to the
+	 * selection box (Table.svelte), so OrbitControls gives up the left button —
+	 * -1 is "no action" to three's switch — and orbits on the right, pans on
+	 * the middle: the Tabletop Simulator convention. A right press that never
+	 * travels is still the radial wheel (radial/gesture.ts), exactly as it was
+	 * when right-drag panned. The classic mapping (left orbits, right pans) is
+	 * one Settings checkbox away for one release — see store/mouseMode.ts.
+	 */
+	const MOUSE_BUTTONS = {
+		LEFT: -1 as THREE.MOUSE,
+		MIDDLE: THREE.MOUSE.PAN,
+		RIGHT: THREE.MOUSE.ROTATE
+	};
+	const CLASSIC_MOUSE_BUTTONS = {
+		LEFT: THREE.MOUSE.ROTATE,
+		MIDDLE: THREE.MOUSE.DOLLY,
+		RIGHT: THREE.MOUSE.PAN
+	};
 
 	const isDragging = $derived($dragStore.isDragging !== null);
 
@@ -392,12 +413,13 @@
 	     picks a wedge would otherwise pan (right) or rotate (left) the camera
 	     underneath it. Disabling the controls outright is safe mid-gesture —
 	     three's pointerup cleanup does not check `enabled`, so the press ends
-	     cleanly and the next one behaves normally. Bindings are otherwise
-	     untouched: a right drag that never held still still pans. -->
+	     cleanly and the next one behaves normally. A right drag that never
+	     held still still orbits (pans, on the classic mapping). -->
 	<OrbitControls
 		bind:ref={controls}
 		onchange={() => broadcastPose()}
 		enabled={!$isRadialOpen}
+		mouseButtons={$classicMouse ? CLASSIC_MOUSE_BUTTONS : MOUSE_BUTTONS}
 		enableRotate={!isDragging}
 		enableDamping
 		maxPolarAngle={Math.PI / 2 - 0.1}

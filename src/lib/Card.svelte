@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
-	import { clearHover, dragStart, dragStore, setHover } from './store/dragStore.svelte';
+	import {
+		clearHover,
+		dragStart,
+		dragStore,
+		isCarried,
+		setHover
+	} from './store/dragStore.svelte';
+	import { isSelectClick, selectedIds, toggleSelected } from './store/selection';
+	import SelectionRing from './SelectionRing.svelte';
 	import { Spring } from 'svelte/motion';
 	import { ImageMaterial } from '@threlte/extras';
 	import type { IntersectionEvent } from '@threlte/extras';
@@ -46,7 +54,10 @@
 		rotation: [0, 0, 0]
 	};
 
-	const isDragging = $derived($dragStore.isDragging === id);
+	// in the pointer's hand — the card grabbed, or one carried along with it
+	// as part of a selection (tableplace-202); either way it floats and tracks
+	const isDragging = $derived(isCarried($dragStore, id));
+	const isSelected = $derived($selectedIds.includes(id));
 	const cardState = $derived($gameStore?.cards?.[id] ?? initCardState);
 	const faceImageUrl = $derived(resolveCardImage(cardState?.faceImageUrl, $sheetRefCache));
 	const backImageUrl = $derived(resolveCardImage(cardState?.backImageUrl, $sheetRefCache));
@@ -234,6 +245,13 @@
 		// claims the pointerdown for the topmost card in a pile — see
 		// claimPointerDown — so the rest of the stack never sees this event
 		if (!claimPointerDown(e)) return;
+		// Shift/Ctrl+click adds this card to the selection, or takes it out —
+		// a press that neither drags nor opens the wheel
+		if (isSelectClick(e.nativeEvent)) {
+			if (cardState?.locked) return toastLocked();
+			toggleSelected(id);
+			return;
+		}
 		pendingDrag = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
 		// press-and-hold-still opens the wheel instead; the FIRST travel past the
 		// threshold cancels it (in the gesture's own move listener) and this drag
@@ -352,6 +370,18 @@
 		text={LOCK_BADGE_TEXT}
 		fontSize={LOCK_BADGE_FONT_SIZE}
 		position={[posX, posY + LOCK_BADGE_LIFT_CARD, posZ]}
+	/>
+{/if}
+
+{#if isSelected}
+	<!-- the selection ring: at the card's own height, turned with its tap and
+	     never with its flip, so it follows the card through a group drag -->
+	<SelectionRing
+		shape="rect"
+		w={CARD_WIDTH}
+		h={CARD_HEIGHT}
+		position={[posX, posY - CARD_THICKNESS / 2, posZ]}
+		yaw={(rotationTap.current + orientationYaw) * -DEG2RAD}
 	/>
 {/if}
 

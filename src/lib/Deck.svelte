@@ -4,7 +4,10 @@
 	import { ImageMaterial } from '@threlte/extras';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { Spring } from 'svelte/motion';
-	import { dragStart, dragStore, setDeckHover } from '$lib/store/dragStore.svelte';
+	import { dragStart, dragStore, isCarried, setDeckHover } from '$lib/store/dragStore.svelte';
+	import { isSelectClick, selectedIds, toggleSelected } from '$lib/store/selection';
+	import { toastLocked } from '$lib/hotkeys/lock';
+	import SelectionRing from './SelectionRing.svelte';
 	import {
 		CARD_DRAG_Y,
 		CARD_WIDTH,
@@ -75,7 +78,10 @@
 	// Cards only: a dragged deck or piece just settles on the felt (see
 	// resolveDrop), so lighting up would promise a landing that can't happen —
 	// and the deck being dragged is always hovered by its own pointer.
-	const isDragged = $derived($dragStore.isDragging === id);
+	// carried: this pile, or a pile riding along with a selected card
+	const isDragged = $derived(isCarried($dragStore, id));
+	// in the box selection (tableplace-202) — not /setup's `isSelected` above
+	const isInSelection = $derived($selectedIds.includes(id));
 	const isDropTarget = $derived(
 		isHovered &&
 			!!$dragStore.isDragging &&
@@ -159,6 +165,12 @@
 		cancelPendingDrag();
 		// travel means draw, never the wheel
 		cancelRadialPress();
+		// …unless this pile is part of a selection: then the drag is the group
+		// move, and the pile goes with the rest of it (tableplace-202)
+		if ($selectedIds.includes(id) && $selectedIds.length > 1) {
+			dragStart(id, CARD_DRAG_Y, deck.position as [number, number, number] | undefined);
+			return;
+		}
 		// the last raycast already put the pointer's table point in the store,
 		// so the card materialises exactly under the cursor at drag height.
 		// An empty deck simply has nothing to draw — the wheel moves that pile.
@@ -200,6 +212,14 @@
 		// claims the pointerdown ahead of anything behind the deck — see
 		// claimPointerDown — and locks OrbitControls out of the gesture
 		if (!claimPointerDown(e)) return;
+		// Ctrl/Cmd+click adds the pile to the selection or takes it out (Shift is
+		// the felt draw, so it stays that). The click that follows draws nothing.
+		if (isSelectClick(e.nativeEvent, true)) {
+			suppressClick = true;
+			if (deck.locked) return toastLocked();
+			toggleSelected(id);
+			return;
+		}
 		// A click that PLACES a carried pile must not also draw off it: the
 		// pile is under the pointer by definition at that moment
 		suppressClick = $dragStore.isDragging === id;
@@ -319,3 +339,15 @@
 		<T is={deckBodyGeometry} attach="geometry" dispose={false} />
 	</T.Mesh>
 </T.Group>
+
+<!-- the box selection's ring (tableplace-202). Outside the pile's group: a child
+     would be raycast as part of the pile and widen what grabs it. -->
+{#if isInSelection}
+	<SelectionRing
+		shape="rect"
+		w={CARD_WIDTH}
+		h={CARD_HEIGHT}
+		position={[planar.current.x, lift.current + height / 2 + 0.04, planar.current.z]}
+		yaw={rotation[1]}
+	/>
+{/if}

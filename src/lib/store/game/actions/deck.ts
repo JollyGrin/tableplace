@@ -97,12 +97,22 @@ function groupStackIntoDeck(cardId?: string) {
 	// a pinned card is never swallowed — not even one lying under the anchor
 	if (group.ids.some((memberId) => cards?.[memberId]?.locked)) return;
 
+	return groupIntoDeck(group.ids, group.topId, group.position);
+}
+
+/**
+ * Loose cards → one deck, in ONE patch that also deletes the cards, so remote
+ * clients never see them twice. `ids` run bottom → top; the pile lands at
+ * `at`'s XZ. Shared by `G` on a pile and `G` on a selection.
+ */
+function groupIntoDeck(ids: string[], topId: string, at: readonly number[]) {
+	const cards = get(gameStore)?.cards;
 	// the top card decides the pile's facing: a face-up top becomes a face-up
 	// deck (discard-pile style), which also flips the ordering convention —
 	// face-up decks draw from the front, facedown ones from the back
-	const top = cards?.[group.topId];
+	const top = cards?.[topId];
 	const isFaceUp = (top?.rotation?.[0] ?? 0) !== 180;
-	const ordered = orderForDeck(group.ids, isFaceUp);
+	const ordered = orderForDeck(ids, isFaceUp);
 	const deckCards = ordered.map((memberId) => {
 		const card = cards?.[memberId];
 		return {
@@ -114,7 +124,7 @@ function groupStackIntoDeck(cardId?: string) {
 		};
 	});
 
-	const [baseX, , baseZ] = group.position;
+	const [baseX = 0, , baseZ = 0] = at;
 	const built = buildDeck({
 		isFaceUp,
 		deckBackImageUrl: top?.backImageUrl,
@@ -128,12 +138,31 @@ function groupStackIntoDeck(cardId?: string) {
 	if (!built) return;
 
 	const removals: Record<string, null> = {};
-	for (const memberId of group.ids) removals[memberId] = null;
+	for (const memberId of ids) removals[memberId] = null;
 	gameStore.updateState({
 		decks: { [built.deckId]: built.deck },
 		cards: removals
 	});
 	return built.deckId;
+}
+
+/**
+ * `G` on a selection (tableplace-202): every selected loose card into one
+ * deck, wherever they lie. They stack in the order they lie — lowest first,
+ * then selection order — and the pile lands where the top one was. Pinned
+ * cards and ids that are not loose cards are left out. Returns the deck id,
+ * or undefined when there was no card to group.
+ */
+function groupCardsIntoDeck(ids: readonly string[]) {
+	const cards = get(gameStore)?.cards;
+	const members = ids
+		.filter((id) => cards?.[id] && !cards[id]?.locked)
+		.map((id, order) => ({ id, order, y: cards?.[id]?.position?.[1] ?? 0 }))
+		.sort((a, b) => a.y - b.y || a.order - b.order)
+		.map(({ id }) => id);
+	if (!members.length) return;
+	const topId = members[members.length - 1];
+	return groupIntoDeck(members, topId, cards?.[topId]?.position ?? [0, 0, 0]);
 }
 
 /**
@@ -583,6 +612,7 @@ export function shuffleDeck(deckId: string) {
 export const deckActions = {
 	addDeck,
 	groupStackIntoDeck,
+	groupCardsIntoDeck,
 	ungroupDeck,
 	drawFromTop,
 	drawToHand,
