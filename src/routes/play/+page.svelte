@@ -12,6 +12,7 @@
 	import { dragStore } from '$lib/store/dragStore.svelte';
 	import { ungroupHoveredDeck } from '$lib/hotkeys/ungroup';
 	import { shuffleHoveredDeck } from '$lib/hotkeys/shuffle';
+	import { drawHoveredDeckToHand } from '$lib/hotkeys/draw';
 	import { cycleHoveredPieceState } from '$lib/hotkeys/piece-state';
 	import { rotateHoveredModel } from '$lib/hotkeys/model-rotate';
 	import { isTyping } from '$lib/hotkeys/is-typing';
@@ -59,9 +60,9 @@
 		if (event.code === 'KeyX') cycleHoveredPieceState(event.shiftKey ? -1 : 1);
 		if (event.code === 'ArrowUp') gameActions.incrementHeight(0.01);
 		if (event.code === 'ArrowDown') gameActions.incrementHeight(-0.01);
-		// number keys 1-9 on a hovered deck: draw that many, fanned toward you
+		// number keys 1-9 on a hovered deck: draw that many into your hand
 		const drawN = /^Digit([1-9])$/.exec(event.code);
-		if (drawN && hoveredDeck) gameActions.drawFromTop(hoveredDeck, Number(drawN[1]));
+		if (drawN && hoveredDeck) drawHoveredDeckToHand(hoveredDeck, Number(drawN[1]));
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {

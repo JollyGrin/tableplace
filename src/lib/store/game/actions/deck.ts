@@ -288,6 +288,76 @@ function drawFromTop(id: string, count = 1): CardInDeck[] {
 	return drawn;
 }
 
+export type DrawToHandResult =
+	| { ok: true; deckId: string; cardIds: string[] }
+	| { ok: false; reason: 'no-deck' | 'not-yours' | 'empty' | 'no-player' };
+
+/**
+ * Whose hand may a deck deal into? Deck ids encode their owner
+ * (`deck:<owner>:<slot>`). Your own decks deal to you; a deck whose owner is
+ * not a player in the lobby — a shared pile, an unclaimed seat — is
+ * table-scoped and deals to whoever draws. Another player's deck does not.
+ */
+function canDrawToHand(deckId: string, playerId = gameActions.getMyId()) {
+	if (!playerId) return false;
+	const owner = deckId.split(':')[1];
+	if (owner === playerId) return true;
+	return !get(gameStore)?.players?.[owner ?? ''];
+}
+
+/**
+ * Draw `count` cards off the top of the deck into the drawer's hand (a deck
+ * click, number keys 1-9) — the tray, not the felt. Same top-of-deck
+ * convention as drawFromTop; the drawn cards append to the hand in draw order.
+ *
+ * Deck shrink and hand growth are ONE patch whatever the count, so `5` costs
+ * one message against the relay's rate limit, and remote clients never see a
+ * card in both places. Nothing here carries a position, so it goes out
+ * immediately rather than through the drag throttle.
+ */
+function drawToHand(id: string, count = 1): DrawToHandResult {
+	const deck = get(gameStore)?.decks?.[id];
+	if (!deck) return { ok: false, reason: 'no-deck' };
+	const playerId = gameActions.getMyId();
+	const player = playerId ? get(gameStore)?.players?.[playerId] : undefined;
+	if (!playerId || !player) return { ok: false, reason: 'no-player' };
+	if (!canDrawToHand(id, playerId)) return { ok: false, reason: 'not-yours' };
+	const available = deck.cards ?? [];
+	if (available.length === 0) return { ok: false, reason: 'empty' };
+
+	const isFaceUp = deck.isFaceUp ?? false;
+	const remaining = [...available];
+	// a card id can already be live on the table or in the hand (the same pack
+	// slot spawned twice) — the hand is keyed by id, so a clash would overwrite
+	const taken = new Set([
+		...Object.keys(get(gameStore)?.cards ?? {}),
+		...Object.keys(player.tray ?? {})
+	]);
+	const tray: Record<string, Partial<GameDTO['cards'][string]>> = {};
+	const cardIds: string[] = [];
+	for (let i = 0; i < Math.min(count, available.length); i++) {
+		const card = isFaceUp ? remaining.shift() : remaining.pop();
+		if (!card) break;
+		const { id: deckCardId, ...body } = card;
+		const cardId = allocateCardId(deckCardId, `${id}:draw-${i}`, taken);
+		taken.add(cardId);
+		cardIds.push(cardId);
+		tray[cardId] = {
+			...body,
+			faceImageUrl: body.faceImageUrl ?? '',
+			...(body.backImageUrl || deck.deckBackImageUrl
+				? { backImageUrl: body.backImageUrl ?? (deck.deckBackImageUrl as string) }
+				: {})
+		};
+	}
+
+	gameStore.updateState({
+		decks: { [id]: { cards: remaining } },
+		players: { [playerId]: { tray } }
+	} as Partial<GameDTO>);
+	return { ok: true, deckId: id, cardIds };
+}
+
 /**
  * Draw the top card straight into an in-flight drag (tableplace-103): the
  * card spawns already airborne — at the pointer's table point, at
@@ -411,6 +481,8 @@ export const deckActions = {
 	groupStackIntoDeck,
 	ungroupDeck,
 	drawFromTop,
+	drawToHand,
+	canDrawToHand,
 	drawIntoDrag,
 	flipDeck,
 	getDeckLength,

@@ -147,6 +147,9 @@
 		[`Ungroup deck (max ${UNGROUP_MAX_CARDS} cards)`, 'Shift + G'],
 		// moved off bare S in tableplace-161: S is a pan key now
 		['Shuffle hovered deck', 'Shift + S'],
+		// tableplace-194: a click deals into your hand; the felt is one key away
+		['Draw into your hand', 'click deck / 1–9'],
+		['Draw onto the table', 'Shift + click deck'],
 		['Drop without snapping', 'hold Alt'],
 		['Cancel drag', 'Esc'],
 		['Nudge card higher', 'Arrow Up'],

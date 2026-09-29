@@ -81,7 +81,7 @@
 <div class="h-screen w-screen overflow-clip bg-gray-700">
 	<Canvas toneMapping={ACESFilmicToneMapping}>
 		{#if isReady}
-			<TableScene snapEditing />
+			<TableScene snapEditing drawToHand={false} />
 		{/if}
 	</Canvas>
 </div>

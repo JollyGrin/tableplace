@@ -15,6 +15,7 @@
 import { gameActions } from '$lib/store/game/actions';
 import { grabDeck } from '$lib/drop/grab';
 import { shuffleHoveredDeck } from '$lib/hotkeys/shuffle';
+import { drawHoveredDeckToHand } from '$lib/hotkeys/draw';
 import { ungroupHoveredDeck } from '$lib/hotkeys/ungroup';
 import { cameraTransforms } from '$lib/utils/transforms/camera';
 
@@ -53,7 +54,9 @@ export function radialOptions(target: RadialTarget): RadialOption[] {
 	}
 	if (target.kind === 'deck' && id) {
 		return [
-			{ id: 'draw', label: 'Draw 1', run: () => void gameActions.drawFromTop(id, 1) },
+			// a click draws to your hand; the felt is the wheel's (and Shift+click's)
+			{ id: 'draw', label: 'Draw to hand', run: () => void drawHoveredDeckToHand(id, 1) },
+			{ id: 'draw-table', label: 'Draw to table', run: () => void gameActions.drawFromTop(id, 1) },
 			{ id: 'flip', label: 'Flip', run: () => void gameActions.flipDeck(id) },
 			{ id: 'shuffle', label: 'Shuffle', run: () => void shuffleHoveredDeck(id) },
 			{ id: 'ungroup', label: 'Ungroup', run: () => void ungroupHoveredDeck(id) },

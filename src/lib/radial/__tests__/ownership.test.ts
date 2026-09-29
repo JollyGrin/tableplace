@@ -20,6 +20,7 @@ const gameActions = {
 		reason: 'not-mine'
 	})),
 	drawFromTop: vi.fn(),
+	drawToHand: vi.fn(() => ({ ok: false, reason: 'not-yours' })),
 	flipDeck: vi.fn(),
 	flipCard: vi.fn(),
 	tapCard: vi.fn(),
@@ -45,6 +46,12 @@ describe("an opponent's deck", () => {
 		fire('shuffle');
 		expect(shuffleDeck).not.toHaveBeenCalled();
 		expect(error).toHaveBeenCalledWith("That deck isn't yours to shuffle");
+	});
+
+	it('refuses the Draw to hand wedge, out loud', () => {
+		fire('draw');
+		expect(gameActions.drawToHand).toHaveBeenCalledWith('deck:someone-else:0', 1);
+		expect(error).toHaveBeenCalledWith("That deck isn't yours to draw from");
 	});
 
 	it('refuses the Ungroup wedge with the wrapper wording', () => {

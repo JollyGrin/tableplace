@@ -8,6 +8,7 @@
 	import TableCamera from './TableCamera.svelte';
 	import DropIndicator from './drop/DropIndicator.svelte';
 	import HudTrayScene from '$lib/HUDTray/HUDTrayScene.svelte';
+	import { registerTableCamera } from '$lib/HUDTray/drawFlight';
 	import Deck from './Deck.svelte';
 	import Piece from './Piece.svelte';
 	import SnapPointMarker from './SnapPointMarker.svelte';
@@ -42,11 +43,19 @@
 	 * `snapEditing` draws the authored snap-point markers and makes them
 	 * draggable — the /setup layer. Snapping itself needs no flag: it is part of
 	 * resolving a drop wherever the points exist.
+	 *
+	 * `drawToHand` is where a plain deck click draws: the hand in /play, the
+	 * felt in /setup (see tableFeatures).
 	 */
-	let { hand = true, snapEditing = false }: { hand?: boolean; snapEditing?: boolean } = $props();
+	let {
+		hand = true,
+		snapEditing = false,
+		drawToHand = true
+	}: { hand?: boolean; snapEditing?: boolean; drawToHand?: boolean } = $props();
 
 	$effect(() => {
-		setTableFeatures({ hand, snapEditing });
+		// no hand, nothing to draw into: a deck click falls back to the felt
+		setTableFeatures({ hand, snapEditing, drawToHand: hand && drawToHand });
 		if (!hand) setTrayHover(false);
 		return () => setTableFeatures(TABLE_FEATURES_DEFAULT);
 	});
@@ -54,6 +63,9 @@
 	const isDragging = $derived($dragStore.isDragging !== null);
 	let mesh: THREE.Mesh | undefined = $state();
 	const { camera, canvas } = useThrelte();
+	// a card drawn into the hand flies from the deck's screen point, which only
+	// this scene's camera can say (see HUDTray/drawFlight)
+	onMount(() => registerTableCamera(() => camera.current));
 
 	let intersectionPoint: THREE.Vector3 | null = $state(null);
 
