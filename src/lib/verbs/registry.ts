@@ -25,6 +25,8 @@ import { isDeckOwnedBy, ungroupRefusal, UNGROUP_MAX_CARDS } from '$lib/store/gam
 import { grabDeck } from '$lib/drop/grab';
 import { shuffleHoveredDeck, SHUFFLE_NOT_MINE } from '$lib/hotkeys/shuffle';
 import { ungroupHoveredDeck, ungroupRefusalText } from '$lib/hotkeys/ungroup';
+import { drawHoveredDeckToHand, DRAW_NOT_MINE } from '$lib/hotkeys/draw';
+import { tableFeatures } from '$lib/store/tableFeatures';
 import { cameraTransforms } from '$lib/utils/transforms/camera';
 import { SNAP_GRID_YAW_STEP_DEFAULT } from '$lib/utils/constants-snap';
 import { toggleHelp } from '$lib/hint/hintUi';
@@ -209,14 +211,33 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 
 	// ---- a deck ----
 	{
+		// tableplace-194: a draw goes to your hand — a click on the deck, the
+		// digit for that many, the wheel for one. The felt is `draw-table`'s.
 		id: 'draw',
-		label: 'Draw 1',
-		reference: 'Draw that many from hovered deck',
+		label: 'Draw to hand',
+		reference: 'Draw that many into your hand',
 		applies: on('deck'),
-		// the digit is the count, fanned toward you; the wheel draws one
 		hotkey: { codes: DIGITS, label: '1 – 9', arg: (code) => Number(code.slice('Digit'.length)) },
+		gesture: 'click',
 		radial: true,
-		run: (ctx, count = 1) => void gameActions.drawFromTop(idOf(ctx), count)
+		// /setup draws to the felt: the table is being authored, a hand isn't saved
+		refusal: (ctx) =>
+			!get(tableFeatures).drawToHand || gameActions.canDrawToHand(idOf(ctx), ctx.actor.playerId)
+				? null
+				: DRAW_NOT_MINE,
+		run: (ctx, count = 1) =>
+			void (get(tableFeatures).drawToHand
+				? drawHoveredDeckToHand(idOf(ctx), count)
+				: gameActions.drawFromTop(idOf(ctx), count))
+	},
+	{
+		// the old default, kept for games that deal to the felt
+		id: 'draw-table',
+		label: 'Draw to table',
+		applies: on('deck'),
+		gesture: 'Shift+click',
+		radial: true,
+		run: (ctx) => void gameActions.drawFromTop(idOf(ctx), 1)
 	},
 	{
 		id: 'flip',
@@ -474,6 +495,9 @@ const POINTER_BEFORE: KeybindRow[] = [
 	{ action: 'Same wheel, no right button', key: 'press & hold' },
 	// held, auto-repeating camera motion (utils/transforms/pan.ts)
 	{ action: 'Pan camera', key: 'W A S D' },
+	// a deck click draws (Deck.svelte); the digits are the `draw` verb's key
+	{ action: 'Draw into your hand', key: 'click deck' },
+	{ action: 'Draw onto the table', key: 'Shift + click deck' },
 	// TableCamera.svelte's own listener, not a key
 	{ action: 'Focus a card, deck or piece', key: 'double-click' }
 ];

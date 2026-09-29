@@ -55,6 +55,7 @@ describe('verbs by kind', () => {
 		]);
 		expect(ids(verbsFor({ kind: 'deck', id: 'deck:me:0' }, me))).toEqual([
 			'draw',
+			'draw-table',
 			'flip',
 			'shuffle',
 			'ungroup',
@@ -69,6 +70,19 @@ describe('verbs by kind', () => {
 			'focus',
 			'help'
 		]);
+	});
+
+	it("another player's deck refuses a draw to your hand; an unowned one deals (tableplace-194)", () => {
+		gameStore.update(
+			(state) => ({ ...state, players: { them: { id: 'them', seat: 1 } } }) as never
+		);
+		const theirs = verb({ kind: 'deck', id: 'deck:them:0' }, 'draw');
+		expect(theirs.enabled).toBe(false);
+		expect(theirs.reasonDisabled).toBe("That deck isn't yours to draw from");
+		expect(verb({ kind: 'deck', id: 'deck:seat3:0' }, 'draw').enabled).toBe(true);
+		expect(verb({ kind: 'deck', id: 'deck:me:0' }, 'draw').enabled).toBe(true);
+		// the felt has no ownership gate, same as before
+		expect(verb({ kind: 'deck', id: 'deck:them:0' }, 'draw-table').enabled).toBe(true);
 	});
 
 	it('hand cards and selections are reserved kinds with nothing on them yet', () => {
@@ -201,9 +215,14 @@ describe('the Keybinds folder is generated from the registry', () => {
 
 	it('now also lists the bindings the hand-written card left out', () => {
 		expect(keyFor('Flip hovered deck')).toBe('F');
-		expect(keyFor('Draw that many from hovered deck')).toBe('1 – 9');
+		expect(keyFor('Draw that many into your hand')).toBe('1 – 9');
 		expect(keyFor("Hovered piece's next state")).toBe('X');
 		expect(keyFor("Hovered piece's previous state")).toBe('Shift + X');
+	});
+
+	it('says a deck click draws to the hand and Shift+click to the table (tableplace-194)', () => {
+		expect(keyFor('Draw into your hand')).toBe('click deck');
+		expect(keyFor('Draw onto the table')).toBe('Shift + click deck');
 	});
 
 	it('lists the camera presets (tableplace-185)', () => {

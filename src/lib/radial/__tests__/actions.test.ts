@@ -16,6 +16,7 @@ const gameActions = {
 	tapCard: vi.fn(),
 	groupStackIntoDeck: vi.fn(),
 	drawFromTop: vi.fn(),
+	canDrawToHand: () => true,
 	flipDeck: vi.fn(),
 	ungroupDeck: vi.fn(() => ({ ok: true, deckId: 'deck:me:0', cardIds: [] })),
 	cyclePieceState: vi.fn(),
@@ -28,12 +29,14 @@ const gameActions = {
 	drawFromBag: vi.fn()
 };
 const shuffleHoveredDeck = vi.fn();
+const drawHoveredDeckToHand = vi.fn();
 const resetView = vi.fn();
 const toggleTopDown = vi.fn();
 const focus = vi.fn();
 
 vi.mock('$lib/store/game/actions', () => ({ gameActions }));
 vi.mock('$lib/hotkeys/shuffle', () => ({ shuffleHoveredDeck, SHUFFLE_NOT_MINE: 'not yours' }));
+vi.mock('$lib/hotkeys/draw', () => ({ drawHoveredDeckToHand, DRAW_NOT_MINE: 'not yours' }));
 vi.mock('$lib/utils/transforms/camera', () => ({
 	cameraTransforms: { resetView, toggleTopDown, focus }
 }));
@@ -77,9 +80,10 @@ describe('card wheel', () => {
 describe('deck wheel', () => {
 	const target = { kind: 'deck', id: 'deck:me:0' } as const;
 
-	it('offers draw, flip, shuffle, ungroup and the pile move', () => {
+	it('offers draw to hand, draw to table, flip, shuffle, ungroup and the pile move', () => {
 		expect(radialOptions(target).map((option) => option.id)).toEqual([
 			'draw',
+			'draw-table',
 			'flip',
 			'shuffle',
 			'ungroup',
@@ -92,6 +96,9 @@ describe('deck wheel', () => {
 
 	it('acts on the pressed deck', () => {
 		run(target, 'draw');
+		// through the wrapper, so the not-yours toast is the key's own
+		expect(drawHoveredDeckToHand).toHaveBeenCalledWith('deck:me:0', 1);
+		run(target, 'draw-table');
 		expect(gameActions.drawFromTop).toHaveBeenCalledWith('deck:me:0', 1);
 		run(target, 'flip');
 		expect(gameActions.flipDeck).toHaveBeenCalledWith('deck:me:0');

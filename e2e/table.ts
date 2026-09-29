@@ -166,7 +166,9 @@ export async function openTable(browser: Browser, servers: Servers, lobby: strin
 
 	// the bridge mounts inside the Canvas, which mounts only once the socket is
 	// open — so waiting on it is also the connection assertion
-	await page.waitForFunction('window.__tableplace?.ready === true', { timeout: 60_000 });
+	await page.waitForFunction('window.__tableplace?.ready === true', {
+		timeout: Number(process.env.E2E_READY_MS ?? 60_000)
+	});
 
 	const settle = (ms = 700) => sleep(ms);
 	await settle(600);

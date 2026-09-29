@@ -21,6 +21,8 @@
 	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
 	import { DRAG_THRESHOLD_PX } from '$lib/utils/counter-input';
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
+	import { drawHoveredDeckToHand } from '$lib/hotkeys/draw';
+	import { tableFeatures } from '$lib/store/tableFeatures';
 	import DropFootprint from './drop/DropFootprint.svelte';
 	import LabelBadge from './LabelBadge.svelte';
 	import { LOCK_BADGE_TEXT } from '$lib/utils/constants-lock';
@@ -139,7 +141,8 @@
 	 *    so ownership transfer is just the id swap). ALWAYS, however long the
 	 *    press sat still first: dragging a deck means drawing off it.
 	 *  - hold still → the wheel (armed in handlePointerDown)
-	 *  - release without travel → the click handler draws 1
+	 *  - release without travel → the click handler draws 1 into your hand
+	 *    (Shift: onto the felt)
 	 *
 	 * Moving the whole pile is no longer a drag at all — it is the wheel's
 	 * "Move pile" wedge, which carries the pile to the next click (drop/grab.ts).
@@ -222,8 +225,10 @@
 		window.addEventListener('contextmenu', blockContextMenu);
 	}
 
-	// a press that never travelled: the draw (one card off the top, landing in
-	// front of the deck) — unless it was a long press, which draws nothing
+	// a press that never travelled: the draw — one card off the top into your
+	// hand, or with Shift onto the felt in front of the deck (the old default,
+	// kept for games that deal face-down to the table) — unless it was a long
+	// press, which draws nothing
 	function handleClick(e: IntersectionEvent<MouseEvent>) {
 		if (e.delta > DRAG_THRESHOLD_PX) return; // was a drag, not a click
 		e.stopPropagation();
@@ -231,7 +236,8 @@
 			suppressClick = false;
 			return;
 		}
-		gameActions.drawFromTop(id);
+		if (e.nativeEvent.shiftKey || !$tableFeatures.drawToHand) gameActions.drawFromTop(id);
+		else drawHoveredDeckToHand(id);
 	}
 </script>
 
