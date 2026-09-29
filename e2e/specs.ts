@@ -3483,6 +3483,131 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-155, the material finish: tokens, counters and pawns are
+		 * lacquered chips rather than three.js's dead-matte default (bags stay
+		 * cloth), and every image texture — card faces, a map overlay — filters
+		 * anisotropically, which is what keeps a board legible at the seat
+		 * camera's glancing angle. The screenshot is the side-by-side evidence;
+		 * the probes make it a regression check. Spine as ever: nothing else
+		 * stops rendering, raycasting or dragging.
+		 */
+		name: 'finish: chips read glossy, card faces and a map overlay stay sharp at the seat angle',
+		run: (context) =>
+			withTable(context, 'finish', async (table) => {
+				// fine lines and small type on a light field: what blurs first when a
+				// board is sampled without anisotropy
+				const board = await table.page.evaluate(() => {
+					const canvas = document.createElement('canvas');
+					canvas.width = canvas.height = 1024;
+					const context = canvas.getContext('2d')!;
+					context.fillStyle = 'rgb(226, 214, 186)';
+					context.fillRect(0, 0, 1024, 1024);
+					context.strokeStyle = 'rgb(60, 48, 36)';
+					context.lineWidth = 3;
+					for (let i = 0; i <= 1024; i += 64) {
+						context.beginPath();
+						context.moveTo(i, 0);
+						context.lineTo(i, 1024);
+						context.moveTo(0, i);
+						context.lineTo(1024, i);
+						context.stroke();
+					}
+					context.fillStyle = 'rgb(40, 30, 24)';
+					context.font = '20px sans-serif';
+					for (let row = 0; row < 16; row++) {
+						for (let col = 0; col < 16; col++) {
+							context.fillText(
+								`${String.fromCharCode(65 + col)}${row + 1}`,
+								col * 64 + 12,
+								row * 64 + 40
+							);
+						}
+					}
+					return canvas.toDataURL('image/png').split(',')[1]!;
+				});
+				// served cross-origin like real board art, not inlined into the lobby state
+				const host = createServer((request, response) => {
+					const found = request.url === '/board.png';
+					response.writeHead(found ? 200 : 404, {
+						'access-control-allow-origin': '*',
+						'content-type': 'image/png'
+					});
+					response.end(found ? Buffer.from(board, 'base64') : undefined);
+				});
+				await new Promise<void>((resolve) => host.listen(0, '127.0.0.1', resolve));
+				const boardUrl = `http://127.0.0.1:${(host.address() as AddressInfo).port}/board.png`;
+				try {
+					// far side of the felt from seat 0: the most oblique view of it
+					await table.page.evaluate(
+						(imageUrl) =>
+							window.__tableplace!.addOverlay({
+								id: 'overlay:finish',
+								position: [0, 0.255, -7],
+								rotation: [0, 0, 0],
+								imageUrl,
+								ratio: 1,
+								scale: 14
+							}),
+						boardUrl
+					);
+					const deck = await table.seedDeck([-8, 0.26, 2]);
+					const pieces = {
+						token: await table.spawn('token', { position: ON_FELT(0), color: '#b3372f' }),
+						counter: await table.spawn('counter', { position: ON_FELT(1), maxValue: 10 }),
+						pawn: await table.spawn('pawn', { position: LANE(2), color: '#2f6fb3' }),
+						bag: await table.spawn('bag', { position: LANE(3) })
+					};
+					await table.settle(2000);
+					assertClean(table, 'with a map overlay, a deck and one of each piece kind');
+
+					type Finish = { type: string; roughness: number | null };
+					const finishOf = async (id: string) =>
+						((await table.describe(id))?.materials ?? []) as Finish[];
+					const lit = (materials: Finish[]) =>
+						materials.filter((material) => material.roughness !== null);
+					for (const kind of ['token', 'counter', 'pawn'] as const) {
+						const body = lit(await finishOf(pieces[kind]));
+						ok(body.length > 0, `the ${kind} has no lit material to finish`);
+						ok(
+							body.every((material) => material.roughness! <= 0.5),
+							`the ${kind} still renders matte: roughness ${JSON.stringify(body.map((m) => m.roughness))}`
+						);
+					}
+					const cloth = lit(await finishOf(pieces.bag));
+					ok(
+						cloth.length > 0 && cloth.every((material) => material.roughness! >= 0.7),
+						`the bag lost its cloth finish: roughness ${JSON.stringify(cloth.map((m) => m.roughness))}`
+					);
+
+					const textures = await eventually(
+						() => table.page.evaluate(() => window.__tableplace!.textures()),
+						(found) => found.maps.some((map) => map.src === boardUrl) && found.maps.length >= 2
+					);
+					ok(
+						textures.target > 1,
+						`textures are built with anisotropy ${textures.target} — the GPU reports none, or the scene never raised it`
+					);
+					const overlay = textures.maps.find((map) => map.src === boardUrl);
+					ok(overlay, `the map overlay never drew its texture: ${JSON.stringify(textures.maps)}`);
+					const blurred = textures.maps.filter((map) => map.anisotropy < textures.target);
+					ok(
+						blurred.length === 0,
+						`${blurred.length} image texture(s) filter below anisotropy ${textures.target}: ` +
+							JSON.stringify(blurred.map((map) => [map.src.slice(0, 60), map.anisotropy]))
+					);
+
+					await assertRenders(table, deck, 'deck (beside the finished pieces)');
+					await assertDraggable(table, deck, 'deck (beside the finished pieces)');
+					await assertDraggable(table, pieces.token, 'a glossy token');
+					assertClean(table, 'at the end of the finish table');
+					await table.snap('finish');
+				} finally {
+					host.close();
+				}
+			})
+	},
+	{
+		/**
 		 * tableplace-183, the verb registry: /play binds no key of its own any
 		 * more — every hotkey is resolved against what is under the REAL pointer
 		 * and dispatched through `verbs/keyboard.ts`. Unit tests prove the table
