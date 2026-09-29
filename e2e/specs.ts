@@ -3408,42 +3408,43 @@ export const SPECS: Spec[] = [
 				ok(/locked/.test(hint), `the hint bar does not say the token is locked: "${hint}"`);
 				ok(/Unlock/.test(hint), `the hint bar does not offer L to unlock: "${hint}"`);
 
-				// ── the pin syncs ───────────────────────────────────────────────
+				// ── a real drag at it moves nothing, and says why ───────────────
+				const before = await table.positionOf(token);
+				await table.dragBy(token, DRAG.dx, DRAG.dy);
+				await table.settle(500);
+				const after = await table.positionOf(token);
+				ok(
+					planarDistance(before, after) < 0.01,
+					`the locked token moved: ${JSON.stringify(before)} → ${JSON.stringify(after)}`
+				);
+				const drag = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+				ok(!drag, `the locked token was lifted into a drag: ${drag}`);
+				const toasted = await eventually(
+					() => page.evaluate(() => document.body.innerText.includes('press L to unlock')),
+					(shown) => shown,
+					3000
+				);
+				ok(toasted, 'dragging the locked token did not toast the key that unlocks it');
+				await table.snap('lock-refused');
+
+				// everything else on the table still answers the pointer
+				await assertDraggable(table, deck, 'deck (beside a locked token)');
+
+				// ── the pin syncs, both ways ────────────────────────────────────
+				// the second client only watches: every real-mouse step runs while
+				// the table is the one foreground page, so a backgrounded tab's
+				// throttled frames can't pass for a refused drag
 				const remote = await openTable(context.browser, context.servers, lobby);
 				try {
-					await remote.settle(3000);
 					ok(
 						await eventually(
 							() => lockedOn(remote),
 							(on) => on,
-							5000
+							8000
 						),
 						'the second client never saw the lock'
 					);
-
-					// ── a real drag at it moves nothing, and says why ───────────────
-					const before = await table.positionOf(token);
-					await table.dragBy(token, DRAG.dx, DRAG.dy);
-					await table.settle(500);
-					const after = await table.positionOf(token);
-					ok(
-						planarDistance(before, after) < 0.01,
-						`the locked token moved: ${JSON.stringify(before)} → ${JSON.stringify(after)}`
-					);
-					const drag = await page.evaluate(() => window.__tableplace!.drag().isDragging);
-					ok(!drag, `the locked token was lifted into a drag: ${drag}`);
-					const toasted = await eventually(
-						() => page.evaluate(() => document.body.innerText.includes('press L to unlock')),
-						(shown) => shown,
-						3000
-					);
-					ok(toasted, 'dragging the locked token did not toast the key that unlocks it');
-					await table.snap('lock-refused');
-
-					// everything else on the table still answers the pointer
-					await assertDraggable(table, deck, 'deck (beside a locked token)');
-
-					// ── L again frees it, everywhere, and it drags ──────────────────
+					await page.bringToFront();
 					await pressL();
 					ok(
 						await eventually(
@@ -3457,15 +3458,18 @@ export const SPECS: Spec[] = [
 						await eventually(
 							() => lockedOn(remote),
 							(on) => !on,
-							5000
+							8000
 						),
 						'the second client never saw the unlock'
 					);
-					await assertDraggable(table, token, 'the unlocked token');
 					assertClean(remote, 'on the second client after lock and unlock');
 				} finally {
 					await remote.close();
 				}
+
+				// ── unpinned, it drags like any other piece ─────────────────────
+				await page.bringToFront();
+				await assertDraggable(table, token, 'the unlocked token');
 				assertClean(table, 'after locking, a refused drag and unlocking');
 			} finally {
 				await table.close();
