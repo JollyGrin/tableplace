@@ -188,9 +188,9 @@ describe('previewTarget', () => {
 		});
 
 		it('the caption stands alone when the card has no name', () => {
-			expect(
-				previewTarget(game, 'p1', { ...none, card: 'card:p1:placed-nameless' })
-			).toMatchObject({ face: 'https://x/nameless.png', caption: PEEK_CAPTION });
+			expect(previewTarget(game, 'p1', { ...none, card: 'card:p1:placed-nameless' })).toMatchObject(
+				{ face: 'https://x/nameless.png', caption: PEEK_CAPTION }
+			);
 		});
 
 		it('shows everyone else its back and never its name', () => {

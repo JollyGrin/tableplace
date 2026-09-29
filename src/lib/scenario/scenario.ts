@@ -256,10 +256,11 @@ export function saveScenario(name: string): Scenario {
 function portableCards(cards: GameDTO['cards'] | undefined): GameDTO['cards'] {
 	const out: GameDTO['cards'] = {};
 	for (const [id, card] of Object.entries(cards ?? {})) {
+		out[id] = card;
 		if (card?.placedBy && !isSeatPlaceholder(card.placedBy)) {
-			const { placedBy: _placedBy, ...rest } = card;
-			out[id] = rest;
-		} else out[id] = card;
+			out[id] = { ...card };
+			delete out[id].placedBy;
+		}
 	}
 	return out;
 }
