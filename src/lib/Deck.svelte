@@ -8,7 +8,10 @@
 	import { dragStart, dragStore, isCarried, setDeckHover } from '$lib/store/dragStore.svelte';
 	import { isSelectClick, selectedIds, toggleSelected } from '$lib/store/selection';
 	import { toastLocked } from '$lib/hotkeys/lock';
+	import { heldByOther } from '$lib/utils/hold';
+	import { toastHeld } from '$lib/hotkeys/held';
 	import SelectionRing from './SelectionRing.svelte';
+	import HeldMark from './HeldMark.svelte';
 	import {
 		CARD_DRAG_Y,
 		CARD_WIDTH,
@@ -211,6 +214,10 @@
 			dragStart(id, CARD_DRAG_Y, deck.position as [number, number, number] | undefined);
 			return;
 		}
+		// a pile in another player's hand is theirs until they put it down —
+		// no drawing off it mid-carry (tableplace-199)
+		const holder = heldByOther($gameStore, id);
+		if (holder) return toastHeld(holder);
 		// the last raycast already put the pointer's table point in the store,
 		// so the card materialises exactly under the cursor at drag height.
 		// An empty deck simply has nothing to draw — the wheel moves that pile.
@@ -397,3 +404,14 @@
 		yaw={rotation[1]}
 	/>
 {/if}
+
+<!-- held-by (tableplace-199): another player is carrying this pile -->
+<HeldMark
+	{id}
+	heldBy={deck.heldBy}
+	shape="rect"
+	w={CARD_WIDTH}
+	h={CARD_HEIGHT}
+	position={[planar.current.x, lift.current + weight.lift + height / 2 + 0.04, planar.current.z]}
+	yaw={rotation[1]}
+/>

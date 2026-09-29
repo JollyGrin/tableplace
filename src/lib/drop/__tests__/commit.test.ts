@@ -91,13 +91,17 @@ describe('commitActiveDrag with authored snap points', () => {
 	it('writes no rotation when the point authored none', () => {
 		const patch = vi.spyOn(gameStore, 'updateState');
 		release(CARD, -6.4, 3);
-		expect(patch).toHaveBeenCalledWith({ cards: { [CARD]: { position: [-6, CARD_REST_Y, 3] } } });
+		expect(patch).toHaveBeenCalledWith({
+			cards: { [CARD]: { position: [-6, CARD_REST_Y, 3], heldBy: null } }
+		});
 	});
 
 	it('writes no rotation for an ordinary drop, so nothing unchanged goes on the wire', () => {
 		const patch = vi.spyOn(gameStore, 'updateState');
 		release(CARD, 1, 1);
-		expect(patch).toHaveBeenCalledWith({ cards: { [CARD]: { position: [1, CARD_REST_Y, 1] } } });
+		expect(patch).toHaveBeenCalledWith({
+			cards: { [CARD]: { position: [1, CARD_REST_Y, 1], heldBy: null } }
+		});
 	});
 
 	it('leaves the drag cleared afterwards, snapped or not', () => {

@@ -18,13 +18,24 @@ export const keyString = ([collection, id]: EntityKey) => `${collection}\u0000${
 export const isRecord = (value: unknown): value is Json =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** every entity a merge patch touches (top-level records only) */
+/**
+ * A write that only takes or lets go of a hold (tableplace-199) — it says who
+ * has the pointer on something, not that anything happened to it.
+ */
+const onlyHold = (entity: unknown) =>
+	isRecord(entity) && Object.keys(entity).length === 1 && 'heldBy' in entity;
+
+/**
+ * every entity a merge patch touches (top-level records only) — leaving out
+ * hold churn, so taking or releasing a hold is never an action nor a touch
+ */
 export function touchedEntities(patch: unknown): EntityKey[] {
 	if (!isRecord(patch)) return [];
 	const keys: EntityKey[] = [];
 	for (const [collection, entities] of Object.entries(patch)) {
 		if (!isRecord(entities)) continue;
-		for (const id of Object.keys(entities)) keys.push([collection, id]);
+		for (const [id, entity] of Object.entries(entities))
+			if (!onlyHold(entity)) keys.push([collection, id]);
 	}
 	return keys;
 }
@@ -55,6 +66,8 @@ export function inverseOf(before: unknown, after: unknown): unknown {
 	if (!isRecord(before) || !isRecord(after)) return clone(before);
 	const patch: Json = {};
 	for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+		// a hold is the pointer's, never the action's: undo does not put one back
+		if (key === 'heldBy') continue;
 		const inverse = inverseOf(before[key], after[key]);
 		if (inverse !== undefined) patch[key] = inverse;
 	}
