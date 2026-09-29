@@ -27,7 +27,8 @@ export type SnapGuideKind = 'point' | 'cell';
  * has no facing.
  *
  * Called with numbers, not an object: this runs on every pointer move of a
- * drag, and a visit per guide must not allocate.
+ * drag, and a visit per guide must not allocate. `id` is the snap point's (a
+ * grid's cells all share their grid's), so a point can be drawn by set.
  */
 export type SnapGuideVisit = (
 	kind: SnapGuideKind,
@@ -35,7 +36,8 @@ export type SnapGuideVisit = (
 	y: number,
 	z: number,
 	size: number,
-	yaw: number
+	yaw: number,
+	id: string
 ) => void;
 
 function finite(v: unknown): v is number {
@@ -91,7 +93,7 @@ export function forEachSnapGuide(
 		const y = snapFloorY(point);
 
 		if (point.kind !== 'grid') {
-			visit('point', centre[0], y, centre[1], snapRadius(point), 0);
+			visit('point', centre[0], y, centre[1], snapRadius(point), 0, id);
 			continue;
 		}
 
@@ -125,7 +127,8 @@ export function forEachSnapGuide(
 					y,
 					centre[1] + cu * sin - cv * cos,
 					pitch,
-					yaw
+					yaw,
+					id
 				);
 			}
 		}

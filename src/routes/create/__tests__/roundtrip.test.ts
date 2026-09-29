@@ -62,6 +62,7 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 		drawMode: 'random',
 		infinite: false,
 		snap: true,
+		reach: 0,
 		position: [0, 0],
 		rotation: 0,
 		...over
@@ -74,7 +75,14 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 			imageUrl: 'https://example.com/token.png',
 			position: [1, 1]
 		}),
-		editorPiece({ kind: 'pawn', name: 'Runner', color: '#3366ff', radius: 0.3, position: [2, -1] }),
+		editorPiece({
+			kind: 'pawn',
+			name: 'Runner',
+			color: '#3366ff',
+			radius: 0.3,
+			reach: 3,
+			position: [2, -1]
+		}),
 		editorPiece({
 			kind: 'counter',
 			name: 'HP',
@@ -218,6 +226,9 @@ describe('/create round-trip (tts-clonetroopers.json)', () => {
 		expect(pawn?.contents).toBeUndefined();
 		expect(pawn?.drawMode).toBeUndefined();
 		expect(pawn?.infinite).toBeUndefined();
+		// a reach ships; the editor's 0 ("none") never does (tableplace-190)
+		expect(pawn?.reach).toBe(3);
+		expect(pack.pieces?.find((p) => p.name === 'HP')?.reach).toBeUndefined();
 	});
 
 	it('exports a bag with its contents, draw mode, and infinite flag', () => {

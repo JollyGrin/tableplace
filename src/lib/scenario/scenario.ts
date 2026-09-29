@@ -141,31 +141,42 @@ function toPlacement(
 }
 
 /**
- * Snap points live in the store keyed by id, but a file has no use for those
- * ids: they are table-scoped, nothing references them, and a stable array reads
- * far better in a hand-edited scenario. Sorted by id so an export is
- * deterministic, and dropped from `state` — the top-level `snapPoints` field is
- * their only home in the file.
+ * Snap points live in the store keyed by id, but a file keeps them as a stable
+ * array, which reads far better in a hand-edited scenario. Sorted by id so an
+ * export is deterministic, and dropped from `state` — the top-level
+ * `snapPoints` field is their only home in the file.
+ *
+ * The one thing that references a point is another point's `links`, and a
+ * file names a point by its index (`snap:<n>`, what `composeSnapPoints` gives
+ * it back on load). So links are renumbered to the exported order, and a link
+ * whose target isn't exported is dropped — left as it was, a deleted point's
+ * old id could alias whichever point takes its index.
  */
 function collectSnapPoints(s: Partial<GameDTO> | undefined | null): SnapPoint[] {
-	return snapPointIds(s ?? undefined)
-		.map((id) => s?.snapPoints?.[id])
-		.flatMap((point) => {
-			const position = point?.position;
-			if (!position) return [];
-			const snap: SnapPoint = { position: [position[0], position[1]] };
-			if (point?.y !== undefined) snap.y = point.y;
-			if (point?.rotation !== undefined) snap.rotation = point.rotation;
-			if (point?.radius !== undefined) snap.radius = point.radius;
-			if (point?.kind === 'grid') {
-				snap.kind = 'grid';
-				if (point.pitch !== undefined) snap.pitch = point.pitch;
-				if (point.cols !== undefined) snap.cols = point.cols;
-				if (point.rows !== undefined) snap.rows = point.rows;
-				if (point.yawStep !== undefined) snap.yawStep = point.yawStep;
-			}
-			return [snap];
+	const kept = snapPointIds(s ?? undefined).filter((id) => s?.snapPoints?.[id]?.position);
+	const renumbered = new Map(kept.map((id, index) => [id, `snap:${index}`]));
+	return kept.map((id) => {
+		const point = s!.snapPoints![id]!;
+		const position = point.position!;
+		const snap: SnapPoint = { position: [position[0], position[1]] };
+		if (point.y !== undefined) snap.y = point.y;
+		if (point.rotation !== undefined) snap.rotation = point.rotation;
+		if (point.radius !== undefined) snap.radius = point.radius;
+		if (point.kind === 'grid') {
+			snap.kind = 'grid';
+			if (point.pitch !== undefined) snap.pitch = point.pitch;
+			if (point.cols !== undefined) snap.cols = point.cols;
+			if (point.rows !== undefined) snap.rows = point.rows;
+			if (point.yawStep !== undefined) snap.yawStep = point.yawStep;
+		}
+		const links = (point.links ?? []).flatMap((link) => {
+			const target = renumbered.get(link);
+			return target && target !== renumbered.get(id) ? [target] : [];
 		});
+		if (links.length) snap.links = [...new Set(links)];
+		if (point.tags?.length) snap.tags = [...point.tags];
+		return snap;
+	});
 }
 
 /**

@@ -192,6 +192,13 @@ export type PieceDTO = {
 	 * unaffected). A big room section snaps to the grid; a loose prop doesn't.
 	 */
 	snap?: boolean;
+	/**
+	 * How many snap-point links this piece usually travels (tableplace-190).
+	 * Advisory only: lifted from a linked snap point, the points within `reach`
+	 * links glow brighter than the rest. Nothing is ever blocked. Absent means
+	 * no reach rings.
+	 */
+	reach?: number;
 	packOrigin?: PackOrigin;
 };
 
@@ -258,6 +265,15 @@ export type SnapPointDTO = {
 	 * modular-kit case).
 	 */
 	yawStep?: number;
+	/**
+	 * Ids of the snap points this one connects to — an optional board graph
+	 * (tableplace-190). A link is undirected: authored on either end, it joins
+	 * both. A target that doesn't exist is ignored. Inert unless a lifted piece
+	 * carries `reach`.
+	 */
+	links?: string[];
+	/** free-form labels a scenario can group points by; the table reads none of them */
+	tags?: string[];
 };
 
 // index signatures (not Record<…>) so the generated JSON Schema keeps the

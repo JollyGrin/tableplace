@@ -25,12 +25,30 @@ describe('tbpp round-trip', () => {
 				{ kind: 'counter', name: 'HP', color: '#ff0000', maxValue: 20, position: [1, -2] },
 				{ kind: 'token', name: 'Tile', imageUrl: 'https://x/y.png', radius: 1.5, position: [0, 0] },
 				// the per-piece snap opt-out (tableplace-134) survives the round-trip
-				{ kind: 'token', name: 'Loose prop', snap: false, position: [3, 3] }
+				{ kind: 'token', name: 'Loose prop', snap: false, position: [3, 3] },
+				// advisory reach over snap-point links (tableplace-190)
+				{ kind: 'pawn', name: 'Walker', reach: 2, position: [4, 4] }
 			],
 			overlays: [{ imageUrl: 'https://x/map.webp', ratio: 1.6, scale: 10 }],
 			source: 'tts'
 		};
 		expect(parsePackFile(serializePackFile(pack))).toEqual(pack);
+	});
+
+	it('refuses a reach that is not a whole number ≥ 0', () => {
+		const pack = (reach: unknown) =>
+			JSON.stringify({
+				tbpp: 1,
+				id: 'test',
+				name: 'Test',
+				scope: 'table',
+				decks: [],
+				pieces: [{ kind: 'pawn', name: 'Walker', reach, position: [0, 0] }]
+			});
+		expect(() => parsePackFile(pack(1.5))).toThrow(/reach/);
+		expect(() => parsePackFile(pack(-1))).toThrow(/reach/);
+		expect(() => parsePackFile(pack('2'))).toThrow(/reach/);
+		expect(parsePackFile(pack(0)).pieces?.[0]?.reach).toBe(0);
 	});
 
 	it('round-trips a multi-state piece, mixed face-ref schemes and all', () => {
