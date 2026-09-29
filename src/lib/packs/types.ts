@@ -136,6 +136,12 @@ export type PackPieceDef = {
 	 * grid, a loose prop shouldn't.
 	 */
 	snap?: boolean;
+	/**
+	 * How many snap-point links this piece usually travels. Advisory: lifted
+	 * off a linked snap point, the points within `reach` links glow brighter.
+	 * Nothing is blocked. A non-negative whole number; omitted means none.
+	 */
+	reach?: number;
 	/** bags only — what a draw pulls out. Hidden from every player in play. */
 	contents?: PackBagItemDef[];
 	/** bags only — draw order; defaults to `'random'` */

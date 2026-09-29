@@ -163,7 +163,7 @@ The literal prefix `model:` followed by `<kit>/<name>`, resolved through the fir
 - **`scope`** — `"table"` or `"player"`. `table` is the shared game loaded once per lobby by the host (board, communal decks). `player` is what one participant brings and is spawned per seat — a deck-builder export is a player pack. When in doubt for a card game, use `player`.
 - **`decks[]`** — `slot` (stable id within the pack), `name`, `back` (a face ref), optional `isFaceUp`, and `cards[]`.
   - **`cards[]`** — `code` (stable id within the deck), optional `name` (carried onto the spawned card and shown as the caption of the zoomed hover preview, only while the card is face up), `face` (a face ref), and optional `orientation` — {{CARD_ORIENTATIONS}}. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
-- **`pieces[]`** _(optional)_ — `kind` ({{PIECE_KINDS}}), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `maxValue` (counters), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
+- **`pieces[]`** _(optional)_ — `kind` ({{PIECE_KINDS}}), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `maxValue` (counters), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), optional `reach` (a whole number ≥ 0: how many snap-point links the piece usually travels — advisory reach rings, §7.2), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
 - **`overlays[]`** _(optional)_ — board/map images: `imageUrl` (a face ref), `ratio` (image width ÷ height), `scale` (world size along the long axis).
 - **`source`** _(optional)_ — provenance stamp written by converters; the only value is `"tts"`. Omit it in hand-authored packs.
 
@@ -283,6 +283,22 @@ Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`�
   - **`yawStep`** _(optional)_ — degrees; the landing's yaw rounds to the nearest multiple, measured from the grid's `rotation`. Default 90.
 
 Pieces can opt out per piece: a pack piece (or `state` piece) with `snap: false` ignores points and grids entirely — see §6.1.
+
+**Links, tags and reach — an optional board graph.** Many boards move pieces along connected spaces. Two optional fields describe that, and one on pieces uses it:
+
+```json
+"snapPoints": [
+	{ "position": [-4, 0], "links": ["snap:1"], "tags": ["north"] },
+	{ "position": [0, 0], "links": ["snap:2"] },
+	{ "position": [4, 0] }
+]
+```
+
+- **`links`** _(optional)_ — ids of the snap points this one connects to. A point's id is **`snap:<its index in the array>`** — `snap:0` is the first entry. Links are **undirected**: written on either end they join both, so you need not repeat them. A link to an index that doesn't exist is ignored.
+- **`tags`** _(optional)_ — free-form string labels (regions, sides, anything a scenario wants to group points by). The table never reads them.
+- A piece's **`reach`** _(optional, §6.1 and `state.pieces`)_ — a whole number: how many links the piece usually travels. Lift a piece with `reach` off a linked snap point and the points within `reach` links (breadth-first, including the one it left) glow brighter than the rest; points with something already on them are left out of that bright set but still count as passable.
+
+All three are **advisory only**. Nothing is ever blocked — a drop still lands on whichever point catches it, so house rules keep working. A scenario without links behaves exactly as it did before they existed.
 
 Snap points are **table-scoped, not seat-relative**: unlike a pack piece's `[x, z]`, they are never mirrored for the far side of the table. Author both ends explicitly — one at `[0, 2.5]` facing `0`, one at `[0, -2.5]` facing `180`.
 

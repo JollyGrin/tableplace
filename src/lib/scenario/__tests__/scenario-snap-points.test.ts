@@ -202,6 +202,82 @@ describe('snap points through save → export → import → load', () => {
 		expect(get(gameStore).pieces?.[id]?.snap).toBeUndefined();
 	});
 
+	it('draws, removes and tags links between points (tableplace-190)', () => {
+		const [a, b, c] = [
+			[0, 0],
+			[3, 0],
+			[6, 0]
+		].map((p) => gameActions.addSnapPoint({ position: p as [number, number] }));
+		expect(gameActions.toggleSnapLink(a!, b!)).toBe(true);
+		expect(gameActions.toggleSnapLink(b!, c!)).toBe(true);
+		// written on both ends
+		expect(snapPointsInStore()[a!]?.links).toEqual([b]);
+		expect(snapPointsInStore()[b!]?.links).toEqual([a, c]);
+		// toggling from the other end removes it from both; an empty list is deleted
+		expect(gameActions.toggleSnapLink(b!, a!)).toBe(false);
+		expect(snapPointsInStore()[a!]?.links).toBeUndefined();
+		expect(snapPointsInStore()[b!]?.links).toEqual([c]);
+		// a removed point takes its links with it
+		gameActions.removeSnapPoint(c!);
+		expect(snapPointsInStore()[b!]?.links).toBeUndefined();
+
+		gameActions.setSnapTags(a!, [' north ', '', 'north', 'edge']);
+		expect(snapPointsInStore()[a!]?.tags).toEqual(['north', 'edge']);
+		gameActions.setSnapTags(a!, []);
+		expect(snapPointsInStore()[a!]?.tags).toBeUndefined();
+	});
+
+	it('round-trips links, tags and reach, renumbering links to the exported order', async () => {
+		ensureSeatPlaceholder(0);
+		const runner = gameActions.addPiece('token', { ownerId: seatPlaceholderId(0), name: 'Runner' });
+		gameActions.setPieceReach(runner, 2);
+		const [a, gone, b, c] = [
+			[0, 0],
+			[1, 1],
+			[3, 0],
+			[6, 0]
+		].map((p) => gameActions.addSnapPoint({ position: p as [number, number] }));
+		gameActions.toggleSnapLink(a!, b!);
+		gameActions.toggleSnapLink(b!, c!);
+		gameActions.setSnapTags(c!, ['exit']);
+		// snap:1 goes, so snap:2/snap:3 export as indices 1/2 — links must follow
+		gameActions.removeSnapPoint(gone!);
+
+		const exported = serializeScenarioFile(saveScenario('linked'));
+		const file = JSON.parse(exported);
+		expect(file.snapPoints.map((p: { links?: string[] }) => p.links)).toEqual([
+			['snap:1'],
+			['snap:0', 'snap:2'],
+			['snap:1']
+		]);
+		expect(file.snapPoints[2].tags).toEqual(['exit']);
+
+		emptyTable();
+		await applyScenario(importScenarioFromText(exported));
+		expect(snapPointsInStore()['snap:1']).toMatchObject({
+			position: [3, 0],
+			links: ['snap:0', 'snap:2']
+		});
+		expect(snapPointsInStore()['snap:2']?.tags).toEqual(['exit']);
+		expect(get(gameStore).pieces?.[runner]?.reach).toBe(2);
+
+		gameActions.setPieceReach(runner, 0);
+		expect(get(gameStore).pieces?.[runner]?.reach).toBeUndefined();
+	});
+
+	it('refuses links or tags that are not string arrays', () => {
+		const file = (snapPoint: Record<string, unknown>) =>
+			JSON.stringify({ tbps: 1, name: 'bad', createdAt: 1, state: {}, snapPoints: [snapPoint] });
+		expect(() => importScenarioFromText(file({ position: [0, 0], links: 'snap:1' }))).toThrow(
+			/links/
+		);
+		expect(() => importScenarioFromText(file({ position: [0, 0], tags: [1] }))).toThrow(/tags/);
+		// a link to an index that doesn't exist is fine — it's ignored at lift time
+		expect(() =>
+			importScenarioFromText(file({ position: [0, 0], links: ['snap:9'] }))
+		).not.toThrow();
+	});
+
 	it('a landscape card landed on a grid keeps its orientation and still taps on the 90° lattice', () => {
 		// tableplace-132 composition: `orientation` is a render-only quarter
 		// turn and the synced rotation[2] stays orientation-relative. The grid

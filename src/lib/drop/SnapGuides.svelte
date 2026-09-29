@@ -14,6 +14,10 @@
 		SNAP_GUIDE_FILL_OPACITY,
 		SNAP_GUIDE_LAYER,
 		SNAP_GUIDE_LIFT,
+		SNAP_GUIDE_OUT_OF_REACH_OPACITY,
+		SNAP_GUIDE_REACH_COLOR,
+		SNAP_GUIDE_REACH_OPACITY,
+		SNAP_GUIDE_REACH_SCALE,
 		SNAP_GUIDE_RING_OPACITY
 	} from '$lib/utils/constants-snap';
 	import {
@@ -25,6 +29,7 @@
 		type SnapGuideVisit
 	} from './snap-guides';
 	import { snapGuideDimMaterial } from './snap-guide-dim';
+	import { liftReachSet } from './snap-reach';
 
 	/**
 	 * Lift-time snap guides (tableplace-188): while an entity that snaps is in
@@ -46,6 +51,10 @@
 	 * - the fade is a frame task that runs only while an opacity is actually
 	 *   moving, and writes three.js materials, never Svelte state.
 	 *
+	 * Reach rings (tableplace-190): a piece with `reach` lifted off a linked
+	 * point draws the points within reach from a third instanced mesh, brighter,
+	 * and fades every other ring back. Advisory only — every ring still catches.
+	 *
 	 * Everything draws on `SNAP_GUIDE_LAYER`: the main camera sees it, the
 	 * contact-shadow pass and every raycaster do not.
 	 */
@@ -63,6 +72,13 @@
 	// primitives, so a drag's per-move store updates don't rebuild the pools
 	const capacity = $derived(snapGuideCapacity(snapPoints));
 	const pointPool = $derived(poolSize(capacity.points));
+
+	/**
+	 * The points within the lifted piece's reach, or null for the ordinary
+	 * guides. Computed from the lift's origin, not the pointer — the reach is
+	 * where the piece came from, wherever it is being carried.
+	 */
+	const reachSet = $derived(active ? liftReachSet($gameStore, dragId, $dragStore.origin) : null);
 	const cellPool = $derived(poolSize(capacity.cells));
 
 	const ringGeometry = new THREE.RingGeometry(0.86, 1, 48);
@@ -81,8 +97,13 @@
 		});
 	const ringMaterial = outline();
 	const fillMaterial = outline();
+	const reachMaterial = outline();
+	reachMaterial.color.set(SNAP_GUIDE_REACH_COLOR);
+	/** whether the last layout had a reach set — the fade targets follow it */
+	let reaching = false;
 
 	let rings: THREE.InstancedMesh | undefined = $state();
+	let reachRings: THREE.InstancedMesh | undefined = $state();
 	let cells: THREE.InstancedMesh | undefined = $state();
 	let targetDisc: THREE.Mesh | undefined = $state();
 	let targetSquare: THREE.Mesh | undefined = $state();
@@ -101,6 +122,8 @@
 	const scratch = new THREE.Object3D();
 	const pointer = { x: 0, z: 0 };
 	let ringCount = 0;
+	let reachCount = 0;
+	let bright: Set<string> | null = null;
 	let cellCount = 0;
 	const SQRT2 = Math.SQRT2;
 
@@ -113,8 +136,12 @@
 		scratch.updateMatrix();
 	};
 
-	const visit: SnapGuideVisit = (kind, x, y, z, size, yaw) => {
-		if (kind === 'point') {
+	const visit: SnapGuideVisit = (kind, x, y, z, size, yaw, id) => {
+		if (kind === 'point' && bright?.has(id)) {
+			if (!reachRings || reachCount >= pointPool) return;
+			place(x, y, z, size * SNAP_GUIDE_REACH_SCALE, 0);
+			reachRings.setMatrixAt(reachCount++, scratch.matrix);
+		} else if (kind === 'point') {
 			if (!rings || ringCount >= pointPool) return;
 			place(x, y, z, size, 0);
 			rings.setMatrixAt(ringCount++, scratch.matrix);
@@ -133,17 +160,25 @@
 	$effect(() => {
 		// fading out: keep the last layout so the guides fade where they were
 		if (!active) return;
-		if (!rings || !cells || !targetDisc || !targetSquare) return;
+		if (!rings || !reachRings || !cells || !targetDisc || !targetSquare) return;
 
 		const hit = $dragStore.intersectionPoint;
 		if (hit) [pointer.x, pointer.z] = clampToTable(hit.x, hit.z);
 
 		ringCount = 0;
+		reachCount = 0;
 		cellCount = 0;
+		bright = reachSet;
 		forEachSnapGuide(snapPoints, hit ? pointer : null, visit);
 		rings.count = ringCount;
+		reachRings.count = reachCount;
 		cells.count = cellCount;
+		reaching = !!bright;
+		// for the harness: which points are in the bright set right now
+		reachRings.userData.snapGuideReach = bright ? [...bright].sort() : [];
+		applyFade();
 		rings.instanceMatrix.needsUpdate = true;
+		reachRings.instanceMatrix.needsUpdate = true;
 		cells.instanceMatrix.needsUpdate = true;
 
 		const caught = drop?.kind === 'snap' ? drop.snap : undefined;
@@ -186,11 +221,14 @@
 	});
 
 	const applyFade = () => {
-		ringMaterial.opacity = fade * SNAP_GUIDE_RING_OPACITY;
+		ringMaterial.opacity =
+			fade * (reaching ? SNAP_GUIDE_OUT_OF_REACH_OPACITY : SNAP_GUIDE_RING_OPACITY);
+		reachMaterial.opacity = fade * SNAP_GUIDE_REACH_OPACITY;
 		fillMaterial.opacity = fade * SNAP_GUIDE_FILL_OPACITY;
 		snapGuideDimMaterial.opacity = fade * SNAP_GUIDE_DIM_OPACITY;
 		const shown = fade > 0;
 		ringMaterial.visible = shown;
+		reachMaterial.visible = shown;
 		fillMaterial.visible = shown;
 		snapGuideDimMaterial.visible = shown;
 	};
@@ -214,6 +252,7 @@
 		discGeometry.dispose();
 		squareGeometry.dispose();
 		ringMaterial.dispose();
+		reachMaterial.dispose();
 		fillMaterial.dispose();
 	});
 </script>
@@ -225,6 +264,13 @@
 		bind:ref={rings}
 		oncreate={onLayer}
 		userData={{ snapGuide: 'rings' }}
+	/>
+	<T.InstancedMesh
+		args={[ringGeometry, reachMaterial, pointPool]}
+		count={0}
+		bind:ref={reachRings}
+		oncreate={onLayer}
+		userData={{ snapGuide: 'reach' }}
 	/>
 {/key}
 {#key cellPool}

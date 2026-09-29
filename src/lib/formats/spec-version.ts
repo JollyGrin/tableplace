@@ -19,6 +19,10 @@
 /**
  * Bump on any change to the pack schema. See docs/packs.md § Spec versioning.
  *
+ * 1.7.0 — pieces can carry `reach` (how many snap-point links the piece
+ * usually travels; advisory reach rings, tableplace-190). Additive: every
+ * earlier 1.x pack is still valid.
+ *
  * 1.6.0 — added the `model` piece kind with its `model:<kit>/<name>` catalog
  * ref (the fourth face-ref scheme), and optional `rotation` (yaw degrees) on
  * every piece. Additive: every earlier 1.x pack is still valid.
@@ -31,7 +35,7 @@
  * 1.3.0 — added the `bag` piece kind (`contents`/`drawMode`/`infinite`),
  * additive: every earlier 1.x pack is still valid.
  */
-export const PACK_SPEC_VERSION = '1.6.0';
+export const PACK_SPEC_VERSION = '1.7.0';
 
 /**
  * The scenario spec is deliberately 0.x: it is unstable and carries no
@@ -44,6 +48,11 @@ export const PACK_SPEC_VERSION = '1.6.0';
  * build then refuses files it could have read perfectly well. (The general
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
+ *
+ * 0.1.11 — snap points can carry `links` (ids of connected points — an
+ * optional board graph) and `tags` (free-form labels), and `state.pieces` can
+ * carry `reach` (tableplace-190). Optional fields on existing shapes —
+ * additive, so PATCH.
  *
  * 0.1.10 — `state.cards` (deck cards and hand cards too) can carry `name`,
  * the zoomed preview's caption (tableplace-192). One optional field —
@@ -63,7 +72,7 @@ export const PACK_SPEC_VERSION = '1.6.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.10';
+export const SCENARIO_SPEC_VERSION = '0.1.11';
 
 export type Semver = { major: number; minor: number; patch: number };
 

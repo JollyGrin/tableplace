@@ -11,6 +11,7 @@
 		AutoValue,
 		Checkbox,
 		Slider,
+		Stepper,
 		TabGroup,
 		TabPage
 	} from 'svelte-tweakpane-ui';
@@ -35,7 +36,12 @@
 	} from '$lib/scenario/scenario';
 	import { setSelectedDeck } from '$lib/store/deckSelection';
 	import { snapPointIds } from '$lib/store/game/actions/snap';
-	import { snapEditor, setSnapDefaults, setSnapPlacing } from '$lib/store/snapEditor';
+	import {
+		snapEditor,
+		setSnapDefaults,
+		setSnapLinking,
+		setSnapPlacing
+	} from '$lib/store/snapEditor';
 	import {
 		SNAP_GRID_COLS_DEFAULT,
 		SNAP_GRID_PITCH_DEFAULT,
@@ -374,6 +380,38 @@
 		setSnapDefaults({ radius: newRadius, rotation: newRotation || undefined });
 	});
 
+	/** a comma-separated tweakpane text field ↔ a list */
+	const splitList = (text: unknown) =>
+		String(text ?? '')
+			.split(',')
+			.map((item) => item.trim())
+			.filter(Boolean);
+	const snapLabel = (snapId: string) => snapId.replace('snap:', '#');
+
+	// Reach (tableplace-190): how many snap-point links a piece usually
+	// travels. Picked from a list rather than by clicking the piece, so the
+	// scene's own drag handling stays untouched.
+	const pieceIds = $derived(
+		Object.keys($gameStore?.pieces ?? {}).filter((id) => $gameStore?.pieces?.[id])
+	);
+	let reachPiece = $state('');
+	const reachPieceId = $derived(pieceIds.includes(reachPiece) ? reachPiece : (pieceIds[0] ?? ''));
+	const reachPieceOptions = $derived(
+		pieceIds.length
+			? Object.fromEntries(
+					pieceIds.map((id) => [`${$gameStore?.pieces?.[id]?.name ?? 'piece'} (${id})`, id])
+				)
+			: { '(no pieces)': '' }
+	);
+	const reachValue = $derived($gameStore?.pieces?.[reachPieceId]?.reach ?? 0);
+
+	function setReach(value: number | undefined) {
+		const next = Math.max(0, Math.round(value ?? 0));
+		// switching the picked piece re-emits its value; only a real edit is a patch
+		if (!reachPieceId || next === reachValue) return;
+		gameActions.setPieceReach(reachPieceId, next);
+	}
+
 	function addSnapPoint() {
 		gameActions.addSnapPoint({
 			position: [0, 0],
@@ -529,12 +567,20 @@
 			format={(v) => (v === 0 ? 'none' : `${(((v % 360) + 360) % 360).toFixed(0)}°`)}
 		/>
 		<Button title="Add at table centre" on:click={addSnapPoint} />
+		<!-- links: an optional board graph. Armed, a click on a marker picks it
+		     and a click on a second one draws or removes the link between them -->
+		<Checkbox
+			label="draw links"
+			value={!!$snapEditor.linking}
+			on:change={(e) => setSnapLinking(!!e.detail.value)}
+		/>
+		<Button title="Clear all links" on:click={() => gameActions.clearSnapLinks()} />
 		{#if snapIds.length > 0}
 			<TabGroup>
 				{#each snapIds as snapId (snapId)}
 					{@const point = $gameStore?.snapPoints?.[snapId]}
 					{@const position = point?.position ?? [0, 0]}
-					<TabPage title={snapId.replace('snap:', '#')}>
+					<TabPage title={snapLabel(snapId)}>
 						<Point
 							label="position"
 							value={[position[0], position[1]]}
@@ -634,6 +680,21 @@
 									})}
 							/>
 						{/if}
+						<Text
+							label="links"
+							value={(point?.links ?? []).map(snapLabel).join(', ') || 'none'}
+							disabled
+						/>
+						<Text
+							label="tags"
+							value={(point?.tags ?? []).join(', ')}
+							on:change={(e) => {
+								const tags = splitList(e.detail.value);
+								if (tags.join(',') !== (point?.tags ?? []).join(',')) {
+									gameActions.setSnapTags(snapId, tags);
+								}
+							}}
+						/>
 						<Button
 							title="Delete this point"
 							on:click={() => gameActions.removeSnapPoint(snapId)}
@@ -642,6 +703,16 @@
 				{/each}
 			</TabGroup>
 		{/if}
+	</Folder>
+	<Folder title="Piece reach" expanded={false}>
+		<List label="piece" bind:value={reachPiece} options={reachPieceOptions} />
+		<Stepper
+			label="reach (links)"
+			value={reachValue}
+			min={0}
+			step={1}
+			on:change={(e) => setReach(e.detail.value)}
+		/>
 	</Folder>
 	<Folder title="Overlay (map)" expanded={false}>
 		<Text label="Image URL" bind:value={imageUrl}></Text>
