@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 	import { T, useThrelte } from '@threlte/core';
 	import * as THREE from 'three';
 	import { ImageMaterial } from '@threlte/extras';
@@ -78,11 +78,28 @@
 	let flying = $state(false);
 	let mesh: THREE.Mesh | undefined = $state();
 
-	onMount(() => {
+	// Launched from an effect, not onMount: threlte binds `mesh` after this
+	// component's own mount, and the drawer queues the flight just after the
+	// patch that mounts us. By the first effect flush both are in place. Reads
+	// only `mesh`; everything it writes is untracked, and it runs once.
+	let launched = false;
+	$effect(() => {
+		const target = mesh;
+		if (!target || launched) return;
+		launched = true;
+		untrack(() => launchFlight(target));
+	});
+
+	function launchFlight(mesh: THREE.Mesh, tries = 3) {
+		// threlte may attach the mesh to the tray group a frame after binding it
+		if (!mesh.parent) {
+			if (tries > 0) requestAnimationFrame(() => launchFlight(mesh, tries - 1));
+			return;
+		}
 		const launch = takeFlight(id);
 		const tableCamera = getTableCamera();
-		const parent = mesh?.parent;
-		if (!launch || !tableCamera || !mesh || !parent || prefersReducedMotion()) return;
+		const parent = mesh.parent;
+		if (!launch || !tableCamera || prefersReducedMotion()) return;
 		const ndc = new THREE.Vector3(...launch.from).project(tableCamera);
 		// behind the table camera: no honest screen point to fly from
 		if (ndc.z > 1) return;
@@ -96,7 +113,7 @@
 			{ duration: 0 }
 		);
 		flight.set({ x: 0, y: 0, s: 1 }, { delay: launch.delayMs }).then(() => (flying = false));
-	});
+	}
 
 	function handlePointerEnter() {
 		// a card still in the air isn't in the hand yet: sweeping over its path
