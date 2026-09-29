@@ -150,7 +150,58 @@ async function withTable(
 	}
 }
 
+/** what a deeplinked table's tweakpane panes look like: expanded flags + pack library presence */
+async function paneState(table: Table) {
+	return table.page.evaluate(() => {
+		const roots = [...document.querySelectorAll('.tp-rotv')];
+		return {
+			panes: roots.length,
+			expanded: roots.filter((r) => r.classList.contains('tp-rotv-expanded')).length,
+			openFolders: document.querySelectorAll('.tp-fldv-expanded').length,
+			packLibrary: [...document.querySelectorAll('.tp-lblv_l')].some(
+				(l) => l.textContent?.trim() === 'Pack library'
+			),
+			debugFolder: [...document.querySelectorAll('.tp-fldv_t')].some(
+				(l) => l.textContent?.trim() === 'Debug'
+			)
+		};
+	});
+}
+
 export const SPECS: Spec[] = [
+	{
+		// #181: players land on a deeplink with the panes out of the way, and the
+		// global/dev controls (pack library…) absent unless `?debug` asks for them
+		name: 'deeplink: panes start collapsed, pack library only with ?debug',
+		run: async (context) => {
+			const open = async (name: string, query: string, body: (table: Table) => Promise<void>) => {
+				const table = await openTable(context.browser, context.servers, nextLobby(name), query);
+				try {
+					await body(table);
+				} finally {
+					await table.close();
+				}
+			};
+			await open('panes-plain', '', async (table) => {
+				const state = await paneState(table);
+				ok(state.panes >= 2, `expected the Settings and Decks panes, found ${state.panes}`);
+				ok(state.expanded === 0, `${state.expanded} pane(s) start expanded on a deeplink`);
+				ok(state.openFolders === 0, `${state.openFolders} folder(s) start expanded`);
+				ok(!state.packLibrary, 'the pack library is present on a deeplink without ?debug');
+				ok(!state.debugFolder, 'the Debug folder is present on a deeplink without ?debug');
+				assertClean(table, 'on a plain deeplink');
+				await table.snap('panes-deeplink');
+			});
+			await open('panes-debug', '&debug', async (table) => {
+				const state = await paneState(table);
+				ok(state.expanded === 0, `${state.expanded} pane(s) start expanded with ?debug`);
+				ok(state.packLibrary, 'the pack library is missing with ?debug');
+				ok(state.debugFolder, 'the Debug folder is missing with ?debug');
+				assertClean(table, 'on a ?debug deeplink');
+				await table.snap('panes-deeplink-debug');
+			});
+		}
+	},
 	{
 		// the control. If this fails, the harness is broken, not the app.
 		name: 'deck alone: drags, console clean',

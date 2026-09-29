@@ -5,12 +5,11 @@
  *
  * Drives the real tweakpane controls in jsdom, like PaneDecks.test.ts.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import Pane from '../Pane.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
-import type { GameDTO } from '$lib/store/game/types';
 
 // the pane reads the lobby out of the URL and can navigate; neither module
 // boots outside a real SvelteKit client runtime
@@ -40,11 +39,6 @@ const folder = (container: HTMLElement, title: string) =>
 
 const isExpanded = (el: Element | undefined) => el?.classList.contains('tp-fldv-expanded');
 
-const deckOf = (id: string, n: number) => ({
-	id,
-	cards: Array.from({ length: n }, (_, i) => ({ id: `${id}-${i}`, faceImageUrl: 'f.png' }))
-});
-
 describe('/play settings pane on first paint', () => {
 	beforeEach(() => {
 		cleanup();
@@ -54,33 +48,18 @@ describe('/play settings pane on first paint', () => {
 		gameActions.addPlayer('player9');
 	});
 
-	it('opens Scenarios and leaves the reference folders shut', async () => {
+	it('starts with the pane and every folder shut', async () => {
 		const { container } = render(Pane);
 		await settle();
 
-		// the actionable folder on an empty table
-		expect(isExpanded(folder(container, 'Scenarios'))).toBe(true);
-		// pure reference / instrumentation stays out of the way
+		// the pane itself is collapsed (#181) — no folder is open, even Scenarios
+		// on an empty table
+		expect(container.querySelector('.tp-rotv')?.classList.contains('tp-rotv-expanded')).toBe(false);
+		expect(isExpanded(folder(container, 'Scenarios'))).toBe(false);
 		expect(isExpanded(folder(container, 'Keybinds'))).toBe(false);
 		expect(isExpanded(folder(container, 'Debug'))).toBe(false);
 		expect(isExpanded(folder(container, 'Connection'))).toBe(false);
 		expect(isExpanded(folder(container, 'Overlays'))).toBe(false);
-	});
-
-	it('collapses Scenarios once the table has decks', async () => {
-		const { container } = render(Pane);
-		await settle();
-		expect(isExpanded(folder(container, 'Scenarios'))).toBe(true);
-
-		gameStore.updateState({
-			decks: { 'deck:player9:main': deckOf('deck:player9:main', 52) }
-		} as Partial<GameDTO>);
-		await settle();
-
-		expect(isExpanded(folder(container, 'Scenarios'))).toBe(false);
-		// the pane survived the update — a blade change can silently tear the
-		// whole thing down (see BulkSheet.svelte)
-		expect(folder(container, 'Keybinds')).toBeDefined();
 	});
 
 	it('keeps the fps graph inside Debug, not at the top of the pane', async () => {
@@ -133,5 +112,35 @@ describe('/play settings pane on first paint', () => {
 		// the share/seed explanations survived the move out of the Textareas
 		expect(container.textContent).toContain('whoever opens it is seated at the first open seat');
 		expect(container.textContent).toContain('Build presets at /setup');
+	});
+});
+
+describe('/play settings pane on a deeplink (#181)', () => {
+	const at = (search: string) => window.history.replaceState({}, '', `/play${search}`);
+	beforeEach(() => {
+		cleanup();
+		localStorage.clear();
+		gameStore.set({ players: {}, cards: {}, decks: {}, pieces: {} });
+		localStorage.setItem('myPlayerId', 'player9');
+		gameActions.addPlayer('player9');
+	});
+	afterEach(() => at(''));
+
+	it('hides the global/dev folders behind a ?lobby= link', async () => {
+		at('?lobby=abc');
+		const { container } = render(Pane);
+		await settle();
+		expect(folder(container, 'Debug')).toBeUndefined();
+		expect(folder(container, 'Overlays')).toBeUndefined();
+		expect(folder(container, 'Keybinds')).toBeDefined();
+		expect(folder(container, 'Connection')).toBeDefined();
+	});
+
+	it('brings them back with ?debug', async () => {
+		at('?lobby=abc&debug');
+		const { container } = render(Pane);
+		await settle();
+		expect(folder(container, 'Debug')).toBeDefined();
+		expect(folder(container, 'Overlays')).toBeDefined();
 	});
 });
