@@ -90,6 +90,32 @@ async function flickTo(table: Table, to: { x: number; y: number }): Promise<void
  * signature — `effect_update_depth_exceeded` — is worth reading in the report
  * rather than being one line of a console dump.
  */
+/**
+ * Wait until a camera move has landed: the pose reads the same across three
+ * animation frames (and a beat). A preset move is tweened, and on a
+ * software-rendered runner a frame can take a third of a second, so neither a
+ * fixed sleep nor two reads a fixed time apart is the right length.
+ */
+async function settleCamera(table: Table, timeoutMs = 15_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	const frames = () =>
+		table.page.evaluate(
+			() =>
+				new Promise<void>((resolve) => {
+					let n = 0;
+					const tick = () => (++n >= 3 ? setTimeout(resolve, 150) : requestAnimationFrame(tick));
+					requestAnimationFrame(tick);
+				})
+		);
+	let last = JSON.stringify(await table.cameraPose());
+	while (Date.now() < deadline) {
+		await frames();
+		const now = JSON.stringify(await table.cameraPose());
+		if (now === last) return;
+		last = now;
+	}
+}
+
 function assertClean(table: Table, when: string): void {
 	const problems = table.appProblems();
 	const teardown = problems.find((problem) => /effect_update_depth_exceeded/.test(problem.text));
@@ -2069,7 +2095,7 @@ export const SPECS: Spec[] = [
 				// C fits the content from the seat's angled view: wherever that is, it is
 				// where C has to bring the camera back to after all the panning below
 				await table.page.keyboard.press('KeyC');
-				await table.settle(1200);
+				await settleCamera(table);
 				const deckEye = await eye();
 
 				// ── a right drag that never holds still is a pan ──────────────
@@ -2167,7 +2193,7 @@ export const SPECS: Spec[] = [
 				// from the seat's own view again, which is C's job (a keybind this
 				// ticket left alone, and the deck is off-screen without it)
 				await table.page.keyboard.press('KeyC');
-				await table.settle(1200);
+				await settleCamera(table);
 				const home = await eye();
 				ok(
 					planarDistance(home, deckEye) < 1 && Math.abs(home[1]! - deckEye[1]!) < 0.5,
@@ -2200,7 +2226,7 @@ export const SPECS: Spec[] = [
 				] as const) {
 					await table.page.setViewport({ width, height });
 					await table.page.keyboard.press('KeyC');
-					await table.settle(800);
+					await settleCamera(table);
 					await table.page.mouse.move(width / 2, height / 2);
 					for (let i = 0; i < 40; i++) await table.page.mouse.wheel({ deltaY: 400 });
 					await table.settle(1500);
@@ -2250,7 +2276,7 @@ export const SPECS: Spec[] = [
 				await host.settle(800);
 				// the host is seat 0: angled, from the +z edge, looking toward -z
 				await host.page.keyboard.press('KeyC');
-				await host.settle(1200);
+				await settleCamera(host);
 				const hostPose = (await host.cameraPose())!;
 				ok(
 					hostPose.direction[1]! > -0.9 &&
@@ -2323,7 +2349,7 @@ export const SPECS: Spec[] = [
 							`${label}: the camera did not move — the refit check would prove nothing`
 						);
 						await seat.page.keyboard.press('KeyC');
-						await seat.settle(1200);
+						await settleCamera(seat);
 						const refit = await project();
 						ok(
 							bad(refit).length === 0,
@@ -2358,7 +2384,7 @@ export const SPECS: Spec[] = [
 			withTable(context, 'camera-presets', async (table) => {
 				const { page } = table;
 				const moved = await table.spawn('token', { position: [8, PIECE_REST_Y, -3] });
-				const clicked = await table.spawn('token', { position: [-8, PIECE_REST_Y, -3] });
+				const clicked = await table.spawn('token', { position: [-3, PIECE_REST_Y, 3] });
 				await table.settle(1000);
 				const pose = async () => (await table.cameraPose())!;
 				const topDown = (p: { direction: number[] }) => p.direction[1]! < -0.99;
@@ -2375,7 +2401,7 @@ export const SPECS: Spec[] = [
 
 				// ── the default is the seat view: angled, from seat 0's +z edge ──
 				await page.keyboard.press('KeyC');
-				await table.settle(1200);
+				await settleCamera(table);
 				const seat = await pose();
 				ok(
 					!topDown(seat) && seat.direction[1]! < -0.5 && seat.position[2]! > 5,
@@ -2388,12 +2414,14 @@ export const SPECS: Spec[] = [
 					w.__cameraSends = [];
 					const send = WebSocket.prototype.send;
 					WebSocket.prototype.send = function (data) {
+						(w as unknown as { __allSends: string[] }).__allSends ??= [];
+						(w as unknown as { __allSends: string[] }).__allSends.push(String(data).slice(0, 60));
 						if (typeof data === 'string' && data.includes('"type":"camera"'))
 							w.__cameraSends!.push(performance.now());
 						return send.call(this, data);
 					};
 				});
-				// sample the eye's tilt on every animation frame across the move
+				// sample the eye's tilt on every animation frame until the move lands
 				const tilts = await page.evaluate(
 					() =>
 						new Promise<number[]>((resolve) => {
@@ -2402,8 +2430,10 @@ export const SPECS: Spec[] = [
 							window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyP' }));
 							const start = performance.now();
 							const tick = () => {
-								out.push(window.__tableplace!.camera()!.direction[1]!);
-								if (performance.now() - start < 900) requestAnimationFrame(tick);
+								const y = window.__tableplace!.camera()!.direction[1]!;
+								out.push(y);
+								// until it lands (or gives up): a tween is ≥ 5 frames however slow they are
+								if (y > -0.99 && performance.now() - start < 15_000) requestAnimationFrame(tick);
 								else resolve(out);
 							};
 							requestAnimationFrame(tick);
@@ -2414,7 +2444,7 @@ export const SPECS: Spec[] = [
 					between.length > 0,
 					`P cut instead of tweening — no frame between the seat tilt and top-down: ${JSON.stringify(tilts)}`
 				);
-				await table.settle(1000);
+				await settleCamera(table);
 				const top = await pose();
 				ok(topDown(top), `P did not reach top-down: ${JSON.stringify(top)}`);
 				// still seat 0's way up: the eye leans (a hair) toward the +z edge
@@ -2422,7 +2452,10 @@ export const SPECS: Spec[] = [
 				const sends = await page.evaluate(() =>
 					(window as unknown as { __cameraSends: number[] }).__cameraSends.slice()
 				);
-				ok(sends.length > 0, 'the tween never reached the camera stream');
+				ok(
+					sends.length > 0,
+					`the tween never reached the camera stream: ${await page.evaluate(() => JSON.stringify((window as unknown as { __allSends?: string[] }).__allSends ?? null))} connected=${await table.connected()}`
+				);
 				for (let i = 1; i < sends.length; i++)
 					ok(
 						sends[i]! - sends[i - 1]! > 250,
@@ -2439,7 +2472,7 @@ export const SPECS: Spec[] = [
 
 				// ── P again: back to the seat view ──
 				await page.keyboard.press('KeyP');
-				await table.settle(1200);
+				await settleCamera(table);
 				const back = await pose();
 				ok(
 					planarDistance(back.position, seat.position) < 1 &&
@@ -2456,23 +2489,32 @@ export const SPECS: Spec[] = [
 				await table.settle(300);
 				const before = await offCentre(moved);
 				await page.keyboard.press('KeyZ');
-				await table.settle(1200);
+				await settleCamera(table);
 				const focused = await pose();
 				ok(
 					(await offCentre(moved)) < 0.08 && (await offCentre(moved)) < before,
-					`Z did not frame the last moved token (off centre ${before} → ${await offCentre(moved)})`
+					`Z did not frame the last moved token (off centre ${before} → ${await offCentre(moved)}; ` +
+						`token at ${JSON.stringify(await table.positionOf(moved))}, pointer over ` +
+						`${JSON.stringify(await table.hits(felt!))} / ${await table.elementAt(felt!)})`
 				);
 				ok(!topDown(focused), 'Z from the seat view should keep its angle');
 
 				// ── double-click frames what it lands on ──
 				await page.keyboard.press('KeyC');
-				await table.settle(1200);
+				await settleCamera(table);
 				const target = await table.locate(clicked);
 				ok(target, 'the token to double-click projects off-screen');
 				await page.mouse.move(target!.x, target!.y);
 				await table.settle(300);
+				// clear of the HUD panes, or the clicks land on a pane button instead
+				ok(
+					(await table.elementAt(target!)).startsWith('canvas') &&
+						(await table.hits(target!)).length > 0,
+					`the token to double-click is under a HUD pane: ${await table.elementAt(target!)}`
+				);
 				await page.mouse.click(target!.x, target!.y, { count: 2 });
-				await table.settle(1200);
+				await table.settle(300);
+				await settleCamera(table);
 				ok(
 					(await offCentre(clicked)) < 0.08,
 					`double-click did not frame the token (off centre ${await offCentre(clicked)})`
@@ -2480,12 +2522,12 @@ export const SPECS: Spec[] = [
 
 				// ── Z over a hovered thing frames that one, not the last moved ──
 				await page.keyboard.press('KeyC');
-				await table.settle(1200);
+				await settleCamera(table);
 				const hover = await table.locate(clicked);
 				await page.mouse.move(hover!.x, hover!.y);
 				await table.settle(300);
 				await page.keyboard.press('KeyZ');
-				await table.settle(1200);
+				await settleCamera(table);
 				ok(
 					(await offCentre(clicked)) < 0.08,
 					`Z over a token did not frame it (off centre ${await offCentre(clicked)})`
@@ -2493,32 +2535,20 @@ export const SPECS: Spec[] = [
 
 				// ── a wheel notch mid-move cancels the preset ──
 				await page.keyboard.press('KeyC');
-				await table.settle(1200);
-				await page.evaluate(() => {
-					const canvas = document.querySelector('canvas')!;
-					const r = canvas.getBoundingClientRect();
-					window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP' }));
-					window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyP' }));
-					// the request lands on a microtask; the wheel right behind it
-					queueMicrotask(() =>
-						canvas.dispatchEvent(
-							new WheelEvent('wheel', {
-								deltaY: -100,
-								clientX: r.left + r.width / 2,
-								clientY: r.top + r.height / 2,
-								bubbles: true,
-								cancelable: true
-							})
-						)
-					);
-				});
-				await table.settle(1200);
+				await settleCamera(table);
+				// a real notch over the felt, straight behind the key: a move is at least
+				// five frames long (TableCamera's per-frame step cap), so it lands mid-move
+				await page.mouse.move(felt!.x, felt!.y);
+				await page.keyboard.press('KeyP');
+				await page.mouse.wheel({ deltaY: -100 });
+				await table.settle(300);
+				await settleCamera(table);
 				const cancelled = await pose();
 				ok(!topDown(cancelled), `a wheel notch did not cancel P: ${JSON.stringify(cancelled)}`);
 
 				// ── prefers-reduced-motion: a cut, there on the very next task ──
 				await page.keyboard.press('KeyC');
-				await table.settle(1200);
+				await settleCamera(table);
 				await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
 				try {
 					const cut = await page.evaluate(
@@ -2536,7 +2566,7 @@ export const SPECS: Spec[] = [
 
 				// ── and the table still answers the pointer after all of it ──
 				await page.keyboard.press('KeyC');
-				await table.settle(1200);
+				await settleCamera(table);
 				await assertDraggable(table, clicked, 'token (after the camera presets)');
 				assertClean(table, 'after the camera presets');
 				await table.snap('camera-presets');

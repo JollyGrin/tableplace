@@ -49,7 +49,7 @@
 	const myId = gameActions?.getMyId() ?? '';
 	const seat = $derived($gameStore?.players?.[myId]?.seat ?? 0);
 
-	const { invalidate, renderer } = useThrelte();
+	const { invalidate, dom } = useThrelte();
 
 	let camera: THREE.PerspectiveCamera | undefined = $state();
 	let controls: OrbitControlsType | undefined = $state();
@@ -88,8 +88,15 @@
 	function focusPose(entity: CameraFocus | null): CameraPose | null {
 		const from = currentPose();
 		if (!entity || !from) return null;
-		const collection = ({ card: 'cards', deck: 'decks', piece: 'pieces' } as const)[entity.kind];
-		const found = get(gameStore)?.[collection]?.[entity.id];
+		// the named kind first, then the others: the hover store that names a
+		// card also carries a hovered piece's id (dragStore.isHovered), so the
+		// kind is a hint and the id is what counts
+		const state = get(gameStore);
+		const named = ({ card: 'cards', deck: 'decks', piece: 'pieces' } as const)[entity.kind];
+		const collection = [named, 'cards', 'decks', 'pieces'].find(
+			(c) => state?.[c as typeof named]?.[entity.id]
+		) as typeof named | undefined;
+		const found = collection && state?.[collection]?.[entity.id];
 		const bounds = found && contentBounds({ [collection]: { [entity.id]: found } });
 		if (!bounds) return null;
 		return fitPose(bounds, camera?.aspect ?? 16 / 10, angleOf(from), {
@@ -105,7 +112,7 @@
 	 * does (≤ ~3 Hz, silent once it lands). `tweening` gates the task the way
 	 * `held` gates the pan task — see `running` below for why that matters.
 	 */
-	let tween: { from: CameraPose; to: CameraPose; start: number } | null = null;
+	let tween: { from: CameraPose; to: CameraPose; elapsed: number } | null = null;
 	let tweening = $state(false);
 
 	const reducedMotion = () =>
@@ -136,14 +143,23 @@
 			apply(pose);
 			return;
 		}
-		tween = { from, to: pose, start: performance.now() };
+		tween = { from, to: pose, elapsed: 0 };
 		tweening = true;
 	}
 
+	/**
+	 * A frame advances the move by at most this much. At 60 fps that is never
+	 * reached; on a hitch (a loaded machine, a software-rendered one at a few
+	 * frames a second) it turns what would be a single-frame teleport back into
+	 * a visible move — slower in wall-clock, but never a cut.
+	 */
+	const TWEEN_MAX_STEP_MS = 50;
+
 	useTask(
-		() => {
+		(delta) => {
 			if (!tween) return stopTween();
-			const t = Math.min(1, (performance.now() - tween.start) / CAMERA_TWEEN_MS);
+			tween.elapsed += Math.min(delta * 1000, TWEEN_MAX_STEP_MS);
+			const t = Math.min(1, tween.elapsed / CAMERA_TWEEN_MS);
 			apply(interpolatePose(tween.from, tween.to, easeInOutCubic(t)));
 			if (t >= 1) stopTween();
 		},
@@ -211,10 +227,16 @@
 		return () => controls?.removeEventListener('start', mark);
 	});
 
-	// double-click a card, deck or piece: focus it. The hover stores already know
-	// what is under the pointer — the same resolution the keys use.
+	/**
+	 * Double-click a card, deck or piece: focus it. The hover stores already know
+	 * what is under the pointer — the same resolution the keys use.
+	 *
+	 * On threlte's wrapper `dom`, not the <canvas>: interactivity listens there
+	 * and takes pointer capture on it, so that is where the clicks land. And
+	 * `dblclick` arrives after the second release — a focus requested on the
+	 * press would be cancelled at once by the orbit `start` the press also is.
+	 */
 	$effect(() => {
-		const dom = renderer.domElement;
 		const onDoubleClick = () => {
 			const target = pointerTargets().find(
 				(t) => t.kind === 'card' || t.kind === 'deck' || t.kind === 'piece'
