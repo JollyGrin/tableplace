@@ -3,9 +3,7 @@ import { gameStore } from '../gameStore.svelte';
 import type { GameDTO } from '../types';
 
 function moveCardToTray(cardId: string, playerId: string) {
-	const card = get(gameStore)?.cards?.[cardId] as NonNullable<
-		GameDTO['cards'][string]
-	>;
+	const card = get(gameStore)?.cards?.[cardId] as NonNullable<GameDTO['cards'][string]>;
 	return gameStore.updateState({
 		cards: { [cardId]: null },
 		players: { [playerId]: { tray: { [cardId]: card } } }

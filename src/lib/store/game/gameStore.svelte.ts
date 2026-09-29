@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import type { GameDTO } from './types';
 import { merge } from '../transform-helpers';
+import { noteLocalMoves } from '../lastMoved';
 
 const initGameState = {
 	players: {},
@@ -9,10 +10,7 @@ const initGameState = {
 };
 const game = writable<Partial<GameDTO>>(initGameState);
 
-function findNullPaths(
-	obj: Record<string, any>,
-	currentPath: string[] = []
-): string[][] {
+function findNullPaths(obj: Record<string, any>, currentPath: string[] = []): string[][] {
 	const nullPaths: string[][] = [];
 
 	for (const [key, value] of Object.entries(obj)) {
@@ -68,9 +66,7 @@ function deepFilterNulls<T>(obj: T): T {
  * the original type, a partial object of that type (for nested objects), or null.
  * */
 type PartialWithNull<T> = {
-	[P in keyof T]?: T[P] extends object
-		? PartialWithNull<T[P]> | null
-		: T[P] | null;
+	[P in keyof T]?: T[P] extends object ? PartialWithNull<T[P]> | null : T[P] | null;
 };
 
 function updateState(update: PartialWithNull<GameDTO>) {
@@ -92,10 +88,16 @@ function updateState(update: PartialWithNull<GameDTO>) {
 	});
 }
 
+/** a patch this client made (as opposed to one relayed from a peer) */
+function updateLocalState(update: PartialWithNull<GameDTO>) {
+	noteLocalMoves(update);
+	updateState(update);
+}
+
 export const gameStore = {
 	...game,
 	// NOTE: wrapped in storeIntegration.ts to broadcast messages
-	updateState,
+	updateState: updateLocalState,
 	// NOTE: silent used in websocket/index.ts to sync received messages without rebroadcasting
 	updateStateSilently: updateState
 };
