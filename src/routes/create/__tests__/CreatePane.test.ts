@@ -30,6 +30,15 @@ globalThis.ResizeObserver ??= class {
 const settle = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 const settlePreview = () => settle(400);
 
+/**
+ * Wait on the preview reaching a state, not on the clock. The respawn is a
+ * 300ms debounce behind tweakpane's own async render, so on a loaded runner
+ * it lands after any fixed wait — a 52-card template most of all (#218).
+ * Under the 5s test timeout so a real failure reports the assertion.
+ */
+const untilPreviewed = (assertion: () => void) =>
+	vi.waitFor(assertion, { timeout: 4000, interval: 20 });
+
 const button = (container: HTMLElement, label: string) =>
 	[...container.querySelectorAll('button')].find((b) => b.textContent?.includes(label));
 
@@ -191,9 +200,10 @@ describe('CreatePane', () => {
 		it('starts from the standard 52 template when asked', async () => {
 			const container = await mount();
 			button(container, 'Standard 52 template')!.click();
-			await settlePreview();
 
-			expect(get(gameStore).decks?.['deck:preview:main'].cards).toHaveLength(52);
+			await untilPreviewed(() =>
+				expect(get(gameStore).decks?.['deck:preview:main']?.cards).toHaveLength(52)
+			);
 		});
 
 		it('closes a pack back to the start state', async () => {
@@ -208,11 +218,12 @@ describe('CreatePane', () => {
 
 	it('previews the draft on the table as it is authored', async () => {
 		await startWithCard();
-		await settlePreview();
 
-		const decks = get(gameStore).decks ?? {};
-		expect(Object.keys(decks)).toEqual(['deck:preview:main']);
-		expect(decks['deck:preview:main'].cards).toHaveLength(1);
+		await untilPreviewed(() => {
+			const decks = get(gameStore).decks ?? {};
+			expect(Object.keys(decks)).toEqual(['deck:preview:main']);
+			expect(decks['deck:preview:main'].cards).toHaveLength(1);
+		});
 	});
 
 	it('adding a deck and a card updates the live preview', async () => {
@@ -222,12 +233,13 @@ describe('CreatePane', () => {
 		button(container, 'Add deck')!.click();
 		await settle();
 		button(container, 'Add card')!.click();
-		await settlePreview();
 
-		const decks = get(gameStore).decks ?? {};
-		// the new deck becomes the cursor's deck, so the card lands in it
-		expect(Object.keys(decks).sort()).toEqual(['deck:preview:deck-1', 'deck:preview:main']);
-		expect(decks['deck:preview:deck-1'].cards).toHaveLength(1);
+		await untilPreviewed(() => {
+			const decks = get(gameStore).decks ?? {};
+			// the new deck becomes the cursor's deck, so the card lands in it
+			expect(Object.keys(decks).sort()).toEqual(['deck:preview:deck-1', 'deck:preview:main']);
+			expect(decks['deck:preview:deck-1']?.cards).toHaveLength(1);
+		});
 	});
 
 	it('exposes the per-kind piece fields and previews spawned pieces', async () => {
@@ -238,7 +250,7 @@ describe('CreatePane', () => {
 		await settle();
 
 		button(container, 'Add counter')!.click();
-		await settlePreview();
+		await untilPreviewed(() => expect(Object.values(get(gameStore).pieces ?? {})).toHaveLength(1));
 
 		expect(labels(container)).toContain('Max value'); // counter-only control
 		const pieces = Object.values(get(gameStore).pieces ?? {});
@@ -260,7 +272,11 @@ describe('CreatePane', () => {
 			type(rows[rows.length - 1]!, face);
 			await settle();
 		}
-		await settlePreview();
+		await untilPreviewed(() =>
+			expect(Object.values(get(gameStore).pieces ?? {})[0]?.states?.[2]?.face).toBe(
+				'https://x/out.png'
+			)
+		);
 
 		// the pane survived: replacing a tweakpane blade tears the whole Pane
 		// down, so the controls being gone is the failure this asserts against
@@ -281,8 +297,9 @@ describe('CreatePane', () => {
 			[...s.options].some((o) => o.textContent?.includes('State 1'))
 		)!;
 		choose(statePicker, 'State 1');
-		await settlePreview();
-		expect(Object.values(get(gameStore).pieces ?? {})[0]?.state).toBe(0);
+		await untilPreviewed(() =>
+			expect(Object.values(get(gameStore).pieces ?? {})[0]?.state).toBe(0)
+		);
 	});
 
 	it('authors a bag with contents, and previews it as a loaded bag', async () => {
@@ -331,28 +348,32 @@ describe('CreatePane', () => {
 		expect(stored['my-pack'].pack.decks[0].cards[0].face).toBe(CARD_BACK_DEFAULT);
 
 		button(container, 'Edit selected')!.click();
-		await settlePreview();
-		expect(Object.keys(get(gameStore).decks ?? {})).toEqual(['deck:preview:main']);
+		await untilPreviewed(() =>
+			expect(Object.keys(get(gameStore).decks ?? {})).toEqual(['deck:preview:main'])
+		);
 	});
 
 	it('does not preview a deck that has no cards yet', async () => {
 		const container = await startWithCard();
 		button(container, 'Add deck')!.click(); // new decks start empty
-		await settlePreview();
 
 		// an empty deck has no cards[0] for Deck.svelte to render
-		expect(Object.keys(get(gameStore).decks ?? {})).toEqual(['deck:preview:main']);
+		await untilPreviewed(() =>
+			expect(Object.keys(get(gameStore).decks ?? {})).toEqual(['deck:preview:main'])
+		);
+		await settlePreview(); // and the respawn after the new deck still leaves it off
 	});
 
 	it('gives a new card the deck back as its face, so it renders immediately', async () => {
 		const container = await startNew();
 		button(container, 'Add card')!.click();
-		await settlePreview();
 
-		const cards = get(gameStore).decks?.['deck:preview:main'].cards ?? [];
-		expect(cards).toHaveLength(1);
-		// the deck's back — a blank face resolves to '' and shows nothing
-		expect(cards[0].faceImageUrl).toBe(CARD_BACK_DEFAULT);
+		await untilPreviewed(() => {
+			const cards = get(gameStore).decks?.['deck:preview:main']?.cards ?? [];
+			expect(cards).toHaveLength(1);
+			// the deck's back — a blank face resolves to '' and shows nothing
+			expect(cards[0].faceImageUrl).toBe(CARD_BACK_DEFAULT);
+		});
 	});
 
 	it('gives every card a distinct code — duplicating twice never repeats one', async () => {
@@ -407,8 +428,10 @@ describe('CreatePane', () => {
 		await settle();
 
 		button(container, 'Add 4 cards to main')!.click();
-		await settlePreview();
 
+		await untilPreviewed(() =>
+			expect(get(gameStore).decks?.['deck:preview:main']?.cards).toHaveLength(5)
+		);
 		const cards = get(gameStore).decks?.['deck:preview:main'].cards ?? [];
 		expect(cards).toHaveLength(5); // the first card plus the grid
 		expect(
@@ -426,10 +449,12 @@ describe('CreatePane', () => {
 		choose(pickers[1], 'Image URL');
 		await settle();
 		type(input(container, 'Image URL')!, 'https://example.test/ace.png');
-		await settlePreview();
 
-		const cards = get(gameStore).decks?.['deck:preview:main'].cards ?? [];
-		expect(cards[0].faceImageUrl).toBe('https://example.test/ace.png');
+		await untilPreviewed(() =>
+			expect(get(gameStore).decks?.['deck:preview:main']?.cards?.[0].faceImageUrl).toBe(
+				'https://example.test/ace.png'
+			)
+		);
 	});
 
 	it('sets the deck back inline from the deck section', async () => {
@@ -437,10 +462,11 @@ describe('CreatePane', () => {
 		choose(schemePickers(container)[0], 'Image URL');
 		await settle();
 		type(input(container, 'Image URL')!, 'https://example.test/back.png');
-		await settlePreview();
 
-		expect(get(gameStore).decks?.['deck:preview:main'].deckBackImageUrl).toBe(
-			'https://example.test/back.png'
+		await untilPreviewed(() =>
+			expect(get(gameStore).decks?.['deck:preview:main']?.deckBackImageUrl).toBe(
+				'https://example.test/back.png'
+			)
 		);
 	});
 
@@ -617,11 +643,13 @@ describe('CreatePane', () => {
 			localStorage.setItem('packs:v1', JSON.stringify({ faced: { updatedAt: 1, pack: FACED } }));
 			const container = await mount();
 			button(container, 'Open selected')!.click();
-			await settlePreview(); // past the thumbnail's own resolve debounce too
-
-			// the deck back keeps its own thumbnail; the card's is the second
-			expect(thumbs(container)).toHaveLength(2);
-			expect(thumbSrc(thumbs(container)[0])).toBe('https://example.test/back.png');
+			// past the thumbnail's own resolve debounce too
+			await untilPreviewed(() => {
+				// the deck back keeps its own thumbnail; the card's is the second
+				expect(thumbs(container)).toHaveLength(2);
+				expect(thumbSrc(thumbs(container)[0])).toBe('https://example.test/back.png');
+				expect(thumbSrc(thumbs(container)[1])).toBe('https://example.test/bolt.png');
+			});
 
 			expect(crumb(container)).toEqual([
 				'Faced › main (Draw Pile)',
@@ -796,10 +824,9 @@ describe('CreatePane', () => {
 			const container = await mount();
 			previewLayout.set('spread'); // as it is remembered from the last session
 			button(container, 'Open selected')!.click();
-			await settlePreview();
 
 			// piles, not 61 tiles — and the control follows the table
-			expect(get(previewLayout)).toBe('deck');
+			await untilPreviewed(() => expect(get(previewLayout)).toBe('deck'));
 			expect(Object.keys(get(gameStore).cards ?? {})).toEqual([]);
 			expect(get(gameStore).decks?.['deck:preview:main'].cards).toHaveLength(SPREAD_MAX_CARDS + 1);
 		});
@@ -876,7 +903,9 @@ describe('CreatePane', () => {
 			expect(Object.keys(JSON.parse(localStorage.getItem('packs:v1') ?? '{}'))).toEqual([
 				'ember-duel'
 			]);
-			expect(get(gameStore).decks?.['deck:preview:main'].cards).toHaveLength(1);
+			await untilPreviewed(() =>
+				expect(get(gameStore).decks?.['deck:preview:main']?.cards).toHaveLength(1)
+			);
 		});
 
 		it('routes a TTS save through the same drop zone', async () => {
@@ -901,7 +930,9 @@ describe('CreatePane', () => {
 			await drop(container, new File([JSON.stringify(tts)], 'save.json'));
 
 			// the deck's slot is slugified from its TTS nickname
-			expect(Object.keys(get(gameStore).decks ?? {})).toEqual(['deck:preview:troopers']);
+			await untilPreviewed(() =>
+				expect(Object.keys(get(gameStore).decks ?? {})).toEqual(['deck:preview:troopers'])
+			);
 			expect(get(gameStore).decks!['deck:preview:troopers'].cards).toHaveLength(2);
 		});
 
