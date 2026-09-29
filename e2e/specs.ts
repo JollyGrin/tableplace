@@ -5380,9 +5380,18 @@ export const SPECS: Spec[] = [
 					(await table.page.evaluate(() => window.__tableplace!.drag().isDragging)) === piece,
 					'seat 0 never picked the piece up'
 				);
+				// a hand holding something is never perfectly still: keep seat 0's
+				// pointer nudging while seat 1 waits, so a loaded runner that
+				// coalesced the first frames still gets a carry patch through
+				let nudge = 0;
 				const seen = await eventually(
-					() => heldBy(peer, piece),
-					(who) => who === seat0
+					async () => {
+						nudge = 1 - nudge;
+						await table.page.mouse.move(at!.x + nudge * 3, at!.y + 96);
+						return heldBy(peer, piece);
+					},
+					(who) => who === seat0,
+					30_000
 				);
 				ok(seen === seat0, `seat 1 never learned seat 0 holds the piece (heldBy ${seen})`);
 				const drawn = await eventually(
