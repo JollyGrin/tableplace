@@ -3769,5 +3769,193 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * Peek (tableplace-193): a card played face-down out of a hand records
+		 * who played it, and that player's preview shows its face — captioned
+		 * that only they see it — while every other client previews the back.
+		 * Flipping it face up clears the mark everywhere.
+		 *
+		 * The play is a real drag out of the tray, because that gesture is what
+		 * writes the mark; the second client is a real page, because the rule
+		 * under test is "what a different viewer is drawn".
+		 */
+		name: 'peek: a face-down play shows its face to the player who made it and its back to the other seat',
+		run: async (context) => {
+			const lobby = nextLobby('peek');
+			const table = await openTable(context.browser, context.servers, lobby);
+			try {
+				const page = table.page;
+				const preview = (t: Table) => t.page.evaluate(() => window.__tableplace!.preview());
+				const { deck, hand, me } = await page.evaluate(() => {
+					const bridge = window.__tableplace!;
+					const cards = [
+						['2D', 'Two of Diamonds'],
+						['QH', 'Queen of Hearts']
+					].map(([code, name]) => ({
+						id: `card:std:peek-${code}`,
+						faceImageUrl: `gen:std52/${code}`,
+						backImageUrl: 'gen:std52/back',
+						name
+					}));
+					const deck = String(
+						bridge.actions.addDeck({ cards, position: [-8, 0.16, -2] } as never) ?? ''
+					);
+					// face-down: the top is the END of the array — QH
+					const hand = bridge.actions.drawFromTop(deck, 1)[0]?.id ?? '';
+					const me = bridge.actions.getMyId() ?? '';
+					bridge.actions.moveCardToTray(hand, me);
+					return { deck, hand, me };
+				});
+				ok(deck && hand && me, `seeding failed: ${JSON.stringify({ deck, hand, me })}`);
+				await table.settle(1500);
+
+				// ── seat 0 plays the card out of the hand, face-down ───────────
+				const inHand = await eventually(
+					() => page.evaluate((id) => window.__tableplace!.locateInHand(id), hand),
+					(point) => !!point
+				);
+				ok(inHand, `the hand card ${hand} never drew in the tray`);
+				const dropAt = await page.evaluate((at) => window.__tableplace!.project(at), ON_FELT(1));
+				ok(dropAt, 'the drop point on the felt does not project');
+				ok(
+					(await table.elementAt(dropAt!)).startsWith('canvas'),
+					`a HUD pane covers the drop point: ${await table.elementAt(dropAt!)}`
+				);
+				await page.mouse.move(inHand!.x, inHand!.y, { steps: 5 });
+				await sleep(200);
+				await page.mouse.down();
+				await page.mouse.move(dropAt!.x, dropAt!.y, { steps: 12 });
+				await sleep(200);
+				await page.mouse.up();
+				const played = await eventually(
+					() => page.evaluate((id) => window.__tableplace!.state()?.cards?.[id] ?? null, hand),
+					(card) => !!card && (card.position?.[1] ?? 9) < 1
+				);
+				ok(played, `dragging ${hand} out of the hand left nothing on the table`);
+				ok(
+					played!.rotation?.[0] === 180 && played!.placedBy === me,
+					`the played card is not face-down and marked as mine: ${JSON.stringify({ rotation: played!.rotation, placedBy: played!.placedBy, me })}`
+				);
+				await table.settle(600);
+
+				/** hover `id` with the real mouse on `t`, hold Space, read (and shoot) the zoom, let go */
+				const peekAt = async (t: Table, id: string, shot?: string) => {
+					await t.page.bringToFront();
+					const at = await eventually(
+						() => t.locate(id),
+						(point) => !!point
+					);
+					ok(at, `${id} never drew on this client`);
+					ok(
+						(await t.elementAt(at!)).startsWith('canvas'),
+						`a HUD pane covers ${id} at ${JSON.stringify(at)}: ${await t.elementAt(at!)}`
+					);
+					await t.page.mouse.move(at!.x, at!.y, { steps: 8 });
+					await sleep(300);
+					await t.page.keyboard.down('Space');
+					const zoomed = await eventually(
+						() => preview(t),
+						(p) => !!p && p.id === id && !!p.shown && p.shown === p.url
+					);
+					if (shot) await t.snap(shot);
+					await t.page.keyboard.up('Space');
+					await eventually(
+						() => preview(t),
+						(p) => p === null
+					);
+					return zoomed;
+				};
+
+				// ── seat 0: the face, and a caption that only says who sees it ─
+				const mine = await peekAt(table, hand, 'peek-seat0');
+				ok(
+					mine?.id === hand && mine.face === 'gen:std52/QH',
+					`seat 0's preview of its own face-down play is not the face: ${JSON.stringify(mine)}`
+				);
+				ok(
+					mine!.caption === 'Queen of Hearts · Only you see this',
+					`seat 0's peek caption reads ${JSON.stringify(mine!.caption)}`
+				);
+
+				// ── seat 1: the back, and not a word about the face ────────────
+				// its own browser context: its own localStorage, so its own player id
+				const elsewhere = await context.browser.createBrowserContext();
+				const remote = await openTable(elsewhere, context.servers, lobby);
+				try {
+					// a joiner is not seated anywhere in particular: take seat 1, as a
+					// player at the far side of the table would
+					const other = await remote.page.evaluate(() => {
+						window.__tableplace!.actions.setSeat(1);
+						return window.__tableplace!.actions.getMyId() ?? '';
+					});
+					ok(other && other !== me, `the second client is not another player: ${other}`);
+					const seat = await eventually(
+						() =>
+							remote.page.evaluate(
+								() =>
+									window.__tableplace!.state()?.players?.[window.__tableplace!.actions.getMyId()!]
+										?.seat
+							),
+						(n) => n === 1
+					);
+					ok(seat === 1, `the second client sat at seat ${seat}, not 1`);
+					const synced = await eventually(
+						() =>
+							remote.page.evaluate((id) => window.__tableplace!.state()?.cards?.[id] ?? null, hand),
+						(card) => card?.placedBy === me,
+						8000
+					);
+					ok(
+						synced?.placedBy === me,
+						`the second client never saw the played card marked as seat 0's: ${JSON.stringify(synced)}`
+					);
+					await remote.settle(1500);
+					const theirs = await peekAt(remote, hand, 'peek-seat1');
+					ok(
+						theirs?.id === hand && theirs.face === 'gen:std52/back' && theirs.caption === '',
+						`seat 1's preview of seat 0's face-down play is not its bare back: ${JSON.stringify(theirs)}`
+					);
+
+					// ── face up: public, and the mark is gone on both clients ──
+					await page.evaluate((id) => window.__tableplace!.actions.flipCard(id), hand);
+					const cleared = (t: Table) =>
+						t.page.evaluate((id) => {
+							const card = window.__tableplace!.state()?.cards?.[id];
+							return !!card && card.rotation?.[0] === 0 && card.placedBy === undefined;
+						}, hand);
+					ok(
+						await eventually(
+							() => cleared(table),
+							(done) => done
+						),
+						'flipping face up did not clear the mark on seat 0'
+					);
+					ok(
+						await eventually(
+							() => cleared(remote),
+							(done) => done,
+							8000
+						),
+						'the flip never cleared the mark on seat 1'
+					);
+					const faceUp = await peekAt(remote, hand);
+					ok(
+						faceUp?.face === 'gen:std52/QH' && faceUp.caption === 'Queen of Hearts',
+						`seat 1's preview of the flipped card is ${JSON.stringify(faceUp)}`
+					);
+					assertClean(remote, 'on the second client after a face-down play and a flip');
+				} finally {
+					await remote.close();
+					await elsewhere.close();
+				}
+
+				await page.bringToFront();
+				assertClean(table, 'after playing face-down, peeking and flipping');
+			} finally {
+				await table.close();
+			}
+		}
 	}
 ];

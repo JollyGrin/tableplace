@@ -387,6 +387,11 @@
 					"description": "Pinned in place (tableplace-189, TTS `Locked`): it can't be dragged,\nflipped, turned or grouped, only previewed — and `L` unpins it. Absent\nmeans unlocked.",
 					"type": "boolean",
 					"title": "locked"
+				},
+				"placedBy": {
+					"description": "Player id of whoever laid this card face-down out of their hand\n(tableplace-193). For that player alone the zoomed preview shows the face\n— a peek. A display rule only: the face is in synced state for everyone,\nthis just decides what the UI draws. Cleared when the card is flipped\nface up or goes into a hand; a pile never carries it. Absent = nobody\nmay peek.",
+					"type": "string",
+					"title": "placedBy"
 				}
 			}
 		},
@@ -491,11 +496,11 @@
 			}
 		},
 		"CardInDeck": {
-			"description": "a card in a pile has no place of its own to be pinned to",
+			"description": "a card in a pile has no place of its own to be pinned to, and nobody's peek\nsurvives the shuffle into one",
 			"title": "CardInDeck",
 			"allOf": [
 				{
-					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%3E"
+					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%3E"
 				},
 				{
 					"type": "object",
@@ -509,8 +514,8 @@
 				}
 			]
 		},
-		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\">": {
-			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\">",
+		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\">": {
+			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\">",
 			"type": "object",
 			"properties": {
 				"faceImageUrl": {
@@ -984,7 +989,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.12",
-	"x-generated-at": "2026-09-29T16:10:55.815Z",
-	"x-tableplace-source-sha": "6ae62d7fb2402a6208ca9c353e0bfd8eef114b36-dirty"
+	"x-tableplace-spec-version": "0.1.13",
+	"x-generated-at": "2026-09-29T16:54:45.409Z",
+	"x-tableplace-source-sha": "bfbf44953f97b3822467adba69b93e4df65fe942-dirty"
 }

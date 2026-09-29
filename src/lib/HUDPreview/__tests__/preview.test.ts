@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPreviewOpen, previewTarget, type PreviewHover } from '../preview';
+import { isPreviewOpen, PEEK_CAPTION, previewTarget, type PreviewHover } from '../preview';
 import type { GameDTO } from '$lib/store/game/types';
 
 const none: PreviewHover = { trayCard: null, card: null, deck: null, piece: null };
@@ -19,6 +19,27 @@ const game = {
 			faceImageUrl: 'https://x/hidden.png',
 			backImageUrl: 'https://x/back.png',
 			name: 'Hidden card'
+		},
+		'card:p1:placed': {
+			position: [0, 0, 0],
+			rotation: [180, 0, 0],
+			faceImageUrl: 'https://x/placed.png',
+			backImageUrl: 'https://x/back.png',
+			name: 'Placed card',
+			placedBy: 'p1'
+		},
+		'card:p1:placed-nameless': {
+			position: [0, 0, 0],
+			rotation: [180, 0, 0],
+			faceImageUrl: 'https://x/nameless.png',
+			placedBy: 'p1'
+		},
+		'card:p1:placed-up': {
+			position: [0, 0, 0],
+			rotation: [0, 0, 0],
+			faceImageUrl: 'https://x/placed-up.png',
+			name: 'Placed up',
+			placedBy: 'p1'
 		},
 		'card:p1:wide': {
 			position: [0, 0, 0],
@@ -155,6 +176,42 @@ describe('previewTarget', () => {
 		expect(previewTarget(game, 'p1', { ...none, card: 'card:p1:down' })).toMatchObject({
 			face: 'https://x/back.png',
 			caption: ''
+		});
+	});
+
+	describe('peek (a face-down card I laid out of my hand)', () => {
+		it('shows me its face, captioned that only I see it', () => {
+			expect(previewTarget(game, 'p1', { ...none, card: 'card:p1:placed' })).toMatchObject({
+				face: 'https://x/placed.png',
+				caption: `Placed card · ${PEEK_CAPTION}`
+			});
+		});
+
+		it('the caption stands alone when the card has no name', () => {
+			expect(
+				previewTarget(game, 'p1', { ...none, card: 'card:p1:placed-nameless' })
+			).toMatchObject({ face: 'https://x/nameless.png', caption: PEEK_CAPTION });
+		});
+
+		it('shows everyone else its back and never its name', () => {
+			expect(previewTarget(game, 'p2', { ...none, card: 'card:p1:placed' })).toMatchObject({
+				face: 'https://x/back.png',
+				caption: ''
+			});
+		});
+
+		it('shows nobody the face without knowing who is looking', () => {
+			expect(previewTarget(game, undefined, { ...none, card: 'card:p1:placed' })).toMatchObject({
+				face: 'https://x/back.png',
+				caption: ''
+			});
+		});
+
+		it('a face-up card needs no peek caption, even with a stale mark', () => {
+			expect(previewTarget(game, 'p1', { ...none, card: 'card:p1:placed-up' })).toMatchObject({
+				face: 'https://x/placed-up.png',
+				caption: 'Placed up'
+			});
 		});
 	});
 

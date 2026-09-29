@@ -458,7 +458,8 @@ function placeOnTopOfDeck(deckId: string, cardId: string) {
 	const _card = get(gameStore)?.cards?.[cardId]; // grab card from table
 	if (!_card) return console.error('Card not found');
 
-	const { position, rotation, ...card } = { ..._card, id: cardId };
+	// a pile has no placer: the peek mark stays behind with the table slot
+	const { position, rotation, placedBy, ...card } = { ..._card, id: cardId };
 	card.id = cardId;
 	if (!card.faceImageUrl) return console.error('No card faceImageUrl found');
 
