@@ -22,6 +22,7 @@
 	import { keybindReference } from '$lib/verbs/registry';
 	import { hintBarEnabled } from '$lib/hint/hintUi';
 	import { weightEnabled } from '$lib/utils/weight.svelte';
+	import { soundEnabled } from '$lib/sound';
 	import { classicMouse } from '$lib/store/mouseMode';
 	import { connectionStore } from '$lib/store/connectionStore.svelte';
 	import {
@@ -210,6 +211,8 @@
 		<!-- lean, landing bounce and flip hop (tableplace-203); always off under
 		     prefers-reduced-motion, whatever this says -->
 		<Checkbox label="Weight" bind:value={$weightEnabled} />
+		<!-- table sounds (tableplace-204); the same switch as the speaker on the table -->
+		<Checkbox label="Sound" bind:value={$soundEnabled} />
 		<!-- tableplace-202 moved orbit to right-drag so left-drag on the felt can
 		     box-select; this puts the old mapping back, for one release -->
 		<Checkbox label="Classic mouse" bind:value={$classicMouse} />
