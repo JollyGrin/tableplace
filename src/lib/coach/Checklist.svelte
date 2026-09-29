@@ -9,7 +9,8 @@
 	 * so it clears the hand tray (the bottom sixth of the canvas) and stays in
 	 * the left half, which the zoomed preview never enters. Below the `sm`
 	 * width the table log's column (w-72, bottom-right) reaches into the left
-	 * half, so the strip rises clear of a full log instead.
+	 * half, so the strip rises clear of a full log instead — and, to stay
+	 * short enough to fit under the panes, lists only the next few undone.
 	 *
 	 * Only the × takes a click: the rest is `pointer-events-none`, so it can
 	 * never eat a hover or a drag meant for the table beneath it.
@@ -20,9 +21,16 @@
 	import { coach, dismissCoach } from './index';
 
 	const ITEMS = checklistItems();
+	/** how many undone items a narrow screen lists */
+	const NARROW_SHOWN = 3;
 
 	const shown = $derived(!$coach.dismissed && tableAllowsCoach($gameStore));
 	const done = $derived(ITEMS.filter((item) => $coach.done.includes(item.id)).length);
+	const next = $derived(
+		ITEMS.filter((item) => !$coach.done.includes(item.id))
+			.slice(0, NARROW_SHOWN)
+			.map((item) => item.id)
+	);
 </script>
 
 {#if shown}
@@ -49,7 +57,9 @@
 				<li
 					data-coach-item={item.id}
 					data-done={ticked}
-					class="flex items-center gap-1.5 leading-5 whitespace-nowrap"
+					class="flex items-center gap-1.5 leading-5 whitespace-nowrap {next.includes(item.id)
+						? ''
+						: 'max-sm:hidden'}"
 					class:text-white={ticked}
 				>
 					<span

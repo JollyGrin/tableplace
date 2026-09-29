@@ -29,7 +29,8 @@ type ItemDef = {
 	/**
 	 * Journal verbs (journal/entry.ts) that tick it when this player's own
 	 * line says so. Items with none are ticked by what the page shows instead
-	 * (see `index.ts`): a preview, the wheel, a ping.
+	 * (see `index.ts`): a card carried out of the hand, a preview, the wheel,
+	 * a ping.
 	 */
 	ticks: readonly string[];
 };
@@ -48,7 +49,9 @@ export const CHECKLIST: readonly ItemDef[] = [
 		text: 'Play a card from your hand',
 		verbs: ['hand-play'],
 		gesture: true,
-		ticks: ['play']
+		// not the journal's `play`: that is any card appearing on the table, a
+		// draw straight to the felt included — the hand's own carry ticks it
+		ticks: []
 	},
 	{ id: 'flip', text: 'Flip a card', verbs: ['flip'], ticks: ['flip', 'flip-selection'] },
 	{

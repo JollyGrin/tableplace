@@ -50,6 +50,8 @@ describe('the checklist items', () => {
 		expect(itemForJournalVerb('move')).toBe('move');
 		expect(itemForJournalVerb('undo')).toBe('undo');
 		expect(itemForJournalVerb('shuffle')).toBeNull();
+		// any new card on the felt reads as `play`, a draw to the table included
+		expect(itemForJournalVerb('play')).toBeNull();
 	});
 
 	it('have unique ids', () => {

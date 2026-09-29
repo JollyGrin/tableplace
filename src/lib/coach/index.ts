@@ -3,8 +3,8 @@
  *
  * Everything here is this browser's alone: what has been ticked and whether
  * the strip was dismissed live in localStorage, and every tick is read off
- * something this client already has — its own journal lines, the preview on
- * screen, the wheel, its own pings. Nothing is ever sent.
+ * something this client already has — its own journal lines, a card carried
+ * out of its hand, the preview on screen, the wheel, its own pings. Nothing is ever sent.
  */
 
 import { get, writable, type Readable } from 'svelte/store';
@@ -13,6 +13,7 @@ import { gameActions } from '$lib/store/game/actions';
 import { preview } from '$lib/HUDPreview/previewStore';
 import { radialMenu } from '$lib/store/radialUi';
 import { activePings } from '$lib/ping';
+import { handPlay } from '$lib/HUDTray/handPlay';
 import {
 	COACH_KEY,
 	itemForJournalVerb,
@@ -65,6 +66,9 @@ export function installCoach(): () => void {
 				const id = itemForJournalVerb(line.verb);
 				if (id && !get(memory).done.includes(id)) tickItem(id);
 			}
+		}),
+		handPlay.subscribe((play) => {
+			if (play) tickItem('play');
 		}),
 		preview.subscribe((shown) => {
 			if (shown) tickItem('preview');
