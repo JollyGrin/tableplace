@@ -54,6 +54,24 @@ export function entityName(
 	actor: VerbActor,
 	target: VerbTarget
 ): string {
+	const name = revealedName(game, actor, target);
+	// a pin is public: say it, so a drag that doesn't move isn't a mystery
+	return isPinned(game, target) ? `${name} · locked` : name;
+}
+
+function isPinned(game: Partial<GameDTO> | undefined, target: VerbTarget): boolean {
+	if (!('id' in target)) return false;
+	if (target.kind === 'card') return !!game?.cards?.[target.id]?.locked;
+	if (target.kind === 'deck') return !!game?.decks?.[target.id]?.locked;
+	if (target.kind === 'piece') return !!game?.pieces?.[target.id]?.locked;
+	return false;
+}
+
+function revealedName(
+	game: Partial<GameDTO> | undefined,
+	actor: VerbActor,
+	target: VerbTarget
+): string {
 	const noun = TARGET_NOUNS[target.kind];
 	if (!('id' in target)) return noun;
 	if (target.kind === 'card') {
@@ -117,6 +135,18 @@ function offeredVerbs(targets: VerbTarget[], actor: VerbActor, verbs: VerbsFor):
 	return offered;
 }
 
+/**
+ * On a pinned thing: what works first, what is refused after — in registry
+ * order within each.
+ * A pinned thing refuses most of its verbs, and the one that frees it (L)
+ * sits late in the registry: without this the line would spend all its room
+ * on struck-through verbs and cut the only one that helps.
+ */
+function ordered(offered: Verb[], pinned: boolean): Verb[] {
+	if (!pinned) return offered;
+	return [...offered.filter((v) => v.enabled), ...offered.filter((v) => !v.enabled)];
+}
+
 function entityTargetFor(id: string): VerbTarget {
 	if (id.startsWith('deck:')) return { kind: 'deck', id };
 	if (id.startsWith('piece:')) return { kind: 'piece', id };
@@ -141,7 +171,9 @@ export function hintFor(input: HintInput, verbs: VerbsFor = verbsFor): Hint {
 		const under = targets.slice(targets.indexOf(top));
 		return {
 			name: entityName(game, actor, top),
-			parts: offeredVerbs(under, actor, verbs).slice(0, HINT_MAX_VERBS).map(verbPart)
+			parts: ordered(offeredVerbs(under, actor, verbs), isPinned(game, top))
+				.slice(0, HINT_MAX_VERBS)
+				.map(verbPart)
 		};
 	}
 

@@ -34,6 +34,8 @@ type TtsObject = {
 	Bag?: { Order?: number };
 	/** cards/decks: the card rests turned 90° (our `orientation: 'landscape'`) */
 	SidewaysCard?: boolean;
+	/** pinned in place — our `locked`, one to one */
+	Locked?: boolean;
 };
 
 export type SheetCell = { url: string; cols: number; rows: number; index: number };
@@ -47,7 +49,7 @@ export type ParsedCard = {
 	sideways?: boolean;
 };
 
-export type ParsedDeck = { name: string; cards: ParsedCard[] };
+export type ParsedDeck = { name: string; cards: ParsedCard[]; locked?: boolean };
 
 /** One face of a multi-state piece, before face refs exist (see to-pack.ts). */
 export type ParsedPieceState = {
@@ -90,6 +92,8 @@ export type ParsedPiece = {
 	contents?: ParsedBagItem[];
 	drawMode?: BagDrawMode;
 	infinite?: boolean;
+	/** TTS `Locked` */
+	locked?: boolean;
 };
 
 export type ParsedSavedObject = {
@@ -390,6 +394,11 @@ export function bagFrom(obj: TtsObject, skipped: string[]): ParsedPiece {
 	};
 }
 
+/** TTS `Locked` maps straight onto ours; only a pinned object carries it */
+function withLocked<T extends { locked?: boolean }>(parsed: T, obj: TtsObject): T {
+	return obj.Locked ? { ...parsed, locked: true } : parsed;
+}
+
 export function parseSavedObject(json: unknown): ParsedSavedObject {
 	const root = json as { ObjectStates?: TtsObject[] };
 	const objects = Array.isArray(root?.ObjectStates) ? root.ObjectStates : [];
@@ -414,7 +423,11 @@ export function parseSavedObject(json: unknown): ParsedSavedObject {
 					)
 				)
 				.filter((c): c is ParsedCard => c !== null);
-			decks.push({ name: obj.Nickname || `Deck ${decks.length + 1}`, cards });
+			decks.push({
+				name: obj.Nickname || `Deck ${decks.length + 1}`,
+				cards,
+				...(obj.Locked ? { locked: true } : {})
+			});
 		} else if ((type === 'Card' || type === 'CardCustom') && obj.CardID !== undefined) {
 			const card = cardFromId(obj.CardID, obj.CustomDeck, obj.Nickname ?? '', obj.SidewaysCard);
 			if (card) looseCards.push(card);
@@ -422,10 +435,10 @@ export function parseSavedObject(json: unknown): ParsedSavedObject {
 			// a bag always imports, even if every child is unsupported: the empty
 			// bag is still the object the author placed, and its children are named
 			// in `skipped` rather than lost quietly
-			pieces.push(bagFrom(obj, skipped));
+			pieces.push(withLocked(bagFrom(obj, skipped), obj));
 		} else {
 			const piece = pieceFrom(obj, skipped);
-			if (piece) pieces.push(piece);
+			if (piece) pieces.push(withLocked(piece, obj));
 			else skipped.push(`${obj.Nickname || 'unnamed'} (${type})`);
 		}
 	}

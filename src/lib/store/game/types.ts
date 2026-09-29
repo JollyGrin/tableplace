@@ -22,9 +22,16 @@ export type CardDTO = {
 	 * which strips `rotation`. Absent = 'portrait'.
 	 */
 	orientation?: 'portrait' | 'landscape';
+	/**
+	 * Pinned in place (tableplace-189, TTS `Locked`): it can't be dragged,
+	 * flipped, turned or grouped, only previewed — and `L` unpins it. Absent
+	 * means unlocked.
+	 */
+	locked?: boolean;
 };
 
-export type CardInDeck = Omit<CardDTO, 'position' | 'rotation'> & { id: string };
+/** a card in a pile has no place of its own to be pinned to */
+export type CardInDeck = Omit<CardDTO, 'position' | 'rotation' | 'locked'> & { id: string };
 
 /**
  * Provenance stamped on pack-spawned entities so a scenario export (tbps v2)
@@ -66,6 +73,12 @@ export type DeckDTO = {
 	 * back, the changed timestamp is what remote clients turn into the wiggle.
 	 */
 	shuffledAt?: number;
+	/**
+	 * Pinned in place (tableplace-189): the pile can't be moved, flipped or
+	 * ungrouped. Cards still come off its top — a locked draw pile is still a
+	 * draw pile.
+	 */
+	locked?: boolean;
 };
 
 interface SeatState {
@@ -199,6 +212,12 @@ export type PieceDTO = {
 	 * no reach rings.
 	 */
 	reach?: number;
+	/**
+	 * Pinned in place (tableplace-189): it can't be dragged or turned. What it
+	 * does in place still works — a locked counter counts, a locked die rolls,
+	 * a locked bag hands things out. Absent means unlocked.
+	 */
+	locked?: boolean;
 	packOrigin?: PackOrigin;
 };
 
@@ -212,6 +231,12 @@ export type OverlayDTO = {
 	 * */
 	ratio: number;
 	scale: number;
+	/**
+	 * Pinned in place (tableplace-189). Overlays can't be picked up in play
+	 * today, so this records authoring intent a board keeps across exports
+	 * and imports (TTS `Locked`).
+	 */
+	locked?: boolean;
 	packOrigin?: PackOrigin;
 };
 

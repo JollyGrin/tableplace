@@ -19,6 +19,11 @@
 /**
  * Bump on any change to the pack schema. See docs/packs.md § Spec versioning.
  *
+ * 1.8.0 — decks, pieces and overlays can carry `locked` (spawn pinned in
+ * place: no drag, flip, turn or group until `L` unpins it; the TTS importer
+ * maps `Locked` onto it, tableplace-189). Additive: every earlier 1.x pack is
+ * still valid.
+ *
  * 1.7.0 — pieces can carry `reach` (how many snap-point links the piece
  * usually travels; advisory reach rings, tableplace-190). Additive: every
  * earlier 1.x pack is still valid.
@@ -35,7 +40,7 @@
  * 1.3.0 — added the `bag` piece kind (`contents`/`drawMode`/`infinite`),
  * additive: every earlier 1.x pack is still valid.
  */
-export const PACK_SPEC_VERSION = '1.7.0';
+export const PACK_SPEC_VERSION = '1.8.0';
 
 /**
  * The scenario spec is deliberately 0.x: it is unstable and carries no
@@ -48,6 +53,11 @@ export const PACK_SPEC_VERSION = '1.7.0';
  * build then refuses files it could have read perfectly well. (The general
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
+ *
+ * 0.1.12 — placements can carry `locked` (lay any content down pinned, or
+ * `false` to unpin what the pack pins), and `state.cards`, `state.decks`,
+ * `state.pieces` and `state.overlays` can carry `locked` (tableplace-189).
+ * Optional fields on existing shapes — additive, so PATCH.
  *
  * 0.1.11 — snap points can carry `links` (ids of connected points — an
  * optional board graph) and `tags` (free-form labels), and `state.pieces` can
@@ -72,7 +82,7 @@ export const PACK_SPEC_VERSION = '1.7.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.11';
+export const SCENARIO_SPEC_VERSION = '0.1.12';
 
 export type Semver = { major: number; minor: number; patch: number };
 

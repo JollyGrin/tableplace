@@ -92,6 +92,8 @@ export type PieceProps = {
 	snap?: boolean;
 	/** how many snap-point links it usually travels — advisory reach rings */
 	reach?: number;
+	/** pinned in place (tableplace-189) */
+	locked?: boolean;
 	/** bags only; the hidden pool a draw pulls from */
 	contents?: BagItem[];
 	/** bags only; defaults to 'random' */
@@ -153,6 +155,8 @@ export function composePiece(
 	// only the opt-out is worth carrying: absent already means "snaps"
 	if (opts.snap === false) piece.snap = false;
 	if (opts.reach !== undefined) piece.reach = opts.reach;
+	// only a pinned piece carries it: absent already means "unlocked"
+	if (opts.locked) piece.locked = true;
 	if (kind === 'counter') {
 		const maxValue = opts.maxValue ?? COUNTER_MAX_DEFAULT;
 		piece.maxValue = maxValue;

@@ -41,6 +41,11 @@
 								"type": "boolean",
 								"title": "isFaceUp"
 							},
+							"locked": {
+								"description": "Spawns pinned in place (TTS `Locked`): the pile can't be moved, flipped or\nungrouped, but cards still come off its top. `L` unpins it at the table.\nOmitted means unlocked.",
+								"type": "boolean",
+								"title": "locked"
+							},
 							"cards": {
 								"type": "array",
 								"items": {
@@ -178,6 +183,11 @@
 								"type": "number",
 								"title": "reach"
 							},
+							"locked": {
+								"description": "Spawns pinned in place (TTS `Locked`) — a board, a fixed track: it can't\nbe dragged or turned, but still counts, rolls or hands things out. `L`\nunpins it at the table. Omitted means unlocked.",
+								"type": "boolean",
+								"title": "locked"
+							},
 							"contents": {
 								"description": "bags only — what a draw pulls out. Hidden from every player in play.",
 								"type": "array",
@@ -221,6 +231,11 @@
 							"scale": {
 								"type": "number",
 								"title": "scale"
+							},
+							"locked": {
+								"description": "spawns pinned in place (TTS `Locked`); omitted means unlocked",
+								"type": "boolean",
+								"title": "locked"
 							}
 						},
 						"required": ["imageUrl", "ratio", "scale"]
@@ -343,7 +358,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "1.7.0",
-	"x-generated-at": "2026-09-29T14:01:58.429Z",
-	"x-tableplace-source-sha": "d635a25c43d00fa4901949e8c35419be808e38ec-dirty"
+	"x-tableplace-spec-version": "1.8.0",
+	"x-generated-at": "2026-09-29T16:10:55.815Z",
+	"x-tableplace-source-sha": "6ae62d7fb2402a6208ca9c353e0bfd8eef114b36-dirty"
 }

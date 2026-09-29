@@ -132,6 +132,11 @@
 								"description": "overlays only",
 								"type": "number",
 								"title": "scale"
+							},
+							"locked": {
+								"description": "Place it pinned (tableplace-189): it can't be dragged, flipped, turned or\ngrouped until someone presses `L` on it. Any kind — how a layout lays a\nboard down locked. `false` unpins content the pack itself marks locked;\nomitted keeps the pack's own default.",
+								"type": "boolean",
+								"title": "locked"
 							}
 						},
 						"required": ["content", "kind", "pack"]
@@ -377,6 +382,11 @@
 					"enum": ["landscape", "portrait"],
 					"type": "string",
 					"title": "orientation"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189, TTS `Locked`): it can't be dragged,\nflipped, turned or grouped, only previewed — and `L` unpins it. Absent\nmeans unlocked.",
+					"type": "boolean",
+					"title": "locked"
 				}
 			}
 		},
@@ -472,14 +482,20 @@
 					"description": "wall-clock ms of the last shuffle. Its only job is to CHANGE in the same\npatch as the reordered cards — the reorder alone is invisible from the\nback, the changed timestamp is what remote clients turn into the wiggle.",
 					"type": "number",
 					"title": "shuffledAt"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189): the pile can't be moved, flipped or\nungrouped. Cards still come off its top — a locked draw pile is still a\ndraw pile.",
+					"type": "boolean",
+					"title": "locked"
 				}
 			}
 		},
 		"CardInDeck": {
+			"description": "a card in a pile has no place of its own to be pinned to",
 			"title": "CardInDeck",
 			"allOf": [
 				{
-					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%3E"
+					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%3E"
 				},
 				{
 					"type": "object",
@@ -493,8 +509,8 @@
 				}
 			]
 		},
-		"Omit<CardDTO,\"position\"|\"rotation\">": {
-			"title": "Omit<CardDTO,\"position\"|\"rotation\">",
+		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\">": {
+			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\">",
 			"type": "object",
 			"properties": {
 				"faceImageUrl": {
@@ -609,6 +625,11 @@
 				"scale": {
 					"type": "number",
 					"title": "scale"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189). Overlays can't be picked up in play\ntoday, so this records authoring intent a board keeps across exports\nand imports (TTS `Locked`).",
+					"type": "boolean",
+					"title": "locked"
 				},
 				"packOrigin": {
 					"description": "Provenance stamped on pack-spawned entities so a scenario export (tbps v2)\ncan reference the pack instead of inlining its content. Wire-safe: the\nrelay server merges state schema-agnostically.",
@@ -777,6 +798,11 @@
 					"description": "How many snap-point links this piece usually travels (tableplace-190).\nAdvisory only: lifted from a linked snap point, the points within `reach`\nlinks glow brighter than the rest. Nothing is ever blocked. Absent means\nno reach rings.",
 					"type": "number",
 					"title": "reach"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189): it can't be dragged or turned. What it\ndoes in place still works — a locked counter counts, a locked die rolls,\na locked bag hands things out. Absent means unlocked.",
+					"type": "boolean",
+					"title": "locked"
 				},
 				"packOrigin": {
 					"description": "Provenance stamped on pack-spawned entities so a scenario export (tbps v2)\ncan reference the pack instead of inlining its content. Wire-safe: the\nrelay server merges state schema-agnostically.",
@@ -958,7 +984,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.11",
-	"x-generated-at": "2026-09-29T14:01:58.429Z",
-	"x-tableplace-source-sha": "d635a25c43d00fa4901949e8c35419be808e38ec-dirty"
+	"x-tableplace-spec-version": "0.1.12",
+	"x-generated-at": "2026-09-29T16:10:55.815Z",
+	"x-tableplace-source-sha": "6ae62d7fb2402a6208ca9c353e0bfd8eef114b36-dirty"
 }

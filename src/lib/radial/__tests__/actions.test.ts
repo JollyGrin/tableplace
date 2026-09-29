@@ -54,12 +54,13 @@ beforeEach(() => vi.clearAllMocks());
 describe('card wheel', () => {
 	const target = { kind: 'card', id: 'card:me:AS' } as const;
 
-	it('offers flip, both taps and group', () => {
+	it('offers flip, both taps, group and lock', () => {
 		expect(radialOptions(target).map((option) => option.id)).toEqual([
 			'flip',
 			'tap',
 			'tap-reverse',
-			'group'
+			'group',
+			'lock'
 		]);
 		expect(radialTitle(target)).toBe('Card');
 	});
@@ -88,7 +89,8 @@ describe('deck wheel', () => {
 			'ungroup',
 			// moving a pile is a wedge since tableplace-161 took the long press
 			// for the wheel itself — there is no hold-then-drag left to do it
-			'move'
+			'move',
+			'lock'
 		]);
 	});
 
@@ -156,7 +158,11 @@ describe('piece wheel', () => {
 		Object.fromEntries(wheel(id).map((option) => [option.id, option.key ?? null]));
 
 	it('a multi-state piece cycles its state, each wedge printed with its key', () => {
-		expect(printed('piece:me:tile')).toEqual({ 'state-next': 'X', 'state-prev': 'Shift + X' });
+		expect(printed('piece:me:tile')).toEqual({
+			'state-next': 'X',
+			'state-prev': 'Shift + X',
+			lock: 'L'
+		});
 		expect(radialTitle({ kind: 'piece', id: 'piece:me:tile' })).toBe('Tile');
 		run({ kind: 'piece', id: 'piece:me:tile' }, 'state-next');
 		expect(gameActions.cyclePieceState).toHaveBeenCalledWith('piece:me:tile', 1);
@@ -167,7 +173,8 @@ describe('piece wheel', () => {
 			'rotate-cw': 'T',
 			'rotate-ccw': 'R',
 			'snap-toggle': null,
-			remove: null
+			remove: null,
+			lock: 'L'
 		});
 		expect(radialTitle({ kind: 'piece', id: 'piece:me:model' })).toBe('Piece');
 		run({ kind: 'piece', id: 'piece:me:model' }, 'snap-toggle');
@@ -180,7 +187,8 @@ describe('piece wheel', () => {
 		expect(printed('piece:me:tally')).toEqual({
 			'count-up': 'Shift+click',
 			'count-down': 'click',
-			'count-reset': null
+			'count-reset': null,
+			lock: 'L'
 		});
 		run({ kind: 'piece', id: 'piece:me:tally' }, 'count-up');
 		expect(gameActions.incrementCounter).toHaveBeenCalledWith('piece:me:tally', 1);
@@ -199,7 +207,8 @@ describe('every wedge prints its key', () => {
 			'F',
 			'T',
 			'R',
-			'G'
+			'G',
+			'L'
 		]);
 	});
 });
