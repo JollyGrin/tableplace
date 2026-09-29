@@ -39,6 +39,7 @@ import {
 import { resolvePacks } from './resolve-packs';
 import { validRotationStep } from '$lib/utils/yaw';
 import { validHandPlayFace } from '$lib/utils/hand';
+import { validCoach } from '$lib/coach/table';
 import { withoutHolds } from '$lib/utils/hold';
 
 const STORAGE_KEY = 'scenarios:v1';
@@ -244,6 +245,8 @@ export function saveScenario(name: string): Scenario {
 	// the table's settings have one home in the file too: top-level, not `state`
 	const rotationStep = validRotationStep(s?.table?.rotationStep);
 	const handPlayFace = validHandPlayFace(s?.table?.handPlayFace);
+	// only the opt-out is worth a key: a table that says nothing coaches
+	const coach = validCoach(s?.table?.coach) === false ? false : undefined;
 	const scenario: Scenario = {
 		name,
 		createdAt: Date.now(),
@@ -251,7 +254,8 @@ export function saveScenario(name: string): Scenario {
 		...(placements.length ? { packs: [...refs.values()], placements } : {}),
 		...(snapPoints.length ? { snapPoints } : {}),
 		...(rotationStep !== undefined ? { rotationStep } : {}),
-		...(handPlayFace !== undefined ? { handPlayFace } : {})
+		...(handPlayFace !== undefined ? { handPlayFace } : {}),
+		...(coach !== undefined ? { coach } : {})
 	};
 	const all = readAll();
 	all[name] = scenario;
@@ -296,7 +300,7 @@ function clearUpdate(): Record<string, Record<string, unknown>> {
 		snapPoints: {},
 		players: {},
 		// the last scenario's settings go with its content
-		table: { rotationStep: null, handPlayFace: null }
+		table: { rotationStep: null, handPlayFace: null, coach: null }
 	};
 	for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 		for (const key of Object.keys(current?.[collection] ?? {})) update[collection][key] = null;

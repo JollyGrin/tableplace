@@ -20,6 +20,7 @@ import type { GamePackDef } from '../packs/types';
 import type { GameDTO } from '../store/game/types';
 import { validRotationStep } from '../utils/yaw';
 import { validHandPlayFace } from '../utils/hand';
+import { validCoach } from '../coach/table';
 import { withoutHolds } from '../utils/hold';
 import type { PackPlacement, PackRef, Scenario, SeatIndex, SnapPoint } from '../scenario/file';
 
@@ -229,9 +230,11 @@ export function composeScenario(
 export function composeTable(scenario: Scenario): Pick<GameDTO, 'table'> {
 	const step = scenario.rotationStep ?? validRotationStep(scenario.state?.table?.rotationStep);
 	const face = scenario.handPlayFace ?? validHandPlayFace(scenario.state?.table?.handPlayFace);
+	const coach = scenario.coach ?? validCoach(scenario.state?.table?.coach);
 	const table = {
 		...(step !== undefined ? { rotationStep: step } : {}),
-		...(face !== undefined ? { handPlayFace: face } : {})
+		...(face !== undefined ? { handPlayFace: face } : {}),
+		...(coach !== undefined ? { coach } : {})
 	};
 	return Object.keys(table).length ? { table } : {};
 }
