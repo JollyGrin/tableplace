@@ -21,6 +21,7 @@
 import * as THREE from 'three';
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
+import { selectedIds } from '$lib/store/selection';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
@@ -72,6 +73,8 @@ export type TestBridge = {
 		isDeckHovered: string | null;
 		noSnap: boolean;
 	};
+	/** the box selection, live members only, in the order they were added (tableplace-202) */
+	selected: () => string[];
 	/**
 	 * Where the table camera is right now. A pan — dragged with the right button
 	 * or held on W/A/S/D — moves the eye, so this is what a spec measures a pan
@@ -388,6 +391,7 @@ export function installTestBridge(handles: SceneHandles): void {
 			const { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap } = get(dragStore);
 			return { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap: !!noSnap };
 		},
+		selected: () => get(selectedIds),
 		connected: () => isWebSocketConnected(),
 		snapGuides: () => {
 			const shape: SnapGuideShape = {

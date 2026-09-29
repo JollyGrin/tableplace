@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { T } from '@threlte/core';
+	import { T, useThrelte } from '@threlte/core';
 	import * as THREE from 'three';
 	import { onDestroy } from 'svelte';
 	import { Grid } from '@threlte/extras';
@@ -15,6 +15,9 @@
 	import { armRadialPress } from '$lib/radial/gesture';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { TABLE_TOP_Y } from './utils/constants-table';
+	import { beginBoxSelect } from '$lib/selection/boxSelect';
+	import { clearSelection } from '$lib/store/selection';
+	import { classicMouse } from '$lib/store/mouseMode';
 
 	let { mesh = $bindable() }: { mesh?: THREE.Mesh } = $props();
 
@@ -41,10 +44,32 @@
 	 */
 	let pressedFelt: { x: number; y: number } | null = null;
 
+	const { camera, dom } = useThrelte();
+	const projected = new THREE.Vector3();
+
+	/** world → client pixels with the live camera, for the selection box */
+	function project([x, y, z]: [number, number, number]) {
+		const rect = dom.getBoundingClientRect();
+		projected.set(x, y, z).project(camera.current);
+		if (projected.z > 1) return null; // behind the camera
+		return {
+			x: rect.left + ((projected.x + 1) / 2) * rect.width,
+			y: rect.top + ((1 - projected.y) / 2) * rect.height
+		};
+	}
+
 	function handlePointerDown(event: IntersectionEvent<PointerEvent>) {
-		pressedFelt = get(dragStore).isDragging
-			? null
-			: { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY };
+		const carrying = !!get(dragStore).isDragging;
+		pressedFelt = carrying ? null : { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY };
+		/**
+		 * Left-drag on bare felt draws a selection box (tableplace-202) — the
+		 * orbit that used to own it is on the right button now. A press reaches
+		 * the felt only when nothing on the table claimed it first. Not while a
+		 * pile is being carried (grab.ts): that press is the one placing it. The
+		 * classic mapping keeps the left button for orbit.
+		 */
+		if (event.nativeEvent.button === 0 && !carrying && !get(classicMouse))
+			beginBoxSelect(event.nativeEvent, project);
 		/**
 		 * Bare felt gets a wheel too (v1: reset view) — but ONLY on the right
 		 * button, never on a left long-press.
@@ -73,13 +98,18 @@
 	function handleClick(event: IntersectionEvent<MouseEvent>) {
 		const pressed = pressedFelt;
 		pressedFelt = null;
-		const { placing, rotation, radius } = get(snapEditor);
-		if (!placing || !pressed || !get(tableFeatures).snapEditing) return;
+		if (!pressed) return;
 		const travel = Math.hypot(
 			event.nativeEvent.clientX - pressed.x,
 			event.nativeEvent.clientY - pressed.y
 		);
-		if (travel >= DRAG_THRESHOLD_PX) return; // that was a camera orbit
+		if (travel >= DRAG_THRESHOLD_PX) return; // that was a camera orbit, or a box
+		// on the classic mapping there is no box to do this: a plain click on
+		// the felt lets go of the selection (the box's own release does it
+		// otherwise — see selection/boxSelect)
+		if (get(classicMouse) && !event.nativeEvent.shiftKey) clearSelection();
+		const { placing, rotation, radius } = get(snapEditor);
+		if (!placing || !get(tableFeatures).snapEditing) return;
 		event.stopPropagation();
 		gameActions.addSnapPoint({ position: [event.point.x, event.point.z], rotation, radius });
 	}

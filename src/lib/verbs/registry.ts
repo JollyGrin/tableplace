@@ -34,6 +34,15 @@ import { openDeckSearch, SEARCH_NOT_MINE } from '$lib/deckSearch/deckSearch';
 import { isLocked, type LockableKind } from '$lib/store/game/actions/lock';
 import { LOCKED_REFUSAL, toastLocked, toggleLockOn } from '$lib/hotkeys/lock';
 import type { DropKind } from '$lib/utils/transforms/drop';
+import { dragStore } from '$lib/store/dragStore.svelte';
+import {
+	flipSelection,
+	groupSelection,
+	GROUP_NO_CARDS,
+	lockSelection,
+	rotateSelection,
+	selectionHasCards
+} from '$lib/selection/actions';
 import type { PieceDTO } from '$lib/store/game/types';
 import type {
 	Hotkey,
@@ -49,6 +58,11 @@ import type {
 /** the id of an entity target (every kind but table and selection has one) */
 function idOf(ctx: VerbContext): string {
 	return 'id' in ctx.target ? ctx.target.id : '';
+}
+
+/** the ids of a selection target (every other kind has none) */
+function idsOf(ctx: VerbContext): string[] {
+	return ctx.target.kind === 'selection' ? ctx.target.ids : [];
 }
 
 /** the live piece a piece target names, for verbs that read its data */
@@ -404,6 +418,74 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		radial: true,
 		run: (ctx) => void gameActions.removePiece(idOf(ctx))
 	},
+	// ---- a selection (tableplace-202): the same letters, on every member ----
+	// A selection is keyed first while the pointer is on one of its members or
+	// on nothing at all (keyboard.ts), so these shadow the single-entity verbs
+	// there. Each sends ONE patch for the lot (selection/actions.ts).
+	{
+		id: 'flip-selection',
+		label: 'Flip all',
+		reference: 'Flip every selected card and deck',
+		applies: on('selection'),
+		hotkey: key('KeyF', 'F'),
+		run: (ctx) => flipSelection(idsOf(ctx))
+	},
+	{
+		id: 'rotate-selection-ccw',
+		label: 'Turn ⟲',
+		reference: 'Turn each selected thing anticlockwise',
+		applies: on('selection'),
+		hotkey: key('KeyQ', 'Q'),
+		run: (ctx) => rotateSelection(idsOf(ctx), -1)
+	},
+	{
+		id: 'rotate-selection-cw',
+		label: 'Turn ⟳',
+		reference: 'Turn each selected thing clockwise',
+		applies: on('selection'),
+		hotkey: key('KeyE', 'E'),
+		run: (ctx) => rotateSelection(idsOf(ctx), 1)
+	},
+	{
+		id: 'group-selection',
+		label: 'Group into deck',
+		reference: 'Group the selected cards into one deck',
+		applies: on('selection'),
+		hotkey: key('KeyG', 'G', false),
+		refusal: (ctx) =>
+			get(dragStore).isDragging
+				? 'Put them down first'
+				: selectionHasCards(idsOf(ctx))
+					? null
+					: GROUP_NO_CARDS,
+		run: (ctx) => {
+			if (get(dragStore).isDragging) return;
+			groupSelection(idsOf(ctx));
+		}
+	},
+	{
+		// a locked thing is never selected, so this only ever pins: it lets go
+		// of the selection as it does
+		id: 'lock-selection',
+		label: 'Lock all',
+		reference: 'Lock every selected thing in place',
+		applies: on('selection'),
+		hotkey: key('KeyL', 'L', false),
+		run: (ctx) => lockSelection(idsOf(ctx))
+	},
+	{
+		// Listed, not dispatched: no code, so `matchesHotkey` never picks it.
+		// Esc is TableScene's own capture-phase listener, which has to see the
+		// key before the wheel, the search drawer and the `?` overlay close on
+		// it — a keydown here would run after they already had.
+		id: 'clear-selection',
+		label: 'Clear',
+		reference: 'Clear the selection (or click the felt)',
+		applies: on('selection'),
+		hotkey: { codes: [], label: 'Esc' },
+		run: () => {}
+	},
+
 	// ---- anything on the table: last, so it never reorders a kind's own verbs ----
 	{
 		// pin it in place (tableplace-189): the verbs marked `movesTarget` then
@@ -513,7 +595,12 @@ const POINTER_BEFORE: KeybindRow[] = [
 	{ action: 'Draw into your hand', key: 'click deck' },
 	{ action: 'Draw onto the table', key: 'Shift + click deck' },
 	// TableCamera.svelte's own listener, not a key
-	{ action: 'Focus a card, deck or piece', key: 'double-click' }
+	{ action: 'Focus a card, deck or piece', key: 'double-click' },
+	// the selection (tableplace-202): selection/boxSelect.ts and each entity's
+	// pointerdown; the drag itself is the ordinary one, carrying the group
+	{ action: 'Select several', key: 'drag on felt' },
+	{ action: 'Add or remove one', key: 'Shift / Ctrl + click' },
+	{ action: 'Move the selection', key: 'drag a selected thing' }
 ];
 const POINTER_AFTER: KeybindRow[] = [
 	// both read by the drag itself (TableScene.svelte)
@@ -524,12 +611,22 @@ const POINTER_AFTER: KeybindRow[] = [
 export type KeybindRow = { action: string; key: string };
 
 /**
- * The hint bar's idle line: how to move the camera and find the verbs, when
- * nothing is under the pointer. OrbitControls owns the drags and the wheel
- * (TableCamera.svelte); the wheel menu is radial/gesture.ts.
+ * The hint bar's idle line: how to select, move the camera and find the
+ * verbs, when nothing is under the pointer. The felt's left-drag is the
+ * selection box (selection/boxSelect.ts); OrbitControls owns the other drags
+ * and the wheel (TableCamera.svelte); the wheel menu is radial/gesture.ts.
  */
 export const TABLE_BASICS: readonly KeybindRow[] = [
+	{ action: 'Select', key: 'drag' },
+	{ action: 'Orbit', key: 'right-drag' },
+	{ action: 'Zoom', key: 'wheel' },
+	{ action: 'Actions', key: 'right-click' }
+];
+
+/** the same line on the classic mouse mapping (store/mouseMode.ts) */
+export const CLASSIC_TABLE_BASICS: readonly KeybindRow[] = [
 	{ action: 'Orbit', key: 'drag' },
+	{ action: 'Pan', key: 'right-drag' },
 	{ action: 'Zoom', key: 'wheel' },
 	{ action: 'Actions', key: 'right-click' }
 ];
@@ -565,7 +662,7 @@ export const TARGET_NOUNS: Readonly<Record<VerbTargetKind, string>> = {
 };
 
 /** reference section order, and the heading each one reads under */
-const REFERENCE_KINDS: readonly VerbTargetKind[] = ['table', 'card', 'deck', 'piece'];
+const REFERENCE_KINDS: readonly VerbTargetKind[] = ['table', 'card', 'deck', 'piece', 'selection'];
 
 export type VerbReferenceSection = { title: string; rows: KeybindRow[] };
 

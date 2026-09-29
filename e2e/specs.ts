@@ -2785,8 +2785,9 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
-		 * Camera bindings, before and after this ticket: a right drag that never
-		 * held still is still a pan (the wheel let go of it), and W/A/S/D pan
+		 * Camera bindings: a right drag that never held still is an ORBIT since
+		 * tableplace-202 gave the felt's left-drag to the selection box (the
+		 * wheel still lets go of it), a middle drag is the pan, and W/A/S/D pan
 		 * screen-relatively while held.
 		 *
 		 * The last two assertions are the ones with teeth. Typing must pan
@@ -2796,38 +2797,68 @@ export const SPECS: Spec[] = [
 		 * over ~7 msg/s, so a pan that broadcast per frame instead of riding
 		 * cameraStream's throttle would end the session outright.
 		 */
-		name: 'camera: right quick-drag pans, WASD pans screen-relatively, typing pans nothing',
+		name: 'camera: right quick-drag orbits, middle-drag pans, WASD pans screen-relatively, typing pans nothing',
 		run: (context) =>
 			withTable(context, 'camera-pan', async (table) => {
 				const deck = await table.seedDeck();
 				await table.settle(1000);
 				const eye = async () => (await table.cameraPose())!.position;
+				const look = async () => (await table.cameraPose())!.direction;
+				const turned = (a: number[], b: number[]) =>
+					Math.hypot(...a.map((value, i) => value - (b[i] ?? 0)));
 				// C fits the content from the seat's angled view: wherever that is, it is
 				// where C has to bring the camera back to after all the panning below
 				await table.page.keyboard.press('KeyC');
 				await settleCamera(table);
 				const deckEye = await eye();
 
-				// ── a right drag that never holds still is a pan ──────────────
 				const felt = await table.page.evaluate(() => window.__tableplace!.project([0, 0.26, 4]));
 				ok(felt, 'the felt press point projects off-screen');
-				const beforeDrag = await eye();
-				await table.page.mouse.move(felt!.x, felt!.y);
-				await sleep(60);
-				await table.page.mouse.down({ button: 'right' });
-				// travel immediately: no still hold, so nothing may open
-				for (let step = 1; step <= 10; step++) {
-					await table.page.mouse.move(felt!.x + step * 18, felt!.y);
-					await sleep(20);
-				}
-				ok(!(await table.radial()), 'a right quick-drag opened the wheel instead of panning');
-				await table.page.mouse.up({ button: 'right' });
-				await table.settle(500);
-				const afterDrag = await eye();
+				const sweep = async (button: 'right' | 'middle') => {
+					await table.page.mouse.move(felt!.x, felt!.y);
+					await sleep(60);
+					await table.page.mouse.down({ button });
+					// travel immediately: no still hold, so nothing may open
+					for (let step = 1; step <= 10; step++) {
+						await table.page.mouse.move(felt!.x + step * 18, felt!.y);
+						await sleep(20);
+					}
+					const wheel = await table.radial();
+					await table.page.mouse.up({ button });
+					await table.settle(500);
+					return wheel;
+				};
+
+				// ── a middle drag pans: the eye moves, the view does not turn ──
+				// First, from C's settled pose. An orbit's damping tail sits unapplied on
+				// an on-demand renderer until the next update, so measured after the
+				// orbit below, the pan's first frame would read as a turn.
+				const beforePan = await eye();
+				const lookBeforePan = await look();
+				await sweep('middle');
+				const afterPan = await eye();
 				ok(
-					planarDistance(beforeDrag, afterDrag) > 0.5,
-					`the right quick-drag did not pan the camera: ${JSON.stringify(beforeDrag)} → ${JSON.stringify(afterDrag)}`
+					planarDistance(beforePan, afterPan) > 0.5,
+					`the middle drag did not pan the camera: ${JSON.stringify(beforePan)} → ${JSON.stringify(afterPan)}`
 				);
+				const lookAfterPan = await look();
+				ok(
+					turned(lookBeforePan, lookAfterPan) < 0.01,
+					`the middle drag turned the camera — that is an orbit, not a pan: ${JSON.stringify(lookBeforePan)} → ${JSON.stringify(lookAfterPan)} (eye ${JSON.stringify(beforePan)} → ${JSON.stringify(afterPan)})`
+				);
+
+				// ── a right drag that never holds still is an orbit ───────────
+				const beforeOrbit = await look();
+				ok(!(await sweep('right')), 'a right quick-drag opened the wheel instead of orbiting');
+				const afterOrbit = await look();
+				ok(
+					turned(beforeOrbit, afterOrbit) > 0.05,
+					`the right quick-drag did not orbit the camera: ${JSON.stringify(beforeOrbit)} → ${JSON.stringify(afterOrbit)}`
+				);
+
+				// back to the seat's view: W and D below are measured along its axes
+				await table.page.keyboard.press('KeyC');
+				await settleCamera(table);
 
 				// ── W pans away from the viewer, D to the right ───────────────
 				// Held until the page has RENDERED the pan, not for a fixed 900ms of
@@ -4233,6 +4264,204 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * Box select and group move (tableplace-202), at the real pointer.
+		 *
+		 * A left drag on bare felt draws the box and selects the three tokens it
+		 * encloses — not the one outside it, and not the locked one inside it.
+		 * Dragging any member then moves all three by the SAME delta, and the
+		 * drag puts no more on the wire than a single drag does: members ride
+		 * one patch, through the 5 Hz position throttle. Shift+click takes one
+		 * out and puts it back; Esc lets go.
+		 *
+		 * Then the group drag is re-run under `stall` — the queued-pointer race
+		 * of #163/#164 — because a group drag is a drag of several entities
+		 * whose store positions all have to follow one pointer: a stalled page
+		 * must still land every member by the same delta.
+		 */
+		name: 'box select: a felt drag selects three tokens, a drag moves all three by one delta',
+		run: (context) =>
+			withTable(context, 'box-select', async (table) => {
+				const { page } = table;
+				const tokens = [
+					await table.spawn('token', { name: 'One', position: ON_FELT(0) }),
+					await table.spawn('token', { name: 'Two', position: ON_FELT(1) }),
+					await table.spawn('token', { name: 'Three', position: ON_FELT(2) })
+				];
+				const outside = await table.spawn('token', { name: 'Outside', position: ON_FELT(3) });
+				const pinned = await table.spawn('token', {
+					name: 'Pinned',
+					position: [2, PIECE_REST_Y, 1]
+				});
+				await page.evaluate((id) => window.__tableplace!.actions.toggleLock('piece', id), pinned);
+				await table.settle(800);
+
+				const selected = () => page.evaluate(() => window.__tableplace!.selected());
+				const positions = async () =>
+					Promise.all([...tokens, outside, pinned].map((id) => table.positionOf(id)));
+
+				// ── the box: from bare felt above-left of One to below-right of Three ──
+				const at = await Promise.all(tokens.map((id) => table.locate(id)));
+				ok(at.every(Boolean), `a token never mounted: ${JSON.stringify(at)}`);
+				const outsideAt = await table.locate(outside);
+				const margin = Math.abs(at[1]!.x - at[0]!.x) * 0.4;
+				const start = {
+					x: Math.min(...at.map((p) => p!.x)) - margin,
+					y: Math.min(...at.map((p) => p!.y)) - margin
+				};
+				const end = {
+					x: Math.max(...at.map((p) => p!.x)) + margin,
+					y: Math.max(...at.map((p) => p!.y)) + margin
+				};
+				ok(outsideAt && outsideAt.x > end.x, 'the outside token is not outside the box');
+				const underStart = await table.hits(start);
+				ok(
+					![...tokens, outside, pinned].some((id) => underStart.includes(id)),
+					`the box would start on an entity, not on felt: ${underStart.join(', ')}`
+				);
+				ok(
+					(await table.elementAt(start)).startsWith('canvas') &&
+						(await table.elementAt(end)).startsWith('canvas'),
+					'the box corners fall under a HUD pane'
+				);
+				const beforeBox = await table.cameraPose();
+				await page.mouse.move(start.x, start.y);
+				await sleep(80);
+				await page.mouse.down();
+				for (let step = 1; step <= 12; step++) {
+					await page.mouse.move(
+						start.x + ((end.x - start.x) * step) / 12,
+						start.y + ((end.y - start.y) * step) / 12
+					);
+					await sleep(20);
+				}
+				const drawn = await page.evaluate(() => !!document.querySelector('[data-selection-box]'));
+				await page.mouse.up();
+				await table.settle(300);
+				ok(drawn, 'no selection box was drawn while dragging on the felt');
+				ok(
+					!(await page.evaluate(() => !!document.querySelector('[data-selection-box]'))),
+					'the selection box outlived the release'
+				);
+				const boxed = await selected();
+				ok(
+					JSON.stringify([...boxed].sort()) === JSON.stringify([...tokens].sort()),
+					`the box selected ${JSON.stringify(boxed)}, not the three tokens inside it`
+				);
+				const afterBox = await table.cameraPose();
+				ok(
+					JSON.stringify(afterBox?.direction) === JSON.stringify(beforeBox?.direction),
+					'a left drag on the felt still orbits the camera'
+				);
+				// evidence: the three selected tokens wear their rings, the others do not
+				await table.snap('box-select-rings');
+
+				// ── drag the middle one: all three move by the same delta ──
+				const cdp = await page.createCDPSession();
+				await cdp.send('Network.enable');
+				const frames: string[] = [];
+				cdp.on('Network.webSocketFrameSent', (event) => frames.push(event.response.payloadData));
+				const before = await positions();
+				const began = Date.now();
+				await table.dragBy(tokens[1], DRAG.dx, DRAG.dy);
+				const seconds = (Date.now() - began) / 1000;
+				await table.settle(600);
+				await cdp.detach();
+				const after = await positions();
+				const delta = (i: number) => [
+					after[i]![0]! - before[i]![0]!,
+					after[i]![2]! - before[i]![2]!
+				];
+				const [d0, d1, d2] = [delta(0), delta(1), delta(2)];
+				ok(
+					Math.hypot(d1[0]!, d1[1]!) > 0.5,
+					`the grabbed token did not move: ${JSON.stringify(before[1])} → ${JSON.stringify(after[1])}`
+				);
+				for (const [i, d] of [d0, d2].entries())
+					ok(
+						Math.hypot(d[0]! - d1[0]!, d[1]! - d1[1]!) < 0.02,
+						`selected token ${i === 0 ? 0 : 2} moved by ${JSON.stringify(d)}, the grabbed one by ${JSON.stringify(d1)}`
+					);
+				ok(
+					planarDistance(before[3], after[3]) < 0.01 && planarDistance(before[4], after[4]) < 0.01,
+					'a token that was not selected moved with the group'
+				);
+				const moves = frames.filter((frame) => frame.includes('"position"'));
+				ok(
+					moves.some((frame) => tokens.every((id) => frame.includes(id))),
+					'no drag message carried all three tokens — the group is not riding one patch'
+				);
+				// the 5 Hz throttle: a leading send, one per 200 ms window, and the drop
+				const budget = Math.ceil(seconds * 5) + 2;
+				ok(
+					moves.length <= budget,
+					`a ${seconds.toFixed(2)}s group drag sent ${moves.length} position messages (budget ${budget})`
+				);
+				ok(await table.connected(), 'the group drag tripped the relay rate limit');
+				ok((await selected()).length === 3, 'the selection did not survive the move it made');
+
+				// ── Shift+click takes one out, and puts it back ──
+				const three = await table.locate(tokens[2]);
+				await page.keyboard.down('Shift');
+				await page.mouse.click(three!.x, three!.y);
+				await table.settle(200);
+				const without = await selected();
+				await page.mouse.click(three!.x, three!.y);
+				await page.keyboard.up('Shift');
+				await table.settle(200);
+				const withAgain = await selected();
+				ok(
+					!without.includes(tokens[2]) && without.length === 2,
+					`Shift+click did not take the token out: ${JSON.stringify(without)}`
+				);
+				ok(
+					withAgain.includes(tokens[2]),
+					`Shift+click did not put it back: ${JSON.stringify(withAgain)}`
+				);
+				ok(
+					planarDistance(after[2], await table.positionOf(tokens[2])) < 0.01,
+					'Shift+click moved the token'
+				);
+
+				// ── the same group drag on a stalled page (#163) ──
+				let stalled = 0;
+				let landed = false;
+				for (let attempt = 0; attempt < 3 && !landed; attempt++) {
+					const from = await positions();
+					await table.stall({ ms: 800, everyMs: 20 });
+					try {
+						await table.dragBy(tokens[0], 0, -120);
+					} finally {
+						stalled += await table.stall(null);
+					}
+					await table.settle(1200);
+					const to = await positions();
+					const moved = [0, 1, 2].map((i) => [
+						to[i]![0]! - from[i]![0]!,
+						to[i]![2]! - from[i]![2]!
+					]);
+					if (Math.hypot(moved[0]![0]!, moved[0]![1]!) < 0.5) continue; // the press missed
+					landed = true;
+					for (const i of [1, 2])
+						ok(
+							Math.hypot(moved[i]![0]! - moved[0]![0]!, moved[i]![1]! - moved[0]![1]!) < 0.02,
+							`under stalls, token ${i} moved by ${JSON.stringify(moved[i])} and the grabbed one by ${JSON.stringify(moved[0])}`
+						);
+				}
+				ok(stalled > 0, 'the stall injection never ran');
+				ok(landed, 'three stalled group drags never moved the grabbed token');
+
+				// ── Esc lets go ──
+				await page.mouse.move(end.x + 40, end.y + 40);
+				await page.keyboard.press('Escape');
+				await table.settle(200);
+				ok((await selected()).length === 0, 'Esc did not clear the selection');
+
+				assertClean(table, 'after box select and group moves');
+				await table.snap('box-select');
+			})
 	},
 	{
 		/**

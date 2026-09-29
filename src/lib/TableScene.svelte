@@ -18,19 +18,20 @@
 	import RemoteCameraAvatar from './RemoteCameraAvatar.svelte';
 	import TestBridge from './dev/TestBridge.svelte';
 	import { useTextureSharpness } from '$lib/utils/texture-sharpness';
-	import { dragStore, setNoSnap, setTrayHover } from '$lib/store/dragStore.svelte';
+	import { carryPatch, dragStore, setNoSnap, setTrayHover } from '$lib/store/dragStore.svelte';
+	import { clearSelection } from '$lib/store/selection';
+	import { isRadialOpen } from '$lib/store/radialUi';
+	import { searchingDeck } from '$lib/deckSearch/deckSearch';
+	import { helpOpen } from '$lib/hint/hintUi';
 	import { setTableFeatures, TABLE_FEATURES_DEFAULT } from '$lib/store/tableFeatures';
 	import { gameStore } from './store/game/gameStore.svelte';
 	import { gameActions } from './store/game/actions';
 	import { remoteCameraActions, remoteCameraStore } from './store/remoteCameraStore.svelte';
 	import { playerColor } from './hud/players';
-	import { clampToTable } from './utils/transforms/drop';
 	import { cancelActiveDrag, commitActiveDrag } from './drop/commit';
 	import { watchFrameStalls } from '$lib/utils/frame-stall.svelte';
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
-	import { PIECE_DRAG_Y } from '$lib/utils/constants-pieces';
 	import { TABLE_HALF_X, TABLE_HALF_Z, TABLE_TOP_Y } from '$lib/utils/constants-table';
 	import type { GameDTO } from './store/game/types';
 	type CardDTO = GameDTO['cards'][string];
@@ -97,19 +98,12 @@
 			$dragStore.intersectionPoint = intersectionPoint ?? undefined;
 
 			if (isDragging && intersectionPoint) {
-				// same clamp the drop commits with (see utils/transforms/drop.ts),
-				// so the floating entity can never track somewhere it can't land
-				const [cx, cz] = clampToTable(intersectionPoint.x, intersectionPoint.z);
-				const dragId = $dragStore.isDragging as string;
-				if (dragId.startsWith('piece:')) {
-					gameStore.updateState({ pieces: { [dragId]: { position: [cx, PIECE_DRAG_Y, cz] } } });
-				} else if (dragId.startsWith('deck:')) {
-					// decks float at card height while dragged; these stream through
-					// the same position throttle as cards (see storeIntegration.ts)
-					gameStore.updateState({ decks: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
-				} else {
-					gameStore.updateState({ cards: { [dragId]: { position: [cx, CARD_DRAG_Y, cz] } } });
-				}
+				// the lead under the pointer and any group at its offsets, in one
+				// patch — one throttled message however many are carried (see
+				// carryPatch). Clamped the same way the drop commits, so the
+				// floating entities can never track somewhere they can't land.
+				const patch = carryPatch($dragStore, intersectionPoint.x, intersectionPoint.z);
+				if (patch) gameStore.updateState(patch);
 			}
 
 			// normalized against the CANVAS, not the viewport: /create insets the
@@ -138,7 +132,11 @@
 	//   canvas, over the HUD) used to leave the card stuck in the lifted
 	//   state. Bubble phase, so an on-table release has already committed and
 	//   this no-ops.
-	// - Esc: return the card to where it was picked up.
+	// - Esc: return the card to where it was picked up. With nothing in hand
+	//   it lets go of the selection instead — but only when no wheel, search
+	//   drawer or help overlay is up, since then Esc is closing that. Those
+	//   close on the same keydown, so the check runs in the CAPTURE phase,
+	//   before any of their (bubble) listeners has had the chance.
 	// - Alt: the no-snap modifier. Tracked from the events rather than a
 	//   keydown latch so the preview follows a press/release mid-drag, and
 	//   read off the pointer event at release so the commit agrees with what
@@ -159,11 +157,17 @@
 			if (event.key === 'Escape') cancelActiveDrag();
 			setNoSnap(event.altKey);
 		};
+		const onEscapeCapture = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape' || get(dragStore).isDragging) return;
+			if (get(isRadialOpen) || get(searchingDeck) || get(helpOpen)) return;
+			clearSelection();
+		};
 		const onKeyUp = (event: KeyboardEvent) => setNoSnap(event.altKey);
 		const onBlur = () => setNoSnap(false);
 		window.addEventListener('pointerup', onPointerUp);
 		window.addEventListener('pointercancel', onPointerUp);
 		window.addEventListener('keydown', onKeyDown);
+		window.addEventListener('keydown', onEscapeCapture, true);
 		window.addEventListener('keyup', onKeyUp);
 		window.addEventListener('blur', onBlur);
 		return () => {
@@ -171,6 +175,7 @@
 			window.removeEventListener('pointerup', onPointerUp);
 			window.removeEventListener('pointercancel', onPointerUp);
 			window.removeEventListener('keydown', onKeyDown);
+			window.removeEventListener('keydown', onEscapeCapture, true);
 			window.removeEventListener('keyup', onKeyUp);
 			window.removeEventListener('blur', onBlur);
 		};

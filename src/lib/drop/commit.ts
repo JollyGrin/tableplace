@@ -1,10 +1,13 @@
 import { get } from 'svelte/store';
-import { dragEnd, dragStore } from '$lib/store/dragStore.svelte';
+import { carriedIds, dragEnd, dragStore } from '$lib/store/dragStore.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { tableFeatures } from '$lib/store/tableFeatures';
 import { modelSurfaceYAt } from '$lib/models/surface';
 import { resolveDrop, type DropTarget } from '$lib/utils/transforms/drop';
+import { resolveGroupDrop } from '$lib/utils/transforms/group-drop';
+import { collectionOf } from '$lib/store/selection';
+import type { GameDTO } from '$lib/store/game/types';
 
 /**
  * Ending a drag, in one place.
@@ -22,9 +25,27 @@ export function commitActiveDrag() {
 		isDeckHovered,
 		isBagHovered,
 		isTrayHovered,
-		noSnap
+		noSnap,
+		group = []
 	} = get(dragStore);
 	if (!id) return;
+
+	if (group.length) {
+		// a group lands on the table, every member resolving its own snap — see
+		// utils/transforms/group-drop.ts. One patch for the lot: one message.
+		const landings = resolveGroupDrop(get(gameStore), id, intersectionPoint, group, {
+			noSnap,
+			hand: get(tableFeatures).hand,
+			// the whole group floats: none of it may be a floor to the rest
+			surfaceYAt: () => modelSurfaceYAt(carriedIds(get(dragStore)))
+		});
+		const patch: Record<string, Record<string, ReturnType<typeof dropPatch>>> = {};
+		for (const [memberId, drop] of landings)
+			(patch[collectionOf(memberId)] ??= {})[memberId] = dropPatch(drop);
+		if (landings.length) gameStore.updateState(patch as Partial<GameDTO>);
+		dragEnd();
+		return;
+	}
 
 	// resolved by the same pure function the DropIndicator previews with, so
 	// what the player saw while dragging is what gets committed — including
@@ -84,8 +105,18 @@ function dropPatch(drop: DropTarget): {
  * which at least never leaves it stuck in the air.
  */
 export function cancelActiveDrag() {
-	const { isDragging: id, origin } = get(dragStore);
+	const { isDragging: id, origin, group = [] } = get(dragStore);
 	if (!id) return;
+
+	if (group.length && origin) {
+		// the whole group goes back where it was picked up, in one patch
+		const patch: Record<string, Record<string, { position: [number, number, number] }>> = {};
+		for (const member of [{ id, origin }, ...group])
+			(patch[collectionOf(member.id)] ??= {})[member.id] = { position: member.origin };
+		gameStore.updateState(patch as Partial<GameDTO>);
+		dragEnd();
+		return;
+	}
 
 	if (!origin) {
 		// settle in place: resolve against the entity's own XZ, not the pointer

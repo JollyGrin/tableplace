@@ -42,17 +42,18 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 const origin = new THREE.Vector3();
 
 /**
- * Build the `surfaceYAt` callback `resolveDrop`'s options take, excluding one
- * piece id — the entity being dragged, which floats over its own drop point
- * and must not become its own floor.
+ * Build the `surfaceYAt` callback `resolveDrop`'s options take, excluding the
+ * entity being dragged, which floats over its own drop point and must not
+ * become its own floor — or every entity of a group drag, which all float.
  */
 export function modelSurfaceYAt(
-	excludeId?: string | null
+	exclude?: string | readonly string[] | null
 ): (x: number, z: number) => number | undefined {
+	const excluded = typeof exclude === 'string' ? [exclude] : (exclude ?? []);
 	return (x, z) => {
 		let best: number | undefined;
 		for (const [id, object] of surfaces) {
-			if (id === excludeId) continue;
+			if (excluded.includes(id)) continue;
 			origin.set(x, RAY_START_Y, z);
 			raycaster.set(origin, DOWN);
 			// first intersection from above is the highest surface of this model
