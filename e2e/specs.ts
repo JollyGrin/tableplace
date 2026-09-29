@@ -4683,8 +4683,10 @@ export const SPECS: Spec[] = [
 				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
 				await table.settle();
 				remote = await openTable(peerContext, context.servers, lobby);
-				await remote.settle(1500);
 				const peer = remote;
+				// the far side of the table, as a second player would sit
+				await peer.page.evaluate(() => window.__tableplace!.actions.setSeat(1));
+				await peer.settle(1500);
 				await assertRenders(peer, piece, 'the piece (second client)');
 				const home = (await table.positionOf(piece))!;
 
