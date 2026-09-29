@@ -5929,6 +5929,9 @@ export const SPECS: Spec[] = [
 				ok(await table.connected(), 'the relay dropped the pointing client');
 
 				// ── idle: the cursor fades out after ~3s without movement ──
+				// the orbit's damping tail moves the point under a still mouse; on a
+				// starved renderer it runs for seconds, so let it land first
+				await settleCamera(table);
 				const now = await project(table, ...spot);
 				await table.page.mouse.move(now!.x - 80, now!.y, { steps: 6 });
 				await table.page.mouse.move(now!.x, now!.y, { steps: 6 });

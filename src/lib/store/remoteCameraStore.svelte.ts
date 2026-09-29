@@ -8,7 +8,12 @@
  */
 
 import { writable, get } from 'svelte/store';
-import type { CameraSample, TablePoint, Vec3 } from '$lib/websocket/cameraStream';
+import {
+	POINTER_EPSILON,
+	type CameraSample,
+	type TablePoint,
+	type Vec3
+} from '$lib/websocket/cameraStream';
 
 /** no sample for this long → the avatar starts fading out */
 export const CAMERA_STALE_MS = 5_000;
@@ -56,6 +61,8 @@ export type RemoteCamera = {
 	 * idle fade must not be held off by them unless its table point moved
 	 */
 	pointerAt: number;
+	/** where the pointer was at `pointerAt` — what the next move is measured from */
+	pointerFrom: TablePoint | null;
 };
 
 export type RemoteCameraMap = Record<string, RemoteCamera>;
@@ -89,8 +96,14 @@ export function parseCameraSample(value: unknown): CameraSample | null {
 	return isTablePoint(c) ? { p, t, seq, c } : { p, t, seq };
 }
 
-/** below this, a pointer "move" is float noise and does not wake the fade */
-const POINTER_STILL = 1e-3;
+/**
+ * How far the pointer must get from where it last counted as moving before
+ * it counts again — the sender's own gate. Measured from that anchor, not
+ * from the previous sample, so a camera still easing under a parked cursor
+ * (OrbitControls damping, which a starved renderer stretches over seconds)
+ * cannot creep it along in steps too small to see and hold the fade off.
+ */
+const POINTER_MOVE = POINTER_EPSILON;
 
 /**
  * Last-write-wins per player (SPEC.md:181): a sample that is not newer than
@@ -112,8 +125,8 @@ export function applyCameraSample(
 		return map;
 
 	const c = sample.c ?? null;
-	const was = existing?.c ?? null;
-	const moved = !!c && (!was || Math.hypot(c[0] - was[0], c[1] - was[1]) > POINTER_STILL);
+	const anchor = existing?.c ? existing.pointerFrom : null;
+	const moved = !!c && (!anchor || Math.hypot(c[0] - anchor[0], c[1] - anchor[1]) > POINTER_MOVE);
 
 	return {
 		...map,
@@ -123,7 +136,8 @@ export function applyCameraSample(
 			seq: sample.seq,
 			lastSeen: receivedAt,
 			c,
-			pointerAt: moved ? receivedAt : (existing?.pointerAt ?? receivedAt)
+			pointerAt: moved ? receivedAt : (existing?.pointerAt ?? receivedAt),
+			pointerFrom: moved ? c : (anchor ?? c)
 		}
 	};
 }

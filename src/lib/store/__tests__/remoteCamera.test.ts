@@ -50,7 +50,8 @@ describe('applyCameraSample', () => {
 			seq: 1,
 			lastSeen: 1_000,
 			c: null,
-			pointerAt: 1_000
+			pointerAt: 1_000,
+			pointerFrom: null
 		});
 	});
 
@@ -128,6 +129,16 @@ describe('remote pointer (tableplace-197)', () => {
 		expect(map.bob.pointerAt).toBe(1_800);
 	});
 
+	it('creep in small steps under a settling camera does not hold the fade off', () => {
+		let map = applyCameraSample(empty, 'bob', pointing(1, [2, 3]), 1_000);
+		for (let i = 1; i <= 5; i++)
+			map = applyCameraSample(map, 'bob', pointing(1 + i, [2 + i * 0.02, 3]), 1_000 + i * 400);
+		expect(map.bob.pointerAt).toBe(1_000);
+		// …but past the gate from where it last moved, it is a move
+		map = applyCameraSample(map, 'bob', pointing(10, [2.2, 3]), 4_000);
+		expect(map.bob.pointerAt).toBe(4_000);
+	});
+
 	it('a pointer coming back counts as a move', () => {
 		let map = applyCameraSample(empty, 'bob', pointing(1, [2, 3]), 1_000);
 		map = applyCameraSample(map, 'bob', sample(2), 1_400);
@@ -151,7 +162,8 @@ describe('pruneExpiredCameras', () => {
 		seq: 1,
 		lastSeen,
 		c: null,
-		pointerAt: lastSeen
+		pointerAt: lastSeen,
+		pointerFrom: null
 	});
 	const NOW = 100_000;
 
