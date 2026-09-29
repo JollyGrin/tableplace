@@ -2829,17 +2829,10 @@ export const SPECS: Spec[] = [
 					return wheel;
 				};
 
-				// ── a right drag that never holds still is an orbit ───────────
-				const beforeOrbit = await look();
-				ok(!(await sweep('right')), 'a right quick-drag opened the wheel instead of orbiting');
-				const afterOrbit = await look();
-				ok(
-					turned(beforeOrbit, afterOrbit) > 0.05,
-					`the right quick-drag did not orbit the camera: ${JSON.stringify(beforeOrbit)} → ${JSON.stringify(afterOrbit)}`
-				);
-
 				// ── a middle drag pans: the eye moves, the view does not turn ──
-				await settleCamera(table); // the orbit's damping tail would read as a turn
+				// First, from C's settled pose. An orbit's damping tail sits unapplied on
+				// an on-demand renderer until the next update, so measured after the
+				// orbit below, the pan's first frame would read as a turn.
 				const beforePan = await eye();
 				const lookBeforePan = await look();
 				await sweep('middle');
@@ -2853,6 +2846,16 @@ export const SPECS: Spec[] = [
 					turned(lookBeforePan, lookAfterPan) < 0.01,
 					`the middle drag turned the camera — that is an orbit, not a pan: ${JSON.stringify(lookBeforePan)} → ${JSON.stringify(lookAfterPan)} (eye ${JSON.stringify(beforePan)} → ${JSON.stringify(afterPan)})`
 				);
+
+				// ── a right drag that never holds still is an orbit ───────────
+				const beforeOrbit = await look();
+				ok(!(await sweep('right')), 'a right quick-drag opened the wheel instead of orbiting');
+				const afterOrbit = await look();
+				ok(
+					turned(beforeOrbit, afterOrbit) > 0.05,
+					`the right quick-drag did not orbit the camera: ${JSON.stringify(beforeOrbit)} → ${JSON.stringify(afterOrbit)}`
+				);
+
 				// back to the seat's view: W and D below are measured along its axes
 				await table.page.keyboard.press('KeyC');
 				await settleCamera(table);
