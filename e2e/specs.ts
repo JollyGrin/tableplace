@@ -3682,6 +3682,15 @@ export const SPECS: Spec[] = [
 				ok(/Unlock/.test(hint), `the hint bar does not offer L to unlock: "${hint}"`);
 
 				// ── a real drag at it moves nothing, and says why ───────────────
+				// the toast is short (it should be) and a loaded runner can spend
+				// longer than its life inside dragBy, so watch for it from the start
+				await page.evaluate(() => {
+					const seen = window as unknown as { __lockToast?: boolean };
+					seen.__lockToast = false;
+					new MutationObserver(() => {
+						if (document.body.textContent?.includes('press L to unlock')) seen.__lockToast = true;
+					}).observe(document.body, { subtree: true, childList: true, characterData: true });
+				});
 				const before = await table.positionOf(token);
 				await table.dragBy(token, DRAG.dx, DRAG.dy);
 				await table.settle(500);
@@ -3693,7 +3702,7 @@ export const SPECS: Spec[] = [
 				const drag = await page.evaluate(() => window.__tableplace!.drag().isDragging);
 				ok(!drag, `the locked token was lifted into a drag: ${drag}`);
 				const toasted = await eventually(
-					() => page.evaluate(() => document.body.innerText.includes('press L to unlock')),
+					() => page.evaluate(() => !!(window as unknown as { __lockToast?: boolean }).__lockToast),
 					(shown) => shown,
 					3000
 				);
@@ -3725,7 +3734,19 @@ export const SPECS: Spec[] = [
 							(on) => !on,
 							3000
 						),
-						'a second L did not unlock the token'
+						`a second L did not unlock the token — under the pointer: ${JSON.stringify(
+							await page.evaluate(() => {
+								const game = window.__tableplace!.state();
+								const locked = [
+									...Object.entries(game?.pieces ?? {}),
+									...Object.entries(game?.decks ?? {}),
+									...Object.entries(game?.cards ?? {})
+								]
+									.filter(([, e]) => (e as { locked?: boolean } | null)?.locked)
+									.map(([id]) => id);
+								return { drag: window.__tableplace!.drag(), locked };
+							})
+						)}`
 					);
 					ok(
 						await eventually(
