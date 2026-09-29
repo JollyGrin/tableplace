@@ -4872,12 +4872,14 @@ export const SPECS: Spec[] = [
 					await page.mouse.down();
 					await sleep(80);
 					let lean = 0;
+					let stalled = false;
 					for (let step = 1; step <= 16; step++) {
 						await page.mouse.move(from!.x + (dx * step) / 16, from!.y);
 						await sleep(16);
 						lean = Math.max(lean, (await pose())?.leanDeg ?? 0);
+						stalled ||= await page.evaluate(() => window.__tableplace!.stalling());
 					}
-					return lean;
+					return { lean, stalled };
 				};
 				// release, with the page timing every drawn height against its own
 				// pointerup — puppeteer's round trips are no clock for 600 ms
@@ -4889,10 +4891,11 @@ export const SPECS: Spec[] = [
 							'pointerup',
 							() => {
 								const up = performance.now();
+								// a timer, not rAF: on a starved runner frames are seconds apart
 								const tick = () => {
 									const t = performance.now() - up;
 									samples.push([t, window.__tableplace!.pose(id)?.y ?? NaN]);
-									if (t < 900) requestAnimationFrame(tick);
+									if (t < 900) setTimeout(tick, 15);
 								};
 								tick();
 							},
@@ -4900,29 +4903,24 @@ export const SPECS: Spec[] = [
 						);
 					}, token);
 					await page.mouse.up();
-					await sleep(1200);
-					return page.evaluate(
-						() => (window as unknown as { __landing: [number, number][] }).__landing
+					return eventually(
+						() =>
+							page.evaluate(
+								() => (window as unknown as { __landing: [number, number][] }).__landing
+							),
+						(samples) => (samples.at(-1)?.[0] ?? 0) >= 900
 					);
 				};
 
-				// DEBUG-GAPS
-				await page.evaluate(() => {
-					const w = window as unknown as { __gaps: number[] };
-					w.__gaps = [];
-					let prev = performance.now();
-					const t = (now: number) => {
-						w.__gaps.push(Math.round(now - prev));
-						prev = now;
-						if (w.__gaps.length < 400) requestAnimationFrame(t);
-					};
-					requestAnimationFrame(t);
-				});
 				// ── carried: a lean, a few degrees and capped ──
-				const lean = await carry(240);
-				console.log('GAPS', JSON.stringify(await page.evaluate(() => (window as unknown as { __gaps: number[] }).__gaps)));
-				ok(lean > 0.5, `the carried token never leaned: max ${lean.toFixed(2)}°`);
+				// On a frame loop too starved to animate (a software-GL runner under
+				// load: frames seconds apart) every spring snaps and weight is off by
+				// design — then the assertion is that it stayed off.
+				const { lean, stalled } = await carry(240);
 				ok(lean <= 7.5, `the carried token leaned past its cap: ${lean.toFixed(2)}°`);
+				if (stalled)
+					ok(lean < 0.01, `the frame loop was stalling, yet the token leaned ${lean.toFixed(2)}°`);
+				else ok(lean > 0.5, `the carried token never leaned: max ${lean.toFixed(2)}°`);
 
 				// ── dropped: at rest height within 600 ms, level again ──
 				const landing = await release();
@@ -4937,7 +4935,7 @@ export const SPECS: Spec[] = [
 				);
 				const peak = Math.max(...landing.map(([, y]) => y - rest));
 				console.log(
-					`    weight: lean ${lean.toFixed(2)}°, ${landing.length} landing frames, highest ${peak.toFixed(3)} over rest`
+					`    weight: lean ${lean.toFixed(2)}°${stalled ? ' (frames stalling: weight off)' : ''}, ${landing.length} landing frames, highest ${peak.toFixed(3)} over rest`
 				);
 				const level = await pose();
 				ok((level?.leanDeg ?? 99) < 0.1, `the dropped token is still leaning: ${level?.leanDeg}°`);
@@ -4945,7 +4943,7 @@ export const SPECS: Spec[] = [
 				// ── prefers-reduced-motion: no lean at all ──
 				await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
 				try {
-					const still = await carry(-240);
+					const still = (await carry(-240)).lean;
 					ok(still < 0.01, `under reduced motion the carried token leaned ${still.toFixed(2)}°`);
 					await release();
 				} finally {

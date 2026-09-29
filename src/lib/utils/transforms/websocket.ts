@@ -8,7 +8,8 @@ import { gameActions } from '$lib/store/game/actions';
  * */
 export function createWsMetaData() {
 	const playerId = gameActions.getMyId() ?? '';
-	if (!playerId) console.warn('No playerId found when creating websocket metadata');
+	if (!playerId)
+		console.warn('No playerId found when creating websocket metadata');
 	const timestamp = Date.now();
 	const type = 'update' as const;
 	return { playerId, timestamp, type };

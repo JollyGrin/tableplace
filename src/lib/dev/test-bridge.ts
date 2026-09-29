@@ -19,6 +19,7 @@
  */
 
 import * as THREE from 'three';
+import { framesAreStalling } from '$lib/utils/frame-stall.svelte';
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
 import { selectedIds } from '$lib/store/selection';
@@ -100,6 +101,11 @@ export type TestBridge = {
 	 * either.
 	 */
 	pose: (id: string) => { y: number; leanDeg: number } | null;
+	/**
+	 * Whether the app is treating the frame loop as stalled right now (see
+	 * utils/frame-stall.svelte.ts) — when every spring snaps and weight is off.
+	 */
+	stalling: () => boolean;
 	/**
 	 * The yaw an entity is DRAWN at right now — its named group's, clockwise
 	 * seen from above, in degrees within [0, 360). What a rotation spec waits
@@ -488,6 +494,7 @@ export function installTestBridge(handles: SceneHandles): void {
 				leanDeg: THREE.MathUtils.radToDeg(Math.acos(Math.min(1, Math.abs(up.y))))
 			};
 		},
+		stalling: () => framesAreStalling(),
 		yaw: (id) => {
 			const object = handles.scene()?.getObjectByName(id);
 			if (!object) return null;
