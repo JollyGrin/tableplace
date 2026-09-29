@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TEXTURE_ANISOTROPY, textureAnisotropy } from '../texture-sharpness';
+import { TEXTURE_ANISOTROPY, textureAnisotropy } from '../constants-textures';
 
 describe('textureAnisotropy', () => {
 	it('asks for the target when the GPU allows more', () => {
