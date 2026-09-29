@@ -27,7 +27,7 @@ export type Table = {
 	appProblems: () => Problem[];
 	spawn: (kind: string, options?: Record<string, unknown>) => Promise<string>;
 	/** a standard 52-card deck, procedurally faced — no network */
-	seedDeck: () => Promise<string>;
+	seedDeck: (position?: [number, number, number]) => Promise<string>;
 	locate: (id: string) => Promise<ScreenPoint | null>;
 	/** what the shared raycaster hits at a screen point — [] means dispatch is dead */
 	hits: (point: ScreenPoint) => Promise<string[]>;
@@ -183,9 +183,9 @@ export async function openTable(browser: Browser, servers: Servers, lobby: strin
 	 * so the harness only ever leans on the app's public action surface — and
 	 * `gen:` faces are canvas-drawn, so seeding one fetches nothing.
 	 */
-	const seedDeck = () =>
+	const seedDeck = (position?: [number, number, number]) =>
 		page.evaluate(
-			(suits, ranks) => {
+			(suits, ranks, at) => {
 				const cards = suits.flatMap((suit) =>
 					ranks.map((rank) => ({
 						id: `card:std:${rank}${suit}`,
@@ -193,10 +193,11 @@ export async function openTable(browser: Browser, servers: Servers, lobby: strin
 						backImageUrl: 'gen:std52/back'
 					}))
 				);
-				return String(window.__tableplace!.actions.addDeck({ cards } as never) ?? '');
+				return String(window.__tableplace!.actions.addDeck({ cards, position: at } as never) ?? '');
 			},
 			SUITS,
-			RANKS
+			RANKS,
+			position
 		);
 
 	const locate = (id: string) =>
