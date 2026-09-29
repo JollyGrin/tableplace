@@ -47,8 +47,8 @@ function idOf(ctx: VerbContext): string {
 }
 
 /** the live piece a piece target names, for verbs that read its data */
-function pieceOf(ctx: VerbContext): PieceDTO | undefined {
-	return ctx.target.kind === 'piece' ? get(gameStore)?.pieces?.[ctx.target.id] : undefined;
+function pieceOf(ctx: VerbContext): Partial<PieceDTO> | undefined {
+	return (ctx.target.kind === 'piece' && get(gameStore)?.pieces?.[ctx.target.id]) || undefined;
 }
 
 const on =
