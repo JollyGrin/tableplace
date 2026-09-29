@@ -38,6 +38,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import toast from 'svelte-french-toast';
+	import { showGlobalControls } from '$lib/utils/debug';
 
 	function clearOverlay() {
 		gameStore.updateState({ overlays: { table: null } });
@@ -83,10 +84,9 @@
 			? Object.fromEntries(scenarioNames.map((n) => [n, n]))
 			: { '(none — build one at /setup)': '' }
 	);
-	// An empty table's most useful control is the one that fills it, so Scenarios
-	// opens itself until there are decks and then gets out of the way. `expanded`
-	// is a plain reactive prop on Folder, so this needs no manual toggling.
-	const isTableEmpty = $derived(Object.keys($gameStore?.decks ?? {}).length === 0);
+	// decided once (never toggled: a blade `{#if}` flipping at runtime tears the
+	// pane down): deeplinked games hide global/dev controls unless `?debug` (#181)
+	const globalControls = showGlobalControls();
 
 	// unclaimed placeholder seats present in the synced state
 	const openSeats = $derived(
@@ -141,7 +141,7 @@
 <Pane
 	position="draggable"
 	title="Settings"
-	expanded={true}
+	expanded={false}
 	width={300}
 	y={0}
 	x={0}
@@ -150,7 +150,9 @@
 	<Folder title="Connection" expanded={false}>
 		<!-- read-only value, so a `Monitor` rather than an input that refuses you (#115) -->
 		<Monitor label="My ID" value={localStorage.getItem('myPlayerId') ?? ''} />
-		<Text label="Server:" bind:value={$connectionStore.serverUrl} />
+		{#if globalControls}
+			<Text label="Server:" bind:value={$connectionStore.serverUrl} />
+		{/if}
 		<Text label="Lobby:" bind:value={lobbyId} />
 		<Button
 			title="Share lobby: {lobbyId}"
@@ -168,13 +170,15 @@
 			</div>
 		</PaneProse>
 	</Folder>
-	<Folder title="Scenarios" expanded={isTableEmpty}>
-		<List label="Preset" bind:value={selectedScenario} options={scenarioOptions} />
-		<Button title="Seed lobby with preset" on:click={seedLobby} />
-		<Button
-			title="Refresh preset list"
-			on:click={() => (scenarioNames = listScenarios().map((s) => s.name))}
-		/>
+	<Folder title="Scenarios" expanded={false}>
+		{#if globalControls}
+			<List label="Preset" bind:value={selectedScenario} options={scenarioOptions} />
+			<Button title="Seed lobby with preset" on:click={seedLobby} />
+			<Button
+				title="Refresh preset list"
+				on:click={() => (scenarioNames = listScenarios().map((s) => s.name))}
+			/>
+		{/if}
 		{#each openSeats as seat (seat)}
 			<Button title="Claim seat {seat}" on:click={() => handleClaimSeat(seat)} />
 		{/each}
@@ -186,19 +190,29 @@
 		-->
 		<PaneProse>
 			<div class="p-1 font-sans text-[11px] leading-snug text-white/50">
-				Build presets at /setup. Seeding replaces the table for the whole lobby; each player then
-				claims a seat to take over its decks.
+				{#if globalControls}
+					Build presets at /setup. Seeding replaces the table for the whole lobby; each player then
+					claims a seat to take over its decks.
+				{:else}
+					Claim an open seat to take over its decks.
+				{/if}
 			</div>
 		</PaneProse>
 	</Folder>
 	<HUDPieces ownerId={gameActions.getMyId() ?? undefined} />
-	<Folder title="Overlays" expanded={false}>
-		<Button title="Clear overlay" on:click={clearOverlay} />
-		<Text label="Image URL" bind:value={imageUrl}></Text>
-		<Point bind:value={point3d} label="Position" />
-		<AutoValue label="Scale" bind:value={scale} />
-		<Wheel label="Rotation" bind:value={rot} format={(v) => `${(Math.abs(v) % 360).toFixed(0)}°`} />
-	</Folder>
+	{#if globalControls}
+		<Folder title="Overlays" expanded={false}>
+			<Button title="Clear overlay" on:click={clearOverlay} />
+			<Text label="Image URL" bind:value={imageUrl}></Text>
+			<Point bind:value={point3d} label="Position" />
+			<AutoValue label="Scale" bind:value={scale} />
+			<Wheel
+				label="Rotation"
+				bind:value={rot}
+				format={(v) => `${(Math.abs(v) % 360).toFixed(0)}°`}
+			/>
+		</Folder>
+	{/if}
 	<Folder title="Keybinds" expanded={false}>
 		<Button
 			on:click={() => gameActions?.setSeat()}
@@ -231,8 +245,10 @@
 		</PaneProse>
 	</Folder>
 	<!-- instrumentation, not settings: out of the player's way until asked for -->
-	<Folder title="Debug" expanded={false}>
-		<FpsGraph />
-		<Slider label="Env light" bind:value={$environmentIntensity} min={0} max={2} step={0.05} />
-	</Folder>
+	{#if globalControls}
+		<Folder title="Debug" expanded={false}>
+			<FpsGraph />
+			<Slider label="Env light" bind:value={$environmentIntensity} min={0} max={2} step={0.05} />
+		</Folder>
+	{/if}
 </Pane>

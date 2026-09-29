@@ -127,7 +127,9 @@ const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 export async function openTable(
 	browser: Browser | BrowserContext,
 	servers: Servers,
-	lobby: string
+	lobby: string,
+	/** extra query string appended to the deeplink, e.g. `&debug` */
+	extraQuery = ''
 ): Promise<Table> {
 	const page = await browser.newPage();
 	const problems: Problem[] = [];
@@ -170,7 +172,7 @@ export async function openTable(
 
 	const url =
 		`${servers.web}/play?lobby=${encodeURIComponent(lobby)}` +
-		`&server=${encodeURIComponent(servers.relay)}`;
+		`&server=${encodeURIComponent(servers.relay)}${extraQuery}`;
 	// a fresh BrowserContext has no module cache: vite dev serves every module
 	// again, so a slow host gets the same allowance as the ready wait below
 	await page.goto(url, {

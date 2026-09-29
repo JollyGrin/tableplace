@@ -6,6 +6,10 @@
 	import PackLibrary from '$lib/packs/PackLibrary.svelte';
 	import { importTtsFile } from '$lib/tts/import';
 	import toast from 'svelte-french-toast';
+	import { showGlobalControls } from '$lib/utils/debug';
+
+	// decided once: a deeplinked game has no use for the pack library / importer (#181)
+	const globalControls = showGlobalControls();
 
 	// getMyId() reads localStorage, which a first-time visitor only gets during
 	// websocket init — re-read on store changes so decks claimed via an invite
@@ -48,7 +52,7 @@
 <Pane
 	position="draggable"
 	title="Decks"
-	expanded={true}
+	expanded={false}
 	y={0}
 	x={310}
 	width={300}
@@ -62,21 +66,23 @@
 	{/if}
 	<!-- bringing your own content onto a LIVE table: spawning goes through the
 	     ws-wrapped store, so the whole lobby sees it -->
-	<PackLibrary />
-	<Button
-		title={isImporting ? 'Opening…' : 'Open a TTS deck (.json)'}
-		disabled={isImporting}
-		on:click={() => fileInput?.click()}
-	/>
-	<Element>
-		<input
-			bind:this={fileInput}
-			type="file"
-			accept=".json,application/json"
-			class="hidden"
-			onchange={handleImportFile}
+	{#if globalControls}
+		<PackLibrary />
+		<Button
+			title={isImporting ? 'Opening…' : 'Open a TTS deck (.json)'}
+			disabled={isImporting}
+			on:click={() => fileInput?.click()}
 		/>
-	</Element>
+		<Element>
+			<input
+				bind:this={fileInput}
+				type="file"
+				accept=".json,application/json"
+				class="hidden"
+				onchange={handleImportFile}
+			/>
+		</Element>
+	{/if}
 	<TabGroup>
 		{#each myDecks as deckId}
 			{@const position = $gameStore?.decks?.[deckId]?.position ?? [0, 0, 0]}
