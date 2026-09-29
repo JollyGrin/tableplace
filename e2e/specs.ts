@@ -144,6 +144,53 @@ async function assertRenders(table: Table, id: string, label: string): Promise<v
 	ok(shape!.meshes > 0, `${label} (${id}) mounted an empty group — no meshes to draw`);
 }
 
+/**
+ * A second player that is only a relay client: joins the lobby over a bare
+ * WebSocket, keeps the lobby state the relay sends it (the same RFC-7386-style
+ * merge the app does: `null` deletes), and can publish patches of its own.
+ * What a remote player's HUD is drawn from, without a second rendering page.
+ */
+type Peer = { state: Record<string, any>; send: (value: object) => void; close: () => void };
+
+function mergePatch(target: Record<string, any>, patch: Record<string, any>): Record<string, any> {
+	for (const [key, value] of Object.entries(patch ?? {})) {
+		if (value === null) delete target[key];
+		else if (typeof value === 'object' && !Array.isArray(value))
+			target[key] = mergePatch(
+				typeof target[key] === 'object' && target[key] && !Array.isArray(target[key])
+					? target[key]
+					: {},
+				value
+			);
+		else target[key] = value;
+	}
+	return target;
+}
+
+async function relayPeer(relay: string, lobby: string, playerId: string): Promise<Peer> {
+	const url = `ws://${relay}/ws?lobby=${encodeURIComponent(lobby)}&player=${encodeURIComponent(playerId)}`;
+	const socket = new WebSocket(url);
+	const peer: Peer = {
+		state: {},
+		send: (value) =>
+			socket.send(JSON.stringify({ type: 'update', playerId, timestamp: Date.now(), value })),
+		close: () => socket.close()
+	};
+	socket.addEventListener('message', (event) => {
+		const message = JSON.parse(String(event.data));
+		if (message.type === 'sync') peer.state = mergePatch({}, message.value ?? {});
+		if (message.type === 'update') mergePatch(peer.state, message.value ?? {});
+	});
+	await new Promise<void>((resolve, reject) => {
+		socket.addEventListener('open', () => resolve(), { once: true });
+		socket.addEventListener('error', () => reject(new Error(`relay peer could not reach ${url}`)), {
+			once: true
+		});
+	});
+	socket.send(JSON.stringify({ type: 'connect', playerId, timestamp: Date.now() }));
+	return peer;
+}
+
 async function withTable(
 	context: { browser: Browser; servers: Servers },
 	name: string,
@@ -1318,180 +1365,215 @@ export const SPECS: Spec[] = [
 		 * SEEN travelling there — it mounts in the tray over the deck's screen
 		 * point and glides to its slot. Shift+click keeps the old landing on the
 		 * felt. `5` draws five in one wire message (the relay drops a client
-		 * past 7 msg/s), and a second player in the lobby sees the deck count
-		 * drop and the hand count rise — and is refused, out loud, when they
-		 * click a deck that is not theirs.
+		 * past 7 msg/s). The other player in the lobby sees the deck count drop
+		 * and the hand count rise, and their own deck refuses the host's click,
+		 * out loud.
 		 *
-		 * The second player gets its own browser context: pages in one context
-		 * share localStorage, and with it `myPlayerId` — they would be the same
-		 * player twice.
+		 * The other player is a bare relay client (`relayPeer`), not a second
+		 * page: a second SwiftShader page doubles the render load and on a
+		 * shared runner blows the harness's 60s ready wait. The relay's view of
+		 * the lobby is exactly what a remote player's HUD counts are drawn from.
+		 * Every step waits on state, never on a fixed delay.
 		 */
 		name: 'draw to hand: click deals to the hand and flies there, Shift keeps the felt, 5 is one message',
 		run: async (context) => {
 			const lobby = nextLobby('draw-to-hand');
-			const host = await openTable(context.browser, context.servers, lobby);
-			const guestContext = await context.browser.createBrowserContext();
-			let guest: Table | null = null;
+			const peer = await relayPeer(context.servers.relay, lobby, 'e2e-peer');
+			const table = await openTable(context.browser, context.servers, lobby);
 			try {
-				guest = await openTable(guestContext as unknown as Browser, context.servers, lobby);
-				const deck = await host.seedDeck();
-				await host.settle();
+				// the other seat: a player with a small deck of its own, clear of the
+				// host's deck and of the HUD panes
+				const peerDeck = 'deck:e2e-peer:0';
+				peer.send({
+					players: { 'e2e-peer': { id: 'e2e-peer', seat: 1, tray: {} } },
+					decks: {
+						[peerDeck]: {
+							id: peerDeck,
+							isFaceUp: false,
+							position: [LANE(0)[0], 0.4, LANE(0)[2]],
+							rotation: [0, 0, 0],
+							cards: ['AS', '2S', '3S'].map((code) => ({
+								id: `card:e2e-peer:${code}`,
+								faceImageUrl: `gen:std52/${code}`,
+								backImageUrl: 'gen:std52/back'
+							}))
+						}
+					}
+				});
+				const deck = await table.seedDeck();
 
-				const deckCount = (table: Table) =>
+				const deckCount = (id: string) =>
 					table.page.evaluate(
-						(id) => window.__tableplace!.state()?.decks?.[id]?.cards?.length ?? -1,
-						deck
+						(deckId) => window.__tableplace!.state()?.decks?.[deckId]?.cards?.length ?? -1,
+						id
 					);
-				const hostId = await host.page.evaluate(() => window.__tableplace!.actions.getMyId());
+				const hostId = await table.page.evaluate(() => window.__tableplace!.actions.getMyId());
 				ok(hostId, 'the host has no player id');
-				const hostHand = () => host.page.evaluate(handSize);
-				// what the guest's PlayerHud counts: the host's tray as the guest holds it
-				const hostHandSeenByGuest = () =>
-					guest!.page.evaluate(
-						(id) => Object.keys(window.__tableplace!.state()?.players?.[id]?.tray ?? {}).length,
-						hostId!
-					);
 				const hand = () =>
-					host.page.evaluate(() => {
+					table.page.evaluate(() => {
 						const bridge = window.__tableplace!;
 						const me = bridge.actions.getMyId();
 						return Object.keys((me && bridge.state()?.players?.[me]?.tray) ?? {});
 					});
 				const looseCards = () =>
-					host.page.evaluate(() => Object.keys(window.__tableplace!.state()?.cards ?? {}).length);
+					table.page.evaluate(() => Object.keys(window.__tableplace!.state()?.cards ?? {}).length);
+				// what the other seat's PlayerHud counts
+				const seenByPeer = () => ({
+					deck: peer.state.decks?.[deck]?.cards?.length ?? -1,
+					hand: Object.keys(peer.state.players?.[hostId!]?.tray ?? {}).length
+				});
+
+				const start = await eventually(
+					() => deckCount(deck),
+					(count) => count === 52
+				);
+				ok(start === 52, `the seeded deck holds ${start} cards, not 52`);
+				const peerStart = await eventually(
+					() => deckCount(peerDeck),
+					(count) => count === 3
+				);
+				ok(peerStart === 3, `the other player's deck never reached the host (${peerStart})`);
+				ok(
+					(await eventually(
+						async () => seenByPeer().deck,
+						(count) => count === 52
+					)) === 52,
+					'the other player never saw the seeded deck'
+				);
 
 				// ── click: one card from the deck into the hand ───────────────
-				const start = await deckCount(host);
-				ok(start === 52, `the seeded deck holds ${start} cards, not 52`);
-				await eventually(
-					() => deckCount(guest!),
-					(count) => count === start
+				const deckAt = await eventually(
+					() => table.locate(deck),
+					(point) => !!point
 				);
-				const deckAt = await host.locate(deck);
 				ok(deckAt, 'the deck never mounted — nothing to click');
-				await host.page.mouse.click(deckAt!.x, deckAt!.y);
+				await table.page.mouse.click(deckAt!.x, deckAt!.y);
 
-				// watch the flight from the first frame the card exists in the tray:
-				// where it is seen closest to the deck, and where it comes to rest
-				const drawn = await eventually(hand, (ids) => ids.length === 1, 5000);
+				const drawn = await eventually(hand, (ids) => ids.length === 1);
 				ok(drawn.length === 1, `a deck click put ${drawn.length} cards in the hand, not 1`);
 				const cardId = drawn[0]!;
 				const inHand = () =>
-					host.page.evaluate((id) => window.__tableplace!.locateInHand(id), cardId);
+					table.page.evaluate((id) => window.__tableplace!.locateInHand(id), cardId);
 				const distanceToDeck = (point: { x: number; y: number } | null) =>
 					point ? Math.hypot(point.x - deckAt!.x, point.y - deckAt!.y) : Infinity;
+				// watch the flight until the card stops moving: where it is seen
+				// closest to the deck, and where it comes to rest. Sampled, not
+				// timed — a slow runner just yields fewer, further-apart samples.
 				let closest = Infinity;
-				const flightEnds = Date.now() + 1500;
-				while (Date.now() < flightEnds) {
-					closest = Math.min(closest, distanceToDeck(await inHand()));
-					await sleep(30);
+				let last: { x: number; y: number } | null = null;
+				let still = 0;
+				const deadline = Date.now() + 15_000;
+				while (still < 4 && Date.now() < deadline) {
+					const point = await inHand();
+					closest = Math.min(closest, distanceToDeck(point));
+					still =
+						point && last && Math.hypot(point.x - last.x, point.y - last.y) < 0.5 ? still + 1 : 0;
+					last = point;
+					await sleep(40);
 				}
-				await host.settle(500);
-				const slot = await inHand();
-				ok(slot, 'the drawn card never mounted in the hand tray');
-				const home = distanceToDeck(slot);
+				ok(last, 'the drawn card never mounted in the hand tray');
+				const home = distanceToDeck(last);
 				ok(
 					home > 80 && closest < home * 0.5,
 					`the drawn card did not travel from the deck: seen at best ${closest.toFixed(0)}px ` +
 						`from the deck, resting ${home.toFixed(0)}px from it`
 				);
 				ok(
-					(await deckCount(host)) === start - 1 && (await looseCards()) === 0,
+					(await deckCount(deck)) === start - 1 && (await looseCards()) === 0,
 					`the click did not take exactly one card off the deck into the hand: ` +
-						`deck ${start} → ${await deckCount(host)}, ${await looseCards()} loose on the felt`
+						`deck ${start} → ${await deckCount(deck)}, ${await looseCards()} loose on the felt`
 				);
 
-				// ── the other seat sees the counts, not the gesture ───────────
-				const guestDeck = await eventually(
-					() => deckCount(guest!),
-					(count) => count === start - 1
+				// ── the other seat sees the counts ────────────────────────────
+				const remote = await eventually(
+					async () => seenByPeer(),
+					(seen) => seen.deck === start - 1 && seen.hand === 1
 				);
-				const guestHand = await eventually(hostHandSeenByGuest, (count) => count === 1);
 				ok(
-					guestDeck === start - 1 && guestHand === 1,
-					`the second player saw deck ${guestDeck} / hand ${guestHand}, not ${start - 1} / 1`
+					remote.deck === start - 1 && remote.hand === 1,
+					`the other player saw deck ${remote.deck} / hand ${remote.hand}, not ${start - 1} / 1`
 				);
 
 				// ── Shift+click: the old landing on the felt ──────────────────
-				const handBeforeShift = (await hand()).length;
-				await host.page.keyboard.down('Shift');
-				await host.page.mouse.click(deckAt!.x, deckAt!.y);
-				await host.page.keyboard.up('Shift');
+				await table.page.keyboard.down('Shift');
+				await table.page.mouse.click(deckAt!.x, deckAt!.y);
+				await table.page.keyboard.up('Shift');
 				const loose = await eventually(looseCards, (count) => count === 1);
 				ok(
-					loose === 1 && (await hand()).length === handBeforeShift,
-					`Shift+click did not draw to the felt: ${loose} loose, hand ${handBeforeShift} → ${(await hand()).length}`
+					loose === 1 && (await hand()).length === 1,
+					`Shift+click did not draw to the felt: ${loose} loose, ${(await hand()).length} in hand`
 				);
-				ok((await deckCount(host)) === start - 2, 'Shift+click did not shrink the deck by one');
+				ok((await deckCount(deck)) === start - 2, 'Shift+click did not shrink the deck by one');
 
 				// ── `5`: five cards, one message on the wire ──────────────────
-				await host.page.mouse.move(deckAt!.x, deckAt!.y);
+				await table.page.mouse.move(deckAt!.x, deckAt!.y);
 				const hovered = await eventually(
-					() => host.page.evaluate(() => window.__tableplace!.drag().isDeckHovered),
-					(id) => id === deck,
-					3000
+					() => table.page.evaluate(() => window.__tableplace!.drag().isDeckHovered),
+					(id) => id === deck
 				);
 				ok(hovered === deck, `the pointer never hovered the deck (hovered: ${hovered})`);
-				const cdp = await host.page.createCDPSession();
+				const cdp = await table.page.createCDPSession();
 				await cdp.send('Network.enable');
 				const sent: string[] = [];
 				cdp.on('Network.webSocketFrameSent', (event) => sent.push(event.response.payloadData));
-				const handBeforeFive = (await hand()).length;
-				await host.page.keyboard.press('Digit5');
+				await table.page.keyboard.press('Digit5');
 				const afterFive = await eventually(
 					async () => (await hand()).length,
-					(count) => count === handBeforeFive + 5
+					(count) => count === 6
 				);
-				await host.settle(1200); // let anything trailing reach the wire
+				// the peer holding the new count means the patch has crossed the
+				// wire — anything a draw sends has been sent by then
+				const remoteFive = await eventually(
+					async () => seenByPeer(),
+					(seen) => seen.hand === 6 && seen.deck === start - 7
+				);
 				await cdp.detach();
 				const drawMessages = sent.filter((frame) => frame.includes('"tray"'));
 				ok(
-					afterFive === handBeforeFive + 5 && (await deckCount(host)) === start - 7,
-					`5 did not draw five into the hand: hand ${handBeforeFive} → ${afterFive}, deck ${await deckCount(host)}`
+					afterFive === 6 && (await deckCount(deck)) === start - 7,
+					`5 did not draw five into the hand: hand 1 → ${afterFive}, deck ${await deckCount(deck)}`
+				);
+				ok(
+					remoteFive.hand === 6,
+					`the other player never saw the host hold 6 (saw ${remoteFive.hand})`
 				);
 				ok(
 					drawMessages.length >= 1 && drawMessages.length <= 5,
 					`drawing 5 sent ${drawMessages.length} hand patches — budget is one per card or fewer ` +
 						`(${sent.length} frames in all)`
 				);
-				ok(await host.connected(), 'the relay dropped the host after drawing 5');
-				ok(
-					(await eventually(hostHandSeenByGuest, (count) => count === 6)) === 6,
-					'the second player never saw the host hold 6'
-				);
+				ok(await table.connected(), 'the relay dropped the host after drawing 5');
 
 				// ── someone else's deck refuses, out loud ─────────────────────
-				const guestAt = await guest.locate(deck);
-				ok(guestAt, 'the host deck never mounted on the second player');
-				const beforeRefusal = await deckCount(host);
-				await guest.page.mouse.click(guestAt!.x, guestAt!.y);
+				const peerDeckAt = await eventually(
+					() => table.locate(peerDeck),
+					(point) => !!point
+				);
+				ok(peerDeckAt, "the other player's deck never mounted");
+				await table.page.mouse.click(peerDeckAt!.x, peerDeckAt!.y);
 				const toastShown = await eventually(
 					() =>
-						guest!.page.evaluate(() =>
+						table.page.evaluate(() =>
 							document.body.innerText.includes("That deck isn't yours to draw from")
 						),
-					(shown) => shown,
-					5000
+					(shown) => shown
 				);
 				ok(toastShown, "clicking another player's deck did not say why nothing happened");
-				await guest.settle(800);
 				ok(
-					(await deckCount(host)) === beforeRefusal && (await deckCount(guest)) === beforeRefusal,
+					(await deckCount(peerDeck)) === 3 && (await hand()).length === 6,
 					"clicking another player's deck took a card from it"
 				);
 
 				// ── and everything else on the table still answers ────────────
-				const onFelt = await host.page.evaluate(
+				const onFelt = await table.page.evaluate(
 					() => Object.keys(window.__tableplace!.state()?.cards ?? {})[0] ?? ''
 				);
-				await assertDraggable(host, onFelt, 'the Shift-drawn card');
-				assertClean(host, 'after drawing to the hand');
-				assertClean(guest, 'after being refused a draw');
-				await host.snap('draw-to-hand');
+				await assertDraggable(table, onFelt, 'the Shift-drawn card');
+				assertClean(table, 'after drawing to the hand');
+				await table.snap('draw-to-hand');
 			} finally {
-				await guest?.close();
-				await host.close();
-				await guestContext.close();
+				await table.close();
+				peer.close();
 			}
 		}
 	},
