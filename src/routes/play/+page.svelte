@@ -14,6 +14,7 @@
 	import JournalPanel from '$lib/journal/JournalPanel.svelte';
 	import SoundToggle from '$lib/sound/SoundToggle.svelte';
 	import { installSound } from '$lib/sound';
+	import PingArrows from '$lib/ping/PingArrows.svelte';
 	import { startAutoClaim } from '$lib/scenario/autoClaim';
 	import Pane from './Pane.svelte';
 	import { page } from '$app/state';
@@ -94,6 +95,7 @@
 <DeckSearchDrawer />
 <JournalPanel />
 <SoundToggle />
+<PingArrows />
 
 <!-- a pack or scenario dropped mid-game lands on the live table (and, for a
      pack, in this browser's library) — no detour through /setup -->

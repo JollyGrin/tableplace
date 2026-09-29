@@ -47,6 +47,7 @@ import {
 } from '$lib/selection/actions';
 import type { PieceDTO } from '$lib/store/game/types';
 import { journal, journalVerb } from '$lib/journal';
+import { pingTarget } from '$lib/ping';
 import type {
 	Hotkey,
 	PieceCapabilities,
@@ -623,6 +624,32 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 			if (kind === 'card' || kind === 'deck' || kind === 'piece')
 				cameraTransforms.focus({ kind, id: idOf(ctx) });
 		}
+	},
+
+	// ---- ping (tableplace-198): point at a spot for everyone ----
+	{
+		// the felt's wedge pings where the wheel was opened; a double-click on
+		// bare felt is the same ping (TableCamera.svelte's listener)
+		id: 'ping',
+		label: 'Ping',
+		reference: 'Ping a spot for everyone',
+		applies: on('table'),
+		gesture: 'double-click felt',
+		radial: true,
+		run: (ctx) => pingTarget(ctx.target)
+	},
+	{
+		// on a thing, the wedge pings where it lies (a double-click on one
+		// focuses it instead)
+		id: 'ping',
+		label: 'Ping',
+		reference: 'Ping where it lies',
+		applies: (ctx) =>
+			ctx.target.kind === 'card' ||
+			ctx.target.kind === 'deck' ||
+			(ctx.target.kind === 'piece' && !!ctx.piece),
+		radial: true,
+		run: (ctx) => pingTarget(ctx.target)
 	}
 ];
 
@@ -706,6 +733,8 @@ const POINTER_BEFORE: KeybindRow[] = [
 	{ action: 'Draw onto the table', key: 'Shift + click deck' },
 	// TableCamera.svelte's own listener, not a key
 	{ action: 'Focus a card, deck or piece', key: 'double-click' },
+	// the same listener, on bare felt: ping/ (tableplace-198)
+	{ action: 'Ping a spot for everyone', key: 'double-click felt' },
 	// the selection (tableplace-202): selection/boxSelect.ts and each entity's
 	// pointerdown; the drag itself is the ordinary one, carrying the group
 	{ action: 'Select several', key: 'drag on felt' },
