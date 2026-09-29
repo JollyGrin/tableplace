@@ -44,6 +44,8 @@
 	import { distanceOf, easeInOutCubic, interpolatePose } from '$lib/utils/camera-tween';
 	import { isPanKey, panDelta } from '$lib/utils/transforms/pan';
 	import { classicMouse } from '$lib/store/mouseMode';
+	import { ping } from '$lib/ping';
+	import { feltPointAt } from '$lib/ping/felt';
 
 	/**
 	 * The mouse mapping (tableplace-202). Left-drag on the felt belongs to the
@@ -256,14 +258,26 @@
 	 * and takes pointer capture on it, so that is where the clicks land. And
 	 * `dblclick` arrives after the second release — a focus requested on the
 	 * press would be cancelled at once by the orbit `start` the press also is.
+	 *
+	 * On bare felt — nothing on the table or in the hand under the pointer — it
+	 * pings that spot for everyone instead (tableplace-198).
 	 */
 	$effect(() => {
-		const onDoubleClick = () => {
-			const target = pointerTargets().find(
+		const onDoubleClick = (event: MouseEvent) => {
+			const targets = pointerTargets();
+			const target = targets.find(
 				(t) => t.kind === 'card' || t.kind === 'deck' || t.kind === 'piece'
 			);
 			if (target && 'id' in target)
-				requestCameraPreset('focus', { kind: target.kind as CameraFocus['kind'], id: target.id });
+				return requestCameraPreset('focus', {
+					kind: target.kind as CameraFocus['kind'],
+					id: target.id
+				});
+			// over the hand's own HUD, or a DOM pane stacked on the canvas: not the felt
+			if (targets.some((t) => t.kind === 'hand-card')) return;
+			if (!(event.target instanceof HTMLCanvasElement) || !camera) return;
+			const point = feltPointAt(camera, dom.getBoundingClientRect(), event.clientX, event.clientY);
+			if (point) ping(point.x, point.z);
 		};
 		dom.addEventListener('dblclick', onDoubleClick);
 		return () => dom.removeEventListener('dblclick', onDoubleClick);

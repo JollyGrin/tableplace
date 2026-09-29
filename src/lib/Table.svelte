@@ -26,6 +26,7 @@
 	import { beginBoxSelect } from '$lib/selection/boxSelect';
 	import { clearSelection } from '$lib/store/selection';
 	import { classicMouse } from '$lib/store/mouseMode';
+	import { noteFeltPress } from '$lib/ping';
 
 	let { mesh = $bindable() }: { mesh?: THREE.Mesh } = $props();
 
@@ -94,6 +95,8 @@
 		 * vetoed in the gesture.
 		 */
 		if (event.nativeEvent.button !== 2) return;
+		// the wheel's Ping wedge pings where it was opened (tableplace-198)
+		noteFeltPress(event.point.x, event.point.z);
 		armRadialPress({
 			target: { kind: 'table' },
 			event: event.nativeEvent,
