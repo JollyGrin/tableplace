@@ -58,6 +58,7 @@ describe('verbs by kind', () => {
 			'draw-table',
 			'flip',
 			'shuffle',
+			'search',
 			'ungroup',
 			'move',
 			'lock',

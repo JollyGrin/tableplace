@@ -184,7 +184,7 @@ async function assertRenders(table: Table, id: string, label: string): Promise<v
 type Json = Record<string, unknown>;
 /** the slice of lobby state the specs read off a peer */
 type PeerState = {
-	decks?: Record<string, { cards?: unknown[] }>;
+	decks?: Record<string, { cards?: unknown[]; shuffledAt?: number }>;
 	players?: Record<string, { tray?: Json }>;
 };
 type Peer = { state: PeerState; send: (value: object) => void; close: () => void };
@@ -1720,6 +1720,242 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-196: `/` on a hovered deck opens the search drawer. A
+		 * 100-card deck pages rather than rendering whole; a click takes the named
+		 * card into the hand, Shift+click lays one face-up on the felt; closing
+		 * shuffles (the other seat sees the wiggle stamp and the counts). A
+		 * face-up pile opens from the wheel and closes without a shuffle.
+		 */
+		name: 'deck search: / opens the drawer, a click takes the named card, close shuffles',
+		run: async (context) => {
+			const lobby = nextLobby('deck-search');
+			const peer = await relayPeer(context.servers.relay, lobby, 'e2e-peer');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const { page } = table;
+			try {
+				const peerDeck = 'deck:e2e-peer:0';
+				peer.send({
+					players: { 'e2e-peer': { id: 'e2e-peer', seat: 1, tray: {} } },
+					decks: {
+						[peerDeck]: {
+							id: peerDeck,
+							isFaceUp: false,
+							position: [LANE(2)[0], 0.4, LANE(2)[2]],
+							rotation: [0, 0, 0],
+							cards: ['AS', '2S'].map((code) => ({
+								id: `card:e2e-peer:${code}`,
+								faceImageUrl: `gen:std52/${code}`
+							}))
+						}
+					}
+				});
+				// 100 named cards, generic names — the drawer lists them by name
+				const deck = await page.evaluate(() => {
+					const codes = ['AS', 'KH', 'QD', 'JC'];
+					const cards = Array.from({ length: 100 }, (_, i) => ({
+						id: `card:search:${i + 1}`,
+						name: `Card ${i + 1}`,
+						faceImageUrl: `gen:std52/${codes[i % codes.length]}`,
+						backImageUrl: 'gen:std52/back'
+					}));
+					return String(window.__tableplace!.actions.addDeck({ cards } as never) ?? '');
+				});
+				ok(deck, 'the 100-card deck was not created');
+
+				const state = () => page.evaluate(() => window.__tableplace!.state());
+				const deckCount = async (id: string) => (await state())?.decks?.[id]?.cards?.length ?? -1;
+				const hand = () =>
+					page.evaluate(() => {
+						const bridge = window.__tableplace!;
+						const me = bridge.actions.getMyId();
+						return Object.keys((me && bridge.state()?.players?.[me]?.tray) ?? {});
+					});
+				const hostId = await page.evaluate(() => window.__tableplace!.actions.getMyId());
+				const drawerOpen = () =>
+					page.evaluate(() => !!document.querySelector('[data-testid="deck-search"]'));
+				const drawerCards = () =>
+					page.evaluate(() =>
+						[...document.querySelectorAll('[data-deck-card]')].map(
+							(el) => el.getAttribute('title') ?? ''
+						)
+					);
+				const hover = async (id: string) => {
+					const at = await eventually(
+						() => table.locate(id),
+						(point) => !!point
+					);
+					ok(at, `${id} never mounted`);
+					await page.mouse.move(at!.x, at!.y, { steps: 6 });
+					const hovered = await eventually(
+						() => page.evaluate(() => window.__tableplace!.drag().isDeckHovered),
+						(value) => value === id
+					);
+					ok(hovered === id, `the pointer is over ${id} but the hovered deck is ${hovered}`);
+				};
+
+				ok(
+					(await eventually(
+						() => deckCount(deck),
+						(n) => n === 100
+					)) === 100,
+					'deck never held 100'
+				);
+				ok(
+					(await eventually(
+						async () => peer.state.decks?.[deck]?.cards?.length ?? -1,
+						(n) => n === 100
+					)) === 100,
+					'the other seat never saw the deck'
+				);
+				ok(
+					(await eventually(
+						() => deckCount(peerDeck),
+						(n) => n === 2
+					)) === 2,
+					'peer deck never arrived'
+				);
+				await table.settle(600);
+
+				// ── `/` opens the drawer; 100 cards are paged ─────────────────
+				await hover(deck);
+				await page.keyboard.press('Slash');
+				ok(await eventually(drawerOpen, (open) => open), '/ on a hovered deck opened no drawer');
+				const firstPage = await drawerCards();
+				ok(
+					firstPage.length > 0 && firstPage.length < 100,
+					`the drawer rendered ${firstPage.length} cards at once — a 100-card deck must page`
+				);
+				ok(
+					firstPage[0] === 'Card 1',
+					`a face-down deck should list by name, first is ${firstPage[0]}`
+				);
+
+				// ── page forward, click the named card into the hand ──────────
+				const target = 'Card 77';
+				for (let i = 0; i < 5 && !(await drawerCards()).includes(target); i++) {
+					await page.click('[data-testid="deck-search-next"]');
+				}
+				ok((await drawerCards()).includes(target), `${target} is on no page of the drawer`);
+				const peerShuffledBefore = peer.state.decks?.[deck]?.shuffledAt;
+				await page.click(`[data-deck-card="card:search:77"]`);
+				const taken = await eventually(hand, (ids) => ids.length === 1);
+				ok(taken[0] === 'card:search:77', `the hand holds ${JSON.stringify(taken)}, not ${target}`);
+				ok((await deckCount(deck)) === 99, `the deck holds ${await deckCount(deck)}, not 99`);
+				const tray = (await state())?.players?.[hostId!]?.tray?.['card:search:77'];
+				ok(tray?.name === target, `the card in hand is named ${tray?.name}, not ${target}`);
+				ok(
+					!(await drawerCards()).includes(target),
+					'the drawer still lists the card that was taken'
+				);
+
+				// ── filter + Shift+click: face-up on the felt ─────────────────
+				await page.type('[data-testid="deck-search-filter"]', 'card 5');
+				const filtered = await drawerCards();
+				ok(
+					filtered.includes('Card 5') && !filtered.includes('Card 6'),
+					`filter showed ${filtered.join(', ')}`
+				);
+				await page.keyboard.down('Shift');
+				await page.click(`[data-deck-card="card:search:5"]`);
+				await page.keyboard.up('Shift');
+				const loose = await eventually(
+					async () => (await state())?.cards?.['card:search:5'],
+					(card) => !!card
+				);
+				ok(
+					loose?.rotation?.[0] === 0,
+					`Shift+click landed the card rotated ${loose?.rotation}, not face-up`
+				);
+				ok(
+					(await deckCount(deck)) === 98 && (await hand()).length === 1,
+					'Shift+click went to the hand'
+				);
+
+				// ── close: Shuffle is on by default, everyone sees the wiggle ──
+				ok(
+					await page.evaluate(
+						() =>
+							(document.querySelector('[data-testid="deck-search-shuffle"]') as HTMLInputElement)
+								?.checked
+					),
+					'Shuffle is not ticked by default'
+				);
+				await page.keyboard.press('Escape');
+				ok(!(await eventually(drawerOpen, (open) => !open)), 'Esc did not close the drawer');
+				const shuffledAt = await eventually(
+					async () => (await state())?.decks?.[deck]?.shuffledAt,
+					(at) => !!at
+				);
+				ok(shuffledAt, 'closing the drawer did not shuffle');
+				const remote = await eventually(
+					async () => ({
+						shuffledAt: peer.state.decks?.[deck]?.shuffledAt,
+						deck: peer.state.decks?.[deck]?.cards?.length ?? -1,
+						hand: Object.keys(peer.state.players?.[hostId!]?.tray ?? {}).length
+					}),
+					(seen) => seen.shuffledAt === shuffledAt && seen.deck === 98 && seen.hand === 1
+				);
+				ok(
+					remote.shuffledAt === shuffledAt && remote.shuffledAt !== peerShuffledBefore,
+					`the other seat never saw the shuffle (${remote.shuffledAt})`
+				);
+				ok(remote.deck === 98 && remote.hand === 1, `the other seat saw ${JSON.stringify(remote)}`);
+
+				// ── a face-up pile: the wheel opens it, no shuffle step ───────
+				await page.evaluate((id) => window.__tableplace!.actions.flipDeck(id), deck);
+				await eventually(
+					async () => (await state())?.decks?.[deck]?.isFaceUp,
+					(up) => !!up
+				);
+				await table.settle(400);
+				const wheel = await table.openRadial(deck, { button: 'right' });
+				ok(
+					wheel.wedges['search'],
+					`the deck's wheel has no search wedge: ${wheel.actions.join(', ')}`
+				);
+				// the button is still held: flick to the wedge and let go
+				await page.mouse.move(wheel.wedges['search']!.x, wheel.wedges['search']!.y, { steps: 8 });
+				await sleep(120);
+				await page.mouse.up({ button: 'right' });
+				ok(await eventually(drawerOpen, (open) => open), 'the wheel did not open the drawer');
+				ok(
+					!(await page.evaluate(
+						() => !!document.querySelector('[data-testid="deck-search-shuffle"]')
+					)),
+					'a face-up pile offered a shuffle'
+				);
+				await page.click('[data-testid="deck-search-close"]');
+				ok(!(await eventually(drawerOpen, (open) => !open)), 'Close did not close the drawer');
+				await sleep(300);
+				ok(
+					(await state())?.decks?.[deck]?.shuffledAt === shuffledAt,
+					'closing a face-up pile shuffled it'
+				);
+
+				// ── someone else's deck refuses ───────────────────────────────
+				await hover(peerDeck);
+				await page.keyboard.press('Slash');
+				const refused = await eventually(
+					() =>
+						page.evaluate(() =>
+							document.body.innerText.includes("That deck isn't yours to search")
+						),
+					(shown) => shown
+				);
+				ok(refused && !(await drawerOpen()), "another player's deck opened for search");
+
+				// ── and the table still answers ───────────────────────────────
+				await assertDraggable(table, 'card:search:5', 'the searched-out card', { dx: -150, dy: 0 });
+				assertClean(table, 'after searching a deck');
+				await table.snap('deck-search');
+			} finally {
+				await table.close();
+				peer.close();
+			}
+		}
+	},
+	{
+		/**
 		 * tableplace-103 × tableplace-145, the composed case: a card drawn INTO
 		 * the drag (one continuous gesture off the deck top) released with Alt
 		 * held. Two reachable landings:
@@ -1884,13 +2120,12 @@ export const SPECS: Spec[] = [
 		/**
 		 * tableplace-156: every floating label is the same LabelBadge, and the
 		 * restyle must not have changed WHEN one shows or how it reacts. Pinned
-		 * here with a real pointer: a counter's value, a bag's count and a deck's
-		 * card count wear their badges with no hover anywhere; a plain piece's
-		 * name badge mounts under the pointer and unmounts when it leaves; and a
-		 * real click on the counter kicks the value-change pulse (the badge's
-		 * scale springs toward 1.6, then settles back to rest).
+		 * here with a real pointer: a bag's count and a deck's card count wear
+		 * their badges with no hover anywhere; a plain piece's name badge mounts
+		 * under the pointer and unmounts when it leaves. A counter wears none —
+		 * since tableplace-191 its dial face prints the value (see the dial spec).
 		 */
-		name: 'badges: hover-only labels, always-on counts, and the value pulse',
+		name: 'badges: hover-only labels and always-on counts',
 		run: (context) =>
 			withTable(context, 'badges', async (table) => {
 				const deck = await table.seedDeck();
@@ -1910,7 +2145,6 @@ export const SPECS: Spec[] = [
 
 				// always-on: the pointer has not been near any of these
 				for (const [id, label] of [
-					[counter, 'the counter'],
 					[bag, 'the bag'],
 					[deck, 'the deck']
 				] as const) {
@@ -1919,6 +2153,7 @@ export const SPECS: Spec[] = [
 
 				// hover-only: the plain token wears its name only under the pointer
 				ok(!(await badge(token)), 'the plain token mounted a badge with no pointer near it');
+				ok(!(await badge(counter)), 'the counter still wears a floating pill over its dial');
 				const over = await table.locate(token);
 				ok(over, 'the token never mounted — nothing to hover');
 				await table.page.mouse.move(over!.x, over!.y);
@@ -1937,51 +2172,155 @@ export const SPECS: Spec[] = [
 				);
 				ok(!unhovered, 'the token badge stayed mounted after the pointer left');
 
-				// the pulse: a real click deals 1 damage (counter-input's plain-click
-				// branch; shift-click is the heal) and the badge scale kicks toward
-				// 1.6 before springing back to rest. The kick is watched FIRST — it
-				// is instant on the value change, so waiting on the value and then
-				// looking for the kick could miss a fast pulse entirely.
-				const at = await table.locate(counter);
-				ok(at, 'the counter never mounted — nothing to click');
-				await table.page.mouse.click(at!.x, at!.y);
-				const kicked = await eventually(
-					() => badge(counter),
-					(b) => !!b && b.scale > 1.15,
-					5000
-				);
-				ok(
-					!!kicked && kicked.scale > 1.15,
-					`the value change never kicked the badge pulse: ${JSON.stringify(kicked)}`
-				);
-				const value = await eventually(
-					() =>
-						table.page.evaluate(
-							(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
-							counter
-						),
-					(v) => v === 4
-				);
-				ok(value === 4, `the click did not damage the counter to 4: ${JSON.stringify(value)}`);
-				const rested = await eventually(
-					() => badge(counter),
-					(b) => !!b && Math.abs(b.scale - 1) < 0.05
-				);
-				ok(
-					!!rested && Math.abs(rested.scale - 1) < 0.05,
-					`the pulse never settled back to rest: ${JSON.stringify(rested)}`
-				);
-
 				// badges must not have cost the table its raycast
 				await assertDraggable(table, counter, 'the counter (wearing its badge)');
 				await assertDraggable(table, deck, 'deck (with badges on the table)');
 				assertClean(table, 'at the end of the badge suite');
 
-				// the train's visual evidence: counter, bag and deck badges always-on,
+				// the train's visual evidence: bag and deck badges always-on,
 				// and the token hovered so its name badge is in the frame too
 				const pose = await table.locate(token);
 				if (pose) await table.page.mouse.move(pose.x, pose.y);
 				await table.snap('badges');
+			})
+	},
+	{
+		/**
+		 * tableplace-191: a counter reads as a dial. Its top face prints name,
+		 * value and `of max`, with the rim arc for value/max — drawn onto a
+		 * canvas that is redrawn only when one of those changes. A real click
+		 * (counter-input's plain-click −1) must change the PRINTED value, pulse
+		 * the face once, and cost exactly one redraw; a counter owned by another
+		 * seat prints square to that seat.
+		 */
+		name: 'counter dial: click changes the printed value, pulses once, faces its seat, honours lock',
+		run: (context) =>
+			withTable(context, 'dial', async (table) => {
+				const deck = await table.seedDeck();
+				const counter = await table.spawn('counter', {
+					name: 'Health',
+					maxValue: 17,
+					value: 5,
+					radius: 1,
+					position: ON_FELT(0)
+				});
+				const plain = await table.spawn('counter', {
+					name: 'Score',
+					value: 3,
+					radius: 1,
+					position: ON_FELT(1),
+					ownerId: 'seat1'
+				});
+				await table.settle(1500);
+				assertClean(table, 'with two counter dials on the table');
+
+				const dial = (id: string) =>
+					table.page.evaluate((entityId) => window.__tableplace!.dial(entityId), id);
+
+				const first = await dial(counter);
+				ok(first, 'the counter drew no dial face');
+				ok(
+					first!.name === 'Health' && first!.value === 5 && first!.maxValue === 17,
+					`the dial printed the wrong thing: ${JSON.stringify(first)}`
+				);
+				ok(Math.abs(first!.facing) < 0.01, `seat 0's dial does not face seat 0: ${first!.facing}`);
+				const other = await dial(plain);
+				ok(
+					other?.name === 'Score' && other.value === 3,
+					`the second dial printed the wrong thing: ${JSON.stringify(other)}`
+				);
+				ok(
+					Math.abs(Math.abs(other!.facing) - Math.PI) < 0.01,
+					`seat 1's dial does not face seat 1: ${other!.facing}`
+				);
+
+				// frames alone never redraw the canvas
+				await table.settle(800);
+				const idle = await dial(counter);
+				ok(
+					idle!.redraws === first!.redraws,
+					`the dial redrew with nothing changed: ${first!.redraws} → ${idle!.redraws}`
+				);
+
+				// the pulse is instant on the value change, so watch for the kick
+				// first — waiting on the value, then looking, could miss it
+				const at = await table.locate(counter);
+				ok(at, 'the counter never mounted — nothing to click');
+				await table.page.mouse.click(at!.x, at!.y);
+				const kicked = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.scale > 1.05,
+					5000
+				);
+				ok(
+					!!kicked && kicked.scale > 1.05,
+					`the value change never pulsed the dial: ${JSON.stringify(kicked)}`
+				);
+				const printed = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.value === 4 && Math.abs(d.scale - 1) < 0.02
+				);
+				ok(
+					printed?.value === 4,
+					`the click did not change the printed value to 4: ${JSON.stringify(printed)}`
+				);
+				ok(
+					printed!.redraws === first!.redraws + 1,
+					`one value change cost ${printed!.redraws - first!.redraws} redraws`
+				);
+				ok(
+					Math.abs(printed!.scale - 1) < 0.02,
+					`the pulse never settled: ${JSON.stringify(printed)}`
+				);
+				const stored = await table.page.evaluate(
+					(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
+					counter
+				);
+				ok(stored === 4, `the store disagrees with the dial: ${JSON.stringify(stored)}`);
+
+				// locked (tableplace-189): a real drag leaves the dial where it is,
+				// a real click still counts, and hovering it shows the lock pill —
+				// the dial took over the counter's value badge, not the lock cue
+				await table.page.evaluate(
+					(id) => window.__tableplace!.actions.setLocked('piece', id, true),
+					counter
+				);
+				const pinnedAt = await table.positionOf(counter);
+				await table.dragBy(counter, DRAG.dx, DRAG.dy);
+				await table.settle(500);
+				const pinnedAfter = await table.positionOf(counter);
+				ok(
+					planarDistance(pinnedAt, pinnedAfter) < 0.01,
+					`the locked counter moved: ${JSON.stringify(pinnedAt)} → ${JSON.stringify(pinnedAfter)}`
+				);
+				const lifted = await table.page.evaluate(() => window.__tableplace!.drag().isDragging);
+				ok(!lifted, `the locked counter was lifted into a drag: ${lifted}`);
+				const pinned = await table.locate(counter);
+				ok(pinned, 'the locked counter vanished');
+				await table.page.mouse.click(pinned!.x, pinned!.y);
+				const counted = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.value === 3
+				);
+				ok(
+					counted?.value === 3,
+					`a click on the locked counter did not count: ${JSON.stringify(counted)}`
+				);
+				const lockPill = await eventually(
+					() => table.page.evaluate((id) => window.__tableplace!.badge(id), counter),
+					(b) => !!b
+				);
+				ok(!!lockPill, 'hovering the locked counter shows no lock pill');
+				await table.page.evaluate(
+					(id) => window.__tableplace!.actions.setLocked('piece', id, false),
+					counter
+				);
+
+				// the face must not have cost the table its raycast
+				await assertDraggable(table, counter, 'the counter dial');
+				await assertDraggable(table, deck, 'deck (with counter dials on the table)');
+				assertClean(table, 'at the end of the dial suite');
+				await table.snap('dial');
 			})
 	},
 	{
