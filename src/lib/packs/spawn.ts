@@ -132,6 +132,7 @@ export function spawnPackDeckSpread(deck: PackDeckDef, opts: SpawnDeckSpreadOpti
 		cards[id] = {
 			faceImageUrl: tile.card.face,
 			...(deck.back ? { backImageUrl: deck.back } : {}),
+			...(tile.card.name ? { name: tile.card.name } : {}),
 			...(tile.card.orientation === 'landscape' ? { orientation: tile.card.orientation } : {}),
 			position: tile.position,
 			rotation: [0, 0, 0]

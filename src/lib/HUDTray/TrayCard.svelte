@@ -1,12 +1,3 @@
-<script lang="ts" module>
-	import { writable } from 'svelte/store';
-
-	// Single shared hover owner across all tray cards. Expanded cards overlap
-	// their neighbors, so per-card enter/leave flags could leave two cards
-	// expanded at once — the latest pointerenter claims hover, collapsing the rest.
-	const hoveredTrayCard = writable<string | null>(null);
-</script>
-
 <script lang="ts">
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
@@ -19,6 +10,7 @@
 	import { dragStart, dragStore } from '$lib/store/dragStore.svelte';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { gameActions } from '$lib/store/game/actions';
+	import { hoveredTrayCard } from './trayHover';
 
 	// No interactivity() here on purpose — one call per card in hand meant one
 	// Raycaster and one full set of DOM listeners per card. The handlers below
@@ -100,6 +92,7 @@
 
 {#key trayUrl}
 	<T.Mesh
+		name={id}
 		scale={cardScale.current}
 		position.z={cardZ}
 		position.y={cardY.current}

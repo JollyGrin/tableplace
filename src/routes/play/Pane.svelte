@@ -138,7 +138,7 @@
 		['Same wheel, no right button', 'press & hold'],
 		['Pan camera', 'W A S D'],
 		['Reset camera', 'C'],
-		['Preview hovered', 'spacebar'],
+		['Preview hovered (card, hand, deck, piece)', 'hold Space or Alt'],
 		['Tap card', 'T'],
 		['Reverse Tap card', 'R'],
 		['Rotate hovered model ±90°', 'T / R'],

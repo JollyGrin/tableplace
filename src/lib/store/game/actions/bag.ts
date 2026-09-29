@@ -113,6 +113,7 @@ function drawFromBag(bagId: string): BagDraw | null {
 			[id]: {
 				faceImageUrl: item.face,
 				...(item.back ? { backImageUrl: item.back } : {}),
+				...(item.name ? { name: item.name } : {}),
 				...(item.orientation ? { orientation: item.orientation } : {}),
 				position: drawPosition(state, bag, CARD_REST_Y),
 				// facedown (180 on x, matching Card.svelte): the bag's contents were
@@ -188,6 +189,7 @@ function returnToBag(bagId: string, entityId: string): boolean {
 			code: entityId.split(':').slice(2).join(':') || 'card',
 			face: card.faceImageUrl,
 			...(card.backImageUrl ? { back: card.backImageUrl } : {}),
+			...(card.name ? { name: card.name } : {}),
 			...(card.orientation ? { orientation: card.orientation } : {})
 		};
 		update.cards = { [entityId]: null };

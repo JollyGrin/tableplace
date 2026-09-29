@@ -7,6 +7,12 @@ export type CardDTO = {
 	faceImageUrl: string;
 	backImageUrl?: string;
 	/**
+	 * Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the
+	 * zoomed preview's caption, and only while the card is face up to the
+	 * viewer — a face-down card never reveals it. Absent = no caption.
+	 */
+	name?: string;
+	/**
 	 * Default resting orientation (pack `PackCardDef.orientation`). Landscape
 	 * cards render turned 90° in every renderer, while `rotation` stays
 	 * orientation-relative — `tapCard` is additive on `rotation[2]` and the

@@ -40,7 +40,7 @@ Every file carries an in-band discriminator at the top level: `"tbpp": 1` or `"t
 
 ### 2.1 Spec versions
 
-Current: **pack `1.6.0`**, **scenario `0.1.9`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
+Current: **pack `1.6.0`**, **scenario `0.1.10`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
 
 Two version fields exist and they answer different questions:
 
@@ -188,7 +188,7 @@ The literal prefix `model:` followed by `<kit>/<name>`, resolved through the fir
 - **`name`** — human-readable title.
 - **`scope`** — `"table"` or `"player"`. `table` is the shared game loaded once per lobby by the host (board, communal decks). `player` is what one participant brings and is spawned per seat — a deck-builder export is a player pack. When in doubt for a card game, use `player`.
 - **`decks[]`** — `slot` (stable id within the pack), `name`, `back` (a face ref), optional `isFaceUp`, and `cards[]`.
-  - **`cards[]`** — `code` (stable id within the deck), optional `name`, `face` (a face ref), and optional `orientation` — `"portrait"` (default) or `"landscape"`. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
+  - **`cards[]`** — `code` (stable id within the deck), optional `name` (carried onto the spawned card and shown as the caption of the zoomed hover preview, only while the card is face up), `face` (a face ref), and optional `orientation` — `"portrait"` (default) or `"landscape"`. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
 - **`pieces[]`** _(optional)_ — `kind` (`"token"`, `"pawn"`, `"counter"`, `"die"`, `"bag"` or `"model"`), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `maxValue` (counters), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
 - **`overlays[]`** _(optional)_ — board/map images: `imageUrl` (a face ref), `ratio` (image width ÷ height), `scale` (world size along the long axis).
 - **`source`** _(optional)_ — provenance stamp written by converters; the only value is `"tts"`. Omit it in hand-authored packs.
@@ -595,8 +595,8 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"x-tableplace-spec-version": "1.6.0",
-	"x-generated-at": "2026-07-27T14:05:26.496Z",
-	"x-tableplace-source-sha": "7926a2a9b68dfae55ac2529560c329ffea742f4f-dirty"
+	"x-generated-at": "2026-09-29T12:52:18.577Z",
+	"x-tableplace-source-sha": "6084a5f2dfafdaf98bb617c9b449b80420edbd4e-dirty"
 }
 ```
 
@@ -738,7 +738,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
 
 ### 7.1 Fields
 
-- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.9`.
+- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.10`.
 - **`name`**, **`createdAt`** — title and a Unix epoch timestamp in milliseconds.
 - **`packs[]`** — `{ id, source? }` for every pack the scenario draws from. `source` is `"builtin"` for packs shipped with the app (currently only `standard-52`), `"local"` for a pack held in the reader's own browser-local pack library, or an `https://` URL a `.tbpp.json` can be fetched from. A remote pack goes through the same validation as a local import. A scenario meant to travel to other people must use `"builtin"` or a URL: `"local"` resolves only on the machine that has the pack, and fails loudly (naming the pack id) anywhere else.
 - **`placements[]`** — one entry per spawned thing:
@@ -1139,6 +1139,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"type": "string",
 					"title": "backImageUrl"
 				},
+				"name": {
+					"description": "Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the\nzoomed preview's caption, and only while the card is face up to the\nviewer — a face-down card never reveals it. Absent = no caption.",
+					"type": "string",
+					"title": "name"
+				},
 				"orientation": {
 					"description": "Default resting orientation (pack `PackCardDef.orientation`). Landscape\ncards render turned 90° in every renderer, while `rotation` stays\norientation-relative — `tapCard` is additive on `rotation[2]` and the\nsnap/group logic assumes a squared-up yaw is `z % 180 == 0`, so the\nquarter turn must never be baked into the persisted rotation. Its own\nfield (not part of `rotation`) so it survives the `CardInDeck` hop,\nwhich strips `rotation`. Absent = 'portrait'.",
 					"enum": ["landscape", "portrait"],
@@ -1271,6 +1276,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 				"backImageUrl": {
 					"type": "string",
 					"title": "backImageUrl"
+				},
+				"name": {
+					"description": "Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the\nzoomed preview's caption, and only while the card is face up to the\nviewer — a face-down card never reveals it. Absent = no caption.",
+					"type": "string",
+					"title": "name"
 				},
 				"orientation": {
 					"description": "Default resting orientation (pack `PackCardDef.orientation`). Landscape\ncards render turned 90° in every renderer, while `rotation` stays\norientation-relative — `tapCard` is additive on `rotation[2]` and the\nsnap/group logic assumes a squared-up yaw is `z % 180 == 0`, so the\nquarter turn must never be baked into the persisted rotation. Its own\nfield (not part of `rotation`) so it survives the `CardInDeck` hop,\nwhich strips `rotation`. Absent = 'portrait'.",
@@ -1699,9 +1709,9 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.9",
-	"x-generated-at": "2026-07-27T14:05:26.496Z",
-	"x-tableplace-source-sha": "7926a2a9b68dfae55ac2529560c329ffea742f4f-dirty"
+	"x-tableplace-spec-version": "0.1.10",
+	"x-generated-at": "2026-09-29T12:52:18.577Z",
+	"x-tableplace-source-sha": "6084a5f2dfafdaf98bb617c9b449b80420edbd4e-dirty"
 }
 ```
 
@@ -1713,7 +1723,7 @@ Two packs — one builtin, one fetched from `https://example.com/packs/ember-due
 {
 	"$schema": "https://table.place/scenario.schema.json",
 	"tbps": 2,
-	"specVersion": "0.1.9",
+	"specVersion": "0.1.10",
 	"name": "ember-duel-opening",
 	"createdAt": 1700000000000,
 	"packs": [
