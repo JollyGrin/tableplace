@@ -93,6 +93,14 @@ export type TestBridge = {
 	/** what an entity is actually made of — null if it never mounted at all */
 	describe: (id: string) => EntityShape | null;
 	/**
+	 * Where an entity's group actually draws right now (tableplace-203): its
+	 * world height, and how far it leans off level in degrees — the angle
+	 * between its own up axis and the world's, flips ignored. What the weight
+	 * spec measures the lean and the landing bounce with; the store never sees
+	 * either.
+	 */
+	pose: (id: string) => { y: number; leanDeg: number } | null;
+	/**
 	 * The entity's floating label badge (LabelBadge.svelte), or null while none
 	 * is mounted — which is itself the assertion for hover-only labels.
 	 */
@@ -462,6 +470,17 @@ export function installTestBridge(handles: SceneHandles): void {
 				}
 			});
 			return shape;
+		},
+		pose: (id) => {
+			const object = handles.scene()?.getObjectByName(id);
+			if (!object) return null;
+			const up = new THREE.Vector3(0, 1, 0).applyQuaternion(
+				object.getWorldQuaternion(new THREE.Quaternion())
+			);
+			return {
+				y: object.getWorldPosition(new THREE.Vector3()).y,
+				leanDeg: THREE.MathUtils.radToDeg(Math.acos(Math.min(1, Math.abs(up.y))))
+			};
 		},
 		badge: (id) => {
 			const object = handles.scene()?.getObjectByName(id);

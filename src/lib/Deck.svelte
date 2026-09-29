@@ -21,6 +21,8 @@
 	import { gameActions } from './store/game/actions';
 	import { resolveCardImage, sheetRefCache, CARD_BACK_DEFAULT } from '$lib/packs';
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
+	import { Weight } from '$lib/utils/weight.svelte';
+	import { WEIGHT_CARRY_EPSILON } from '$lib/utils/constants-weight';
 	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
 	import { DRAG_THRESHOLD_PX } from '$lib/utils/counter-input';
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
@@ -112,6 +114,24 @@
 		const [x = 0, , z = 0] = deck.position ?? [];
 		driveSpring(planar, { x, z }, isDragged);
 	});
+
+	// Weight (tableplace-203): the pile leans against its travel while carried
+	// (here, or by another player — read off the store's carry height) and
+	// bounces once on landing. Render-only; see utils/weight.svelte.ts.
+	const carried = $derived(
+		isDragged || Math.abs((deck.position?.[1] ?? 0) - CARD_DRAG_Y) < WEIGHT_CARRY_EPSILON
+	);
+	const weight = new Weight('card', () => ({
+		x: planar.current.x,
+		z: planar.current.z,
+		y: lift.current,
+		rest: lift.target,
+		carried
+	}));
+	$effect(() => {
+		if (carried) weight.wake();
+	});
+	$effect(() => () => weight.stop());
 
 	// Shuffle wiggle: a decaying yaw twitch, kicked whenever `shuffledAt`
 	// changes — the reorder patch alone is invisible from the back, so this is
@@ -264,80 +284,86 @@
 <!-- the store id, mirrored onto the object3D: what makes an entity findable in
      the scene graph — by devtools, and by the headless harness, which has to
      know where a thing actually draws in order to click it -->
+<!-- the lean rides on its own group, in the world frame -->
 <T.Group
-	name={id}
-	position={[planar.current.x, lift.current, planar.current.z]}
-	rotation={[rotation[0], rotation[1] + wiggle.current, rotation[2]]}
-	onpointerdown={handlePointerDown}
-	onclick={handleClick}
-	onpointerenter={() => setDeckHover(id)}
-	onpointerleave={() => setDeckHover(null)}
+	position={[planar.current.x, lift.current + weight.lift, planar.current.z]}
+	rotation.x={weight.tiltX}
+	rotation.z={weight.tiltZ}
 >
-	<!-- a pinned pile says so on hover, beside the count it always shows -->
-	<LabelBadge
-		text={`${(cards ?? [])?.length ?? 0}${isHovered && deck.locked ? ` · ${LOCK_BADGE_TEXT}` : ''}`}
-		fontSize={0.5}
-		position={[0, 1.75, 0]}
-	/>
-	{#if cards?.length > 0}
-		{#key displayedImage}
-			<T.Mesh castShadow receiveShadow rotation.x={-Math.PI / 2} position.y={height / 2 + 0.01}>
-				<T.PlaneGeometry args={[1.4, 2]} />
-				<ImageMaterial url={displayedImage} side={2} radius={0.1} opacity={isHovered ? 0.8 : 1} />
-			</T.Mesh>
-		{/key}
-	{/if}
+	<T.Group
+		name={id}
+		rotation={[rotation[0], rotation[1] + wiggle.current, rotation[2]]}
+		onpointerdown={handlePointerDown}
+		onclick={handleClick}
+		onpointerenter={() => setDeckHover(id)}
+		onpointerleave={() => setDeckHover(null)}
+	>
+		<!-- a pinned pile says so on hover, beside the count it always shows -->
+		<LabelBadge
+			text={`${(cards ?? [])?.length ?? 0}${isHovered && deck.locked ? ` · ${LOCK_BADGE_TEXT}` : ''}`}
+			fontSize={0.5}
+			position={[0, 1.75, 0]}
+		/>
+		{#if cards?.length > 0}
+			{#key displayedImage}
+				<T.Mesh castShadow receiveShadow rotation.x={-Math.PI / 2} position.y={height / 2 + 0.01}>
+					<T.PlaneGeometry args={[1.4, 2]} />
+					<ImageMaterial url={displayedImage} side={2} radius={0.1} opacity={isHovered ? 0.8 : 1} />
+				</T.Mesh>
+			{/key}
+		{/if}
 
-	<!-- PRELOAD THE NEXT DISCARD IMAGE -->
-	{#if isFaceUp && cards.length > 1}
-		{@const preloadUrl = resolveCardImage(cards[1]?.faceImageUrl, $sheetRefCache)}
-		{#key preloadUrl}
-			<T.Mesh>
-				<T.PlaneGeometry args={[0, 0]} />
-				<ImageMaterial url={preloadUrl} side={2} radius={0.1} opacity={0} />
-			</T.Mesh>
-		{/key}
-	{/if}
+		<!-- PRELOAD THE NEXT DISCARD IMAGE -->
+		{#if isFaceUp && cards.length > 1}
+			{@const preloadUrl = resolveCardImage(cards[1]?.faceImageUrl, $sheetRefCache)}
+			{#key preloadUrl}
+				<T.Mesh>
+					<T.PlaneGeometry args={[0, 0]} />
+					<ImageMaterial url={preloadUrl} side={2} radius={0.1} opacity={0} />
+				</T.Mesh>
+			{/key}
+		{/if}
 
-	<!-- Editing outline: a hair wider than the drop footprint and drawn above
+		<!-- Editing outline: a hair wider than the drop footprint and drawn above
 	     it, so a deck that is both selected and a drop target still reads as
 	     both. depthTest={false} for the same reason the drop cue disables it —
 	     at a low camera angle the deck's own body would swallow it. -->
-	{#if isSelected}
-		<T.Group rotation.x={-Math.PI / 2} position.y={height / 2 + 0.05}>
-			<DropFootprint
-				shape="rect"
-				w={CARD_WIDTH + 0.5}
-				h={CARD_HEIGHT + 0.5}
-				color={DECK_SELECT_COLOR}
-				fill={0.08}
-				border={0.07}
-				depthTest={false}
-			/>
-		</T.Group>
-	{/if}
+		{#if isSelected}
+			<T.Group rotation.x={-Math.PI / 2} position.y={height / 2 + 0.05}>
+				<DropFootprint
+					shape="rect"
+					w={CARD_WIDTH + 0.5}
+					h={CARD_HEIGHT + 0.5}
+					color={DECK_SELECT_COLOR}
+					fill={0.08}
+					border={0.07}
+					depthTest={false}
+				/>
+			</T.Group>
+		{/if}
 
-	{#if isDropTarget}
-		<T.Group rotation.x={-Math.PI / 2} position.y={height / 2 + 0.03}>
-			<DropFootprint
-				shape="rect"
-				w={CARD_WIDTH + 0.3}
-				h={CARD_HEIGHT + 0.3}
-				color="#5ee7ff"
-				fill={0.15}
-				border={0.08}
-				depthTest={false}
-			/>
-		</T.Group>
-	{/if}
+		{#if isDropTarget}
+			<T.Group rotation.x={-Math.PI / 2} position.y={height / 2 + 0.03}>
+				<DropFootprint
+					shape="rect"
+					w={CARD_WIDTH + 0.3}
+					h={CARD_HEIGHT + 0.3}
+					color="#5ee7ff"
+					fill={0.15}
+					border={0.08}
+					depthTest={false}
+				/>
+			</T.Group>
+		{/if}
 
-	<!-- deck body: rounded slab (matches the top image's corner radius) whose
+		<!-- deck body: rounded slab (matches the top image's corner radius) whose
 	     sides wear the stacked-card-edge stripes. Unit-height shared geometry,
 	     scaled to this deck's height; dispose={false} keeps one deck's unmount
 	     from destroying the shared geometry for everyone. -->
-	<T.Mesh scale.y={height} material={bodyMaterials}>
-		<T is={deckBodyGeometry} attach="geometry" dispose={false} />
-	</T.Mesh>
+		<T.Mesh scale.y={height} material={bodyMaterials}>
+			<T is={deckBodyGeometry} attach="geometry" dispose={false} />
+		</T.Mesh>
+	</T.Group>
 </T.Group>
 
 <!-- the box selection's ring (tableplace-202). Outside the pile's group: a child
@@ -347,7 +373,7 @@
 		shape="rect"
 		w={CARD_WIDTH}
 		h={CARD_HEIGHT}
-		position={[planar.current.x, lift.current + height / 2 + 0.04, planar.current.z]}
+		position={[planar.current.x, lift.current + weight.lift + height / 2 + 0.04, planar.current.z]}
 		yaw={rotation[1]}
 	/>
 {/if}

@@ -4774,5 +4774,117 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * Weight (tableplace-203): a carried piece leans against its travel, a
+		 * dropped one lands with one small bounce — and the landing is never
+		 * delayed by it: the drawn height is back at rest within 600 ms of the
+		 * release. All of it is render-only, so it is measured off the drawn
+		 * group (`pose`), timed by the page against its own pointerup. Under
+		 * prefers-reduced-motion nothing leans.
+		 */
+		name: 'weight: a carried token leans, a dropped one is at rest within 600 ms',
+		run: (context) =>
+			withTable(context, 'weight', async (table) => {
+				const { page } = table;
+				const deck = await table.seedDeck();
+				const token = await table.spawn('token', { position: ON_FELT(1) });
+				await table.settle(2500);
+				assertClean(table, 'with a token on the table');
+				const pose = () => page.evaluate((id) => window.__tableplace!.pose(id), token);
+
+				// press, then sweep sideways sampling the lean as it goes
+				const carry = async (dx: number) => {
+					const from = await table.locate(token);
+					ok(from, `the token (${token}) never mounted`);
+					await page.mouse.move(from!.x, from!.y);
+					await sleep(80);
+					await page.mouse.down();
+					await sleep(80);
+					let lean = 0;
+					for (let step = 1; step <= 16; step++) {
+						await page.mouse.move(from!.x + (dx * step) / 16, from!.y);
+						await sleep(16);
+						lean = Math.max(lean, (await pose())?.leanDeg ?? 0);
+					}
+					return lean;
+				};
+				// release, with the page timing every drawn height against its own
+				// pointerup — puppeteer's round trips are no clock for 600 ms
+				const release = async () => {
+					await page.evaluate((id) => {
+						const samples: [number, number][] = [];
+						(window as unknown as { __landing: typeof samples }).__landing = samples;
+						window.addEventListener(
+							'pointerup',
+							() => {
+								const up = performance.now();
+								const tick = () => {
+									const t = performance.now() - up;
+									samples.push([t, window.__tableplace!.pose(id)?.y ?? NaN]);
+									if (t < 900) requestAnimationFrame(tick);
+								};
+								tick();
+							},
+							{ once: true, capture: true }
+						);
+					}, token);
+					await page.mouse.up();
+					await sleep(1200);
+					return page.evaluate(
+						() => (window as unknown as { __landing: [number, number][] }).__landing
+					);
+				};
+
+				// DEBUG-GAPS
+				await page.evaluate(() => {
+					const w = window as unknown as { __gaps: number[] };
+					w.__gaps = [];
+					let prev = performance.now();
+					const t = (now: number) => {
+						w.__gaps.push(Math.round(now - prev));
+						prev = now;
+						if (w.__gaps.length < 400) requestAnimationFrame(t);
+					};
+					requestAnimationFrame(t);
+				});
+				// ── carried: a lean, a few degrees and capped ──
+				const lean = await carry(240);
+				console.log('GAPS', JSON.stringify(await page.evaluate(() => (window as unknown as { __gaps: number[] }).__gaps)));
+				ok(lean > 0.5, `the carried token never leaned: max ${lean.toFixed(2)}°`);
+				ok(lean <= 7.5, `the carried token leaned past its cap: ${lean.toFixed(2)}°`);
+
+				// ── dropped: at rest height within 600 ms, level again ──
+				const landing = await release();
+				const rest = (await table.positionOf(token))?.[1] ?? NaN;
+				ok(Number.isFinite(rest), `the dropped token has no store height`);
+				const late = landing.filter(([t]) => t >= 600);
+				ok(late.length > 0, `no drawn height was sampled 600 ms after the drop`);
+				const off = late.find(([, y]) => Math.abs(y - rest) > 0.01);
+				ok(
+					!off,
+					`the dropped token was not at rest (${rest}) by 600 ms: ${JSON.stringify(off)} — landing ${JSON.stringify(landing.map(([t, y]) => [Math.round(t), +y.toFixed(3)]))}`
+				);
+				const peak = Math.max(...landing.map(([, y]) => y - rest));
+				console.log(
+					`    weight: lean ${lean.toFixed(2)}°, ${landing.length} landing frames, highest ${peak.toFixed(3)} over rest`
+				);
+				const level = await pose();
+				ok((level?.leanDeg ?? 99) < 0.1, `the dropped token is still leaning: ${level?.leanDeg}°`);
+
+				// ── prefers-reduced-motion: no lean at all ──
+				await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+				try {
+					const still = await carry(-240);
+					ok(still < 0.01, `under reduced motion the carried token leaned ${still.toFixed(2)}°`);
+					await release();
+				} finally {
+					await page.emulateMediaFeatures([]);
+				}
+
+				await assertDraggable(table, deck, 'deck (beside a weighted token)');
+				assertClean(table, 'after carrying and dropping a weighted token');
+			})
 	}
 ];

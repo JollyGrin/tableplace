@@ -17,6 +17,8 @@
 	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
+	import { Weight } from '$lib/utils/weight.svelte';
+	import { WEIGHT_CARRY_EPSILON } from '$lib/utils/constants-weight';
 	import { createCounterInput, DRAG_THRESHOLD_PX } from '$lib/utils/counter-input';
 	import { setPieceHover, clearPieceHover } from '$lib/store/pieceUi';
 	import { createDieInput } from '$lib/utils/die-input';
@@ -110,9 +112,27 @@
 		driveSpring(planar, { x, z }, isDragging);
 	});
 
+	// Weight (tableplace-203): a lean against the travel while carried — here
+	// or, read off the store's carry height, by another player — and one small
+	// bounce on landing. Render-only; see utils/weight.svelte.ts.
+	const carried = $derived(
+		isDragging || Math.abs((piece?.position?.[1] ?? REST_Y) - PIECE_DRAG_Y) < WEIGHT_CARRY_EPSILON
+	);
+	const weight = new Weight('piece', () => ({
+		x: planar.current.x,
+		z: planar.current.z,
+		y: height.current,
+		rest: height.target,
+		carried
+	}));
+	$effect(() => {
+		if (carried) weight.wake();
+	});
+	$effect(() => () => weight.stop());
+
 	const position: [number, number, number] = $derived([
 		planar.current.x,
-		height.current,
+		height.current + weight.lift,
 		planar.current.z
 	]);
 
@@ -323,122 +343,129 @@
 	<!-- the store id, mirrored onto the object3D: what makes an entity findable in
 	     the scene graph — by devtools, and by the headless harness, which has to
 	     know where a thing actually draws in order to click it -->
-	<T.Group
-		name={id}
-		{position}
-		rotation.y={yaw}
-		onpointerdown={handlePointerDown}
-		onclick={handleClick}
-		onwheel={counterInput.onwheel}
-		onpointerenter={handlePointerEnter}
-		onpointerleave={handlePointerLeave}
-	>
-		{#if kind === 'die'}
-			<Die
-				sides={piece.sides ?? DIE_SIDES_DEFAULT}
-				value={piece.value ?? 1}
-				rollSeq={piece.rollSeq ?? 0}
-				{radius}
-				{color}
-			/>
-		{:else if kind === 'model'}
-			<!-- catalog GLB (or its placeholder box) — geometry only; this group
+	<!-- the lean rides on its own group, in the world frame, so it tips the
+	     piece against its travel whatever way the piece itself is turned -->
+	<T.Group {position} rotation.x={weight.tiltX} rotation.z={weight.tiltZ}>
+		<T.Group
+			name={id}
+			rotation.y={yaw}
+			onpointerdown={handlePointerDown}
+			onclick={handleClick}
+			onwheel={counterInput.onwheel}
+			onpointerenter={handlePointerEnter}
+			onpointerleave={handlePointerLeave}
+		>
+			{#if kind === 'die'}
+				<Die
+					sides={piece.sides ?? DIE_SIDES_DEFAULT}
+					value={piece.value ?? 1}
+					rollSeq={piece.rollSeq ?? 0}
+					{radius}
+					{color}
+				/>
+			{:else if kind === 'model'}
+				<!-- catalog GLB (or its placeholder box) — geometry only; this group
 			     already owns the drag, the yaw and the store id -->
-			<Model {id} modelRef={piece.model} {radius} />
-		{:else if kind === 'bag'}
-			<!-- procedural pouch: tapered body, tie ring, gathered neck. Sized off
+				<Model {id} modelRef={piece.model} {radius} />
+			{:else if kind === 'bag'}
+				<!-- procedural pouch: tapered body, tie ring, gathered neck. Sized off
 			     the same `radius` every other piece uses, so a bag drawn at the
 			     default radius reads as bigger than the tokens it holds. -->
-			<T.Mesh castShadow position.y={BAG_HEIGHT * 0.36}>
-				<T.CylinderGeometry args={[radius * 0.66, radius, BAG_HEIGHT * 0.72, 24]} />
-				<T.MeshStandardMaterial {color} roughness={0.85} />
-			</T.Mesh>
-			<T.Mesh castShadow position.y={BAG_HEIGHT * 0.72} rotation.x={Math.PI / 2}>
-				<T.TorusGeometry args={[radius * 0.62, radius * 0.1, 10, 24]} />
-				<T.MeshStandardMaterial color="#5b4a36" roughness={0.7} />
-			</T.Mesh>
-			<T.Mesh castShadow position.y={BAG_HEIGHT * 0.85}>
-				<T.CylinderGeometry args={[radius * 0.7, radius * 0.5, BAG_HEIGHT * 0.28, 20]} />
-				<T.MeshStandardMaterial {color} roughness={0.85} />
-			</T.Mesh>
-			{#if imageUrl}
-				<!-- same decal treatment as a token, laid on the neck opening -->
-				<PieceFace
-					url={imageUrl}
-					radius={radius * 0.46}
-					segments={24}
-					position={[0, BAG_HEIGHT * 0.99, 0]}
-				/>
-			{/if}
-			{#if isBagDropTarget}
-				<T.Group rotation.x={-Math.PI / 2} position.y={-THICKNESS / 2 + 0.005}>
-					<DropFootprint
-						shape="circle"
-						r={radius + 0.25}
-						color="#5ee7ff"
-						fill={0.15}
-						border={0.08}
-						depthTest={false}
+				<T.Mesh castShadow position.y={BAG_HEIGHT * 0.36}>
+					<T.CylinderGeometry args={[radius * 0.66, radius, BAG_HEIGHT * 0.72, 24]} />
+					<T.MeshStandardMaterial {color} roughness={0.85} />
+				</T.Mesh>
+				<T.Mesh castShadow position.y={BAG_HEIGHT * 0.72} rotation.x={Math.PI / 2}>
+					<T.TorusGeometry args={[radius * 0.62, radius * 0.1, 10, 24]} />
+					<T.MeshStandardMaterial color="#5b4a36" roughness={0.7} />
+				</T.Mesh>
+				<T.Mesh castShadow position.y={BAG_HEIGHT * 0.85}>
+					<T.CylinderGeometry args={[radius * 0.7, radius * 0.5, BAG_HEIGHT * 0.28, 20]} />
+					<T.MeshStandardMaterial {color} roughness={0.85} />
+				</T.Mesh>
+				{#if imageUrl}
+					<!-- same decal treatment as a token, laid on the neck opening -->
+					<PieceFace
+						url={imageUrl}
+						radius={radius * 0.46}
+						segments={24}
+						position={[0, BAG_HEIGHT * 0.99, 0]}
 					/>
-				</T.Group>
+				{/if}
+				{#if isBagDropTarget}
+					<T.Group rotation.x={-Math.PI / 2} position.y={-THICKNESS / 2 + 0.005}>
+						<DropFootprint
+							shape="circle"
+							r={radius + 0.25}
+							color="#5ee7ff"
+							fill={0.15}
+							border={0.08}
+							depthTest={false}
+						/>
+					</T.Group>
+				{/if}
+			{:else if kind === 'pawn'}
+				<!-- procedural pawn: base disc + stem + head -->
+				<T.Mesh castShadow position.y={0.06}>
+					<T.CylinderGeometry args={[radius * 0.5, radius * 0.6, 0.12, 24]} />
+					<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
+				</T.Mesh>
+				<T.Mesh castShadow position.y={0.45}>
+					<T.CylinderGeometry args={[radius * 0.16, radius * 0.3, 0.75, 16]} />
+					<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
+				</T.Mesh>
+				<T.Mesh castShadow position.y={0.95}>
+					<T.SphereGeometry args={[radius * 0.32, 20, 16]} />
+					<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
+				</T.Mesh>
+			{:else}
+				<!-- token / counter: flat disc, image or color on top -->
+				<T.Mesh castShadow>
+					<T.CylinderGeometry args={[radius, radius, THICKNESS, 36]} />
+					<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
+				</T.Mesh>
+				{#if imageUrl}
+					<!-- a counter's image (dial art from an import) is its face background -->
+					<PieceFace
+						url={imageUrl}
+						radius={radius * 0.96}
+						position={[0, THICKNESS / 2 + 0.002, 0]}
+					/>
+				{/if}
+				{#if kind === 'counter'}
+					<CounterDial
+						name={piece.name ?? ''}
+						value={counterValue}
+						maxValue={piece.maxValue}
+						overImage={!!imageUrl}
+						radius={radius * 0.97}
+						y={THICKNESS / 2 + 0.004}
+						facing={dialFacing}
+						scale={valuePulse.current}
+					/>
+				{/if}
 			{/if}
-		{:else if kind === 'pawn'}
-			<!-- procedural pawn: base disc + stem + head -->
-			<T.Mesh castShadow position.y={0.06}>
-				<T.CylinderGeometry args={[radius * 0.5, radius * 0.6, 0.12, 24]} />
-				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
-			</T.Mesh>
-			<T.Mesh castShadow position.y={0.45}>
-				<T.CylinderGeometry args={[radius * 0.16, radius * 0.3, 0.75, 16]} />
-				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
-			</T.Mesh>
-			<T.Mesh castShadow position.y={0.95}>
-				<T.SphereGeometry args={[radius * 0.32, 20, 16]} />
-				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
-			</T.Mesh>
-		{:else}
-			<!-- token / counter: flat disc, image or color on top -->
-			<T.Mesh castShadow>
-				<T.CylinderGeometry args={[radius, radius, THICKNESS, 36]} />
-				<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
-			</T.Mesh>
-			{#if imageUrl}
-				<!-- a counter's image (dial art from an import) is its face background -->
-				<PieceFace url={imageUrl} radius={radius * 0.96} position={[0, THICKNESS / 2 + 0.002, 0]} />
-			{/if}
-			{#if kind === 'counter'}
-				<CounterDial
-					name={piece.name ?? ''}
-					value={counterValue}
-					maxValue={piece.maxValue}
-					overImage={!!imageUrl}
-					radius={radius * 0.97}
-					y={THICKNESS / 2 + 0.004}
-					facing={dialFacing}
-					scale={valuePulse.current}
+
+			<!-- a bag's remaining count is always on: it's the only thing about a bag
+		     that is legible from across the table -->
+			{#if label && (kind === 'bag' || isHovered)}
+				<LabelBadge
+					text={label}
+					fontSize={kind === 'bag' ? 0.45 : 0.35}
+					position={[
+						0,
+						kind === 'pawn'
+							? 1.5
+							: kind === 'bag'
+								? BAG_HEIGHT + 0.45
+								: kind === 'model'
+									? 2.4
+									: 0.75,
+						0
+					]}
 				/>
 			{/if}
-		{/if}
-
-		<!-- a bag's remaining count is always on: it's the only thing about a bag
-		     that is legible from across the table -->
-		{#if label && (kind === 'bag' || isHovered)}
-			<LabelBadge
-				text={label}
-				fontSize={kind === 'bag' ? 0.45 : 0.35}
-				position={[
-					0,
-					kind === 'pawn'
-						? 1.5
-						: kind === 'bag'
-							? BAG_HEIGHT + 0.45
-							: kind === 'model'
-								? 2.4
-								: 0.75,
-					0
-				]}
-			/>
-		{/if}
+		</T.Group>
 	</T.Group>
 {/if}
 

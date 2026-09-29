@@ -1,29 +1,27 @@
 <!doctype html>
 <html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.ico" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+		<meta name="theme-color" content="#1d5c3a" />
+		%sveltekit.head%
+	</head>
 
-<head>
-  <meta charset="utf-8" />
-  <link rel="icon" href="%sveltekit.assets%/favicon.ico" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
-  <meta name="theme-color" content="#1d5c3a" />
-  %sveltekit.head%
-</head>
-
-<body data-sveltekit-preload-data="hover">
-  <div style="display: contents">%sveltekit.body%</div>
-  <script>
-    // TODO: use service worker to cache
-    // if ('serviceWorker' in navigator) {
-    //   navigator.serviceWorker.register('/registerSW.js')
-    //     .then(registration => {
-    //       console.log('Service worker registered successfully:', registration.scope);
-    //     })
-    //     .catch(error => {
-    //       console.error('Service worker registration failed:', error);
-    //     });
-    // }
-  </script>
-</body>
-
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+		<script>
+			// TODO: use service worker to cache
+			// if ('serviceWorker' in navigator) {
+			//   navigator.serviceWorker.register('/registerSW.js')
+			//     .then(registration => {
+			//       console.log('Service worker registered successfully:', registration.scope);
+			//     })
+			//     .catch(error => {
+			//       console.error('Service worker registration failed:', error);
+			//     });
+			// }
+		</script>
+	</body>
 </html>

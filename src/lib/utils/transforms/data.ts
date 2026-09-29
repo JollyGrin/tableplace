@@ -6,12 +6,7 @@
  * */
 export function purgeUndefinedValues(obj: any) {
 	if (Object.keys(obj).length === 0) return null;
-	if (
-		Object.values(obj).every((value) => value === undefined || value === null)
-	)
-		return null;
+	if (Object.values(obj).every((value) => value === undefined || value === null)) return null;
 
-	return Object.fromEntries(
-		Object.entries(obj).filter(([_key, value]) => value !== undefined)
-	);
+	return Object.fromEntries(Object.entries(obj).filter(([_key, value]) => value !== undefined));
 }
