@@ -150,18 +150,22 @@ async function assertRenders(table: Table, id: string, label: string): Promise<v
  * merge the app does: `null` deletes), and can publish patches of its own.
  * What a remote player's HUD is drawn from, without a second rendering page.
  */
-type Peer = { state: Record<string, any>; send: (value: object) => void; close: () => void };
+type Json = Record<string, unknown>;
+/** the slice of lobby state the specs read off a peer */
+type PeerState = {
+	decks?: Record<string, { cards?: unknown[] }>;
+	players?: Record<string, { tray?: Json }>;
+};
+type Peer = { state: PeerState; send: (value: object) => void; close: () => void };
 
-function mergePatch(target: Record<string, any>, patch: Record<string, any>): Record<string, any> {
+const isRecord = (value: unknown): value is Json =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function mergePatch(target: Json, patch: Json): Json {
 	for (const [key, value] of Object.entries(patch ?? {})) {
 		if (value === null) delete target[key];
-		else if (typeof value === 'object' && !Array.isArray(value))
-			target[key] = mergePatch(
-				typeof target[key] === 'object' && target[key] && !Array.isArray(target[key])
-					? target[key]
-					: {},
-				value
-			);
+		else if (isRecord(value))
+			target[key] = mergePatch(isRecord(target[key]) ? target[key] : {}, value);
 		else target[key] = value;
 	}
 	return target;
@@ -178,8 +182,8 @@ async function relayPeer(relay: string, lobby: string, playerId: string): Promis
 	};
 	socket.addEventListener('message', (event) => {
 		const message = JSON.parse(String(event.data));
-		if (message.type === 'sync') peer.state = mergePatch({}, message.value ?? {});
-		if (message.type === 'update') mergePatch(peer.state, message.value ?? {});
+		if (message.type === 'sync') peer.state = mergePatch({}, message.value ?? {}) as PeerState;
+		if (message.type === 'update') mergePatch(peer.state as Json, message.value ?? {});
 	});
 	await new Promise<void>((resolve, reject) => {
 		socket.addEventListener('open', () => resolve(), { once: true });
