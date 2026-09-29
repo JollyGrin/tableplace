@@ -138,7 +138,12 @@ function assertClean(table: Table, when: string): void {
 }
 
 /** the load-bearing check: pick the entity up with a real mouse and see it move */
-async function assertDraggable(table: Table, id: string, label: string): Promise<void> {
+async function assertDraggable(
+	table: Table,
+	id: string,
+	label: string,
+	drag: { dx: number; dy: number } = DRAG
+): Promise<void> {
 	const before = await table.positionOf(id);
 	ok(before, `${label} (${id}) has no position to start from`);
 	const point = await table.locate(id);
@@ -155,7 +160,7 @@ async function assertDraggable(table: Table, id: string, label: string): Promise
 		}`
 	);
 
-	await table.dragBy(id, DRAG.dx, DRAG.dy);
+	await table.dragBy(id, drag.dx, drag.dy);
 	const after = await table.positionOf(id);
 	ok(
 		planarDistance(before, after) > 0.5,
@@ -1694,7 +1699,16 @@ export const SPECS: Spec[] = [
 				const onFelt = await table.page.evaluate(
 					() => Object.keys(window.__tableplace!.state()?.cards ?? {})[0] ?? ''
 				);
-				await assertDraggable(table, onFelt, 'the Shift-drawn card');
+				// sideways, toward the middle of the table: it lies in front of the
+				// deck, low on screen, so the default drag down drops it into the
+				// hand and a drag up drops it back on the deck
+				await assertDraggable(table, onFelt, 'the Shift-drawn card', { dx: -150, dy: 0 }).catch(
+					async (error: Error) => {
+						throw new Error(
+							`${error.message} (hand ${(await hand()).length}, deck ${await deckCount(deck)})`
+						);
+					}
+				);
 				assertClean(table, 'after drawing to the hand');
 				await table.snap('draw-to-hand');
 			} finally {
