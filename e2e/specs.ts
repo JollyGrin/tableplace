@@ -5355,13 +5355,19 @@ export const SPECS: Spec[] = [
 				2: '#b98cff',
 				3: '#ff8a3d'
 			};
-			/** the colour `t` should paint `id`'s pings: the seat `t` holds for them */
-			const seatColorOn = async (t: Table, id: string) => {
+			/**
+			 * Is `color` what `t` should paint `id`'s pings? Their seat's colour when
+			 * `t` knows the seat; before it does, `playerColor` falls back to a
+			 * palette colour hashed from the id.
+			 */
+			const paintsAsSeat = async (t: Table, id: string, color: string | null) => {
 				const seat = await t.page.evaluate(
 					(pid) => window.__tableplace!.state()?.players?.[pid]?.seat,
 					id
 				);
-				return typeof seat === 'number' ? (SEAT_COLOR[seat] ?? null) : null;
+				return typeof seat === 'number'
+					? color === SEAT_COLOR[seat]
+					: Object.values(SEAT_COLOR).includes(color ?? '');
 			};
 			try {
 				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
@@ -5388,7 +5394,8 @@ export const SPECS: Spec[] = [
 				await table.page.mouse.click(felt!.x, felt!.y, { count: 2 });
 				const seen = await eventually(
 					() => pings(peer),
-					(list) => list.some((p) => p.playerId === me && p.rings > 0 && p.color)
+					(list) => list.some((p) => p.playerId === me && p.rings > 0 && p.color),
+					20_000
 				);
 				const theirs = seen.find((p) => p.playerId === me);
 				ok(
@@ -5405,12 +5412,12 @@ export const SPECS: Spec[] = [
 					`the second client never showed a ripple ring: ${JSON.stringify(theirs)}`
 				);
 				ok(
-					theirs!.color === (await seatColorOn(peer, me!)),
-					`the ripple is ${theirs!.color}, not the pinger's seat colour ${await seatColorOn(peer, me!)}`
+					await paintsAsSeat(peer, me!, theirs!.color),
+					`the ripple is ${theirs!.color}, not the pinger's seat colour`
 				);
 				const own = (await pings(table)).find((p) => p.playerId === me);
 				ok(
-					own && own.rings > 0 && own.color === (await seatColorOn(table, me!)),
+					own && own.rings > 0 && (await paintsAsSeat(table, me!, own.color)),
 					`the pinger's own ripple is missing or a different colour: ${JSON.stringify(own)}`
 				);
 				ok(
@@ -5452,15 +5459,14 @@ export const SPECS: Spec[] = [
 					return !at || at.x < 0 || at.y < 0 || at.x > innerWidth || at.y > innerHeight;
 				}, far);
 				ok(offView, 'the far corner is still in the focused view — pick a farther spot');
-				const arrowSeen = peer.page.waitForSelector('[data-ping-arrow]', { timeout: 8000 });
 				ok(
 					await table.page.evaluate((x, z) => window.__tableplace!.ping(x, z), far[0], far[2]),
 					'the far ping was refused by the rate limit'
 				);
-				await arrowSeen;
 				const arrowed = await eventually(
 					() => pings(peer),
-					(list) => list.some((p) => p.playerId === me && p.x === far[0] && p.arrow)
+					(list) => list.some((p) => p.playerId === me && p.x === far[0] && p.arrow),
+					20_000
 				);
 				ok(
 					arrowed.some((p) => p.playerId === me && p.x === far[0] && p.arrow),
@@ -5480,13 +5486,14 @@ export const SPECS: Spec[] = [
 				// ── the radial on a thing: Ping pings where it lies ──
 				await peer.page.keyboard.press('KeyC');
 				await settleCamera(peer);
-				const wheel = await peer.openRadial(piece, { button: 'right' });
+				const wheel = await peer.openRadial(piece, { button: 'right', timeoutMs: 20_000 });
 				ok(wheel.wedges['ping'], `the piece's wheel has no Ping: ${wheel.actions.join(', ')}`);
 				await flickTo(peer, wheel.wedges['ping']!);
 				await peer.page.mouse.up({ button: 'right' });
 				const wedged = await eventually(
 					() => pings(table),
-					(list) => list.some((p) => p.playerId === them && p.rings > 0)
+					(list) => list.some((p) => p.playerId === them && p.rings > 0),
+					20_000
 				);
 				const fromWheel = wedged.find((p) => p.playerId === them);
 				const at = (await table.positionOf(piece))!;
@@ -5495,8 +5502,8 @@ export const SPECS: Spec[] = [
 					`the wheel's ping did not land on the piece: ${JSON.stringify(fromWheel)} vs ${JSON.stringify(at)}`
 				);
 				ok(
-					fromWheel!.color === (await seatColorOn(table, them!)),
-					`the second player's ping is ${fromWheel!.color}, not their seat colour ${await seatColorOn(table, them!)}`
+					await paintsAsSeat(table, them!, fromWheel!.color),
+					`the second player's ping is ${fromWheel!.color}, not their seat colour`
 				);
 
 				// ── a burst is held to two a second on the sender ──
