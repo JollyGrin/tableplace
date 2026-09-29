@@ -5768,6 +5768,207 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-206: the first-run checklist. A fresh browser (its own
+		 * context, so nothing a spec before it did is already ticked) sees the
+		 * strip with nothing done; a real F over a loose card ticks the flip
+		 * item. The strip never covers the hand, the hint bar or the log, wide
+		 * or narrow, and never takes the pointer. The × hides it for good in
+		 * this browser — a reload keeps it hidden — and `?` brings it back with
+		 * its ticks. A table whose scenario says `coach: false` hides it.
+		 */
+		name: 'checklist: F ticks the flip item, clear of hand, hint bar and log, dismissal remembered',
+		run: async (context) => {
+			const fresh = await context.browser.createBrowserContext();
+			const table = await openTable(fresh, context.servers, nextLobby('checklist'));
+			try {
+				let page = table.page;
+				await page.setViewport({ width: 1280, height: 720 });
+				const strip = () =>
+					page.evaluate(() => {
+						const root = document.querySelector('[data-testid="coach"]');
+						if (!root) return null;
+						const items = [...root.querySelectorAll<HTMLElement>('[data-coach-item]')];
+						return {
+							items: items.map((li) => li.dataset.coachItem!),
+							done: items
+								.filter((li) => li.dataset.done === 'true')
+								.map((li) => li.dataset.coachItem!)
+						};
+					});
+
+				// ── a first visit: the strip is up, nothing ticked ─────────────
+				const first = await eventually(strip, (s) => !!s);
+				ok(first, 'the checklist strip is not on /play');
+				ok(
+					first!.items.includes('flip') && first!.items.length >= 7,
+					`the strip does not list the verbs to try: ${JSON.stringify(first)}`
+				);
+				ok(first!.done.length === 0, `a fresh browser starts with ticks: ${JSON.stringify(first)}`);
+
+				// ── F over a loose card ticks the flip item ────────────────────
+				const deck = await table.seedDeck();
+				await table.settle(1500);
+				const card = await page.evaluate(
+					(id) => window.__tableplace!.actions.drawFromTop(id, 1)[0]?.id ?? '',
+					deck
+				);
+				ok(!!card, 'nothing came off the top of the deck');
+				await table.settle(1500);
+				await table.dragTo(card, -4, 1);
+				await table.settle(900);
+				const at = await table.locate(card);
+				ok(at, 'the card is not on screen to hover');
+				await page.mouse.move(at!.x, at!.y, { steps: 6 });
+				const hovered = await eventually(
+					() => page.evaluate(() => window.__tableplace!.drag().isHovered),
+					(id) => id === card
+				);
+				ok(hovered === card, `the pointer is over ${card} but isHovered is ${hovered}`);
+				const before = await table.page.evaluate(
+					(id) => window.__tableplace!.state()?.cards?.[id]?.rotation?.[0],
+					card
+				);
+				await page.keyboard.press('KeyF');
+				const flipped = await eventually(
+					() =>
+						page.evaluate((id) => window.__tableplace!.state()?.cards?.[id]?.rotation?.[0], card),
+					(r) => r !== before
+				);
+				ok(flipped !== before, 'F did not flip the hovered card');
+				const ticked = await eventually(strip, (s) => !!s?.done.includes('flip'));
+				ok(
+					ticked?.done.includes('flip'),
+					`flipping a card did not tick the flip item: ${JSON.stringify(ticked)}`
+				);
+				ok(
+					ticked!.done.includes('move'),
+					`dragging the card did not tick the move item: ${JSON.stringify(ticked)}`
+				);
+				const count = await page.evaluate(
+					() => document.querySelector('[data-testid="coach-count"]')?.textContent ?? ''
+				);
+				ok(
+					count === `${ticked!.done.length}/${ticked!.items.length}`,
+					`the count reads "${count}" for ${JSON.stringify(ticked)}`
+				);
+
+				// ── clear of the hand, the hint bar and the log, wide and narrow
+				for (const [label, width, height] of [
+					['1280x720', 1280, 720],
+					['400w', 400, 800]
+				] as const) {
+					await page.setViewport({ width, height });
+					await page.mouse.move(width / 2, 60);
+					await table.settle(600);
+					const boxes = await page.evaluate(() => {
+						const rect = (selector: string) => {
+							const r = document.querySelector(selector)?.getBoundingClientRect();
+							return r ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null;
+						};
+						const list = document
+							.querySelector('[data-testid="coach"] ul')!
+							.getBoundingClientRect();
+						const under = document.elementFromPoint(
+							list.left + list.width / 2,
+							list.top + list.height / 2
+						);
+						return {
+							strip: rect('[data-testid="coach"]'),
+							hint: rect('[data-testid="hint-bar"]'),
+							log: rect('[data-testid="journal"]'),
+							takesPointer: !!under?.closest('[data-testid="coach"]')
+						};
+					});
+					const { strip: box, hint, log } = boxes;
+					ok(
+						box && hint && log,
+						`${label}: strip, hint bar or log missing: ${JSON.stringify(boxes)}`
+					);
+					type Box = NonNullable<typeof box>;
+					const overlaps = (a: Box, b: Box) =>
+						a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+					// HUDTrayScene: the hand is the bottom sixth of the canvas
+					ok(
+						box!.bottom <= (height * 5) / 6 && box!.top >= 0,
+						`${label}: the strip overlaps the hand: ${JSON.stringify(box)}`
+					);
+					ok(
+						!overlaps(box!, hint!),
+						`${label}: the strip covers the hint bar: ${JSON.stringify(boxes)}`
+					);
+					ok(!overlaps(box!, log!), `${label}: the strip covers the log: ${JSON.stringify(boxes)}`);
+					// the log grows upward to eight lines: where the columns share
+					// pixels, the strip must clear a full log, not just this one
+					const FULL_LOG_PX = 236;
+					ok(
+						box!.right <= log!.left || box!.bottom <= log!.bottom - FULL_LOG_PX,
+						`${label}: a full log would reach the strip: ${JSON.stringify(boxes)}`
+					);
+					ok(
+						box!.right <= width / 2,
+						`${label}: the strip reaches into the preview's half: ${JSON.stringify(box)}`
+					);
+					ok(!boxes.takesPointer, `${label}: the strip takes the pointer`);
+					await table.snap(`checklist-${label}`);
+				}
+				await page.setViewport({ width: 1280, height: 720 });
+				await table.settle(400);
+
+				// ── × hides it, and this browser remembers ──────────────────────
+				await page.click('[data-testid="coach-dismiss"]');
+				ok(
+					await eventually(
+						async () => (await strip()) === null,
+						(gone) => gone,
+						3000
+					),
+					'the × did not hide the strip'
+				);
+				const readyMs = Number(process.env.E2E_READY_MS ?? 60_000);
+				await page.reload({ waitUntil: 'networkidle2', timeout: readyMs });
+				await page.waitForFunction('window.__tableplace?.ready === true', { timeout: readyMs });
+				await table.settle(1500);
+				page = table.page;
+				ok((await strip()) === null, 'the dismissed strip came back after a reload');
+
+				// ── ? brings it back, ticks and all ─────────────────────────────
+				await page.mouse.move(640, 120);
+				await page.keyboard.down('Shift');
+				await page.keyboard.press('Slash');
+				await page.keyboard.up('Shift');
+				await page.waitForSelector('[data-testid="coach-reopen"]', { timeout: 3000 });
+				await page.click('[data-testid="coach-reopen"]');
+				const back = await eventually(strip, (s) => !!s);
+				ok(back, 'the ? reference did not bring the strip back');
+				ok(back!.done.includes('flip'), `the ticks did not survive: ${JSON.stringify(back)}`);
+				ok(
+					await page.evaluate(() => !document.querySelector('[data-testid="verb-reference"]')),
+					'the ? reference stayed open after bringing the strip back'
+				);
+
+				// ── a table that says coach: false hides it ─────────────────────
+				await page.evaluate(() => window.__tableplace!.actions.setCoach(false));
+				ok(
+					await eventually(
+						async () => (await strip()) === null,
+						(gone) => gone,
+						3000
+					),
+					'a table with coach: false still shows the strip'
+				);
+				await page.evaluate(() => window.__tableplace!.actions.setCoach(null));
+				ok(await eventually(strip, (s) => !!s), 'clearing coach: false did not bring it back');
+
+				await assertDraggable(table, deck, 'deck (beside the checklist)');
+				assertClean(table, 'after ticking, dismissing and reopening the checklist');
+			} finally {
+				await table.close();
+				await fresh.close();
+			}
+		}
+	},
+	{
+		/**
 		 * tableplace-197: remote pointers. Two players in two browser contexts.
 		 * The first moves a real mouse over the felt; the second must draw a
 		 * cursor, in the pointer's seat colour, gliding to that table point. It

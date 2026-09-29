@@ -38,6 +38,7 @@
 	import { snapPointIds } from '$lib/store/game/actions/snap';
 	import { rotationStep } from '$lib/store/game/actions/rotate';
 	import { handPlayFace } from '$lib/utils/hand';
+	import { tableAllowsCoach } from '$lib/coach/table';
 	import { ROTATION_STEP_DEFAULT } from '$lib/utils/constants-rotation';
 	import {
 		snapEditor,
@@ -259,7 +260,7 @@
 			overlays: {},
 			snapPoints: {},
 			players: {},
-			table: { rotationStep: null, handPlayFace: null }
+			table: { rotationStep: null, handPlayFace: null, coach: null }
 		};
 		for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 			for (const key of Object.keys(s?.[collection] ?? {})) update[collection][key] = null;
@@ -437,6 +438,16 @@
 		gameActions.setHandPlayFace(face === 'up' ? 'up' : null);
 	}
 
+	// the scenario's `coach` (tableplace-206): whether players see the checklist
+	const tableCoach = $derived(tableAllowsCoach($gameStore));
+
+	function setCoach(show: boolean) {
+		// a remount re-emits the current value; only a real edit is a patch
+		if (show === tableCoach) return;
+		// shown is the default: say nothing rather than `true`
+		gameActions.setCoach(show ? null : false);
+	}
+
 	function addSnapPoint() {
 		gameActions.addSnapPoint({
 			position: [0, 0],
@@ -603,6 +614,12 @@
 			label="hand plays face-up"
 			value={tableHandPlayFace === 'up'}
 			on:change={(e) => setHandPlayFace(e.detail.value ? 'up' : 'down')}
+		/>
+		<!-- saved as the scenario's coach: false hides the first-run checklist -->
+		<Checkbox
+			label="things-to-try strip"
+			value={tableCoach}
+			on:change={(e) => setCoach(!!e.detail.value)}
 		/>
 	</Folder>
 	<Folder title="Snap points" expanded={false}>
