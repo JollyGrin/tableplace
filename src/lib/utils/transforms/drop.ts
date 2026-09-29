@@ -107,6 +107,21 @@ function snapInfo(snap: SnapResolution): NonNullable<DropTarget['snap']> {
 	};
 }
 
+/**
+ * Whether the entity `id` is pulled by snap points at all: every card and
+ * deck is, a piece unless it authors `snap: false`. The one rule both the
+ * resolver and the lift-time snap guides read, so the guides never promise a
+ * pull the drop won't make.
+ */
+export function entitySnaps(state: Partial<GameDTO> | undefined | null, id: string): boolean {
+	if (id.startsWith('piece:')) {
+		const piece = state?.pieces?.[id];
+		return !!piece && piece.snap !== false;
+	}
+	if (id.startsWith('deck:')) return !!state?.decks?.[id];
+	return !!state?.cards?.[id];
+}
+
 /** Keep a drop a margin inside the felt edge. */
 export function clampToTable(x: number, z: number): [number, number] {
 	return [
@@ -182,9 +197,10 @@ export function resolveDrop(
 	// already the "put it exactly where I said" modifier — as does a piece
 	// authored with `snap: false`; the aimed-at targets (bag, deck, tray) still
 	// beat proximity either way.
-	const pieceOptedOut = isPiece && 'snap' in entity && entity.snap === false;
 	const snap =
-		options.noSnap || pieceOptedOut ? null : resolveSnap(state?.snapPoints, x, z, entityYaw);
+		options.noSnap || !entitySnaps(state, dragId)
+			? null
+			: resolveSnap(state?.snapPoints, x, z, entityYaw);
 
 	/**
 	 * The local floor a landing rests on — the one seam elevation flows

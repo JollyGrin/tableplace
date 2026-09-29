@@ -43,3 +43,44 @@ export const SNAP_MARKER_COLOR_ACTIVE = '#f0abfc';
 
 /** Color the drop preview uses when a drop is caught by a snap point. */
 export const SNAP_DROP_COLOR = '#c4b5fd';
+
+/**
+ * Snap guides (tableplace-188): while an entity that can snap is lifted, every
+ * point it could land on shows a ring and the one that will catch the drop is
+ * filled. Purely local rendering — see `drop/SnapGuides.svelte`.
+ */
+
+/** how long the guides take to fade fully in or out, in seconds */
+export const SNAP_GUIDE_FADE_S = 0.15;
+
+/** peak opacities: ring outlines, the filled catching target, the overlay dim */
+export const SNAP_GUIDE_RING_OPACITY = 0.7;
+export const SNAP_GUIDE_FILL_OPACITY = 0.45;
+export const SNAP_GUIDE_DIM_OPACITY = 0.28;
+
+/**
+ * Height above a point's floor the guides draw at: over a map overlay (felt +
+ * 0.003) and still under the contact-shadow plane (felt + 0.0045), which is
+ * also why the guides never cast into that pass.
+ */
+export const SNAP_GUIDE_LIFT = 0.004;
+
+/** the overlay dim sits just over its image, under the rings */
+export const SNAP_GUIDE_DIM_LIFT = 0.0035;
+
+/**
+ * A grid shows only the cells whose centres are within this many world units
+ * of the pointer — never the whole lattice. Never less than one pitch, so a
+ * coarse grid still shows the cell under the pointer.
+ */
+export const SNAP_GUIDE_GRID_REVEAL = 3;
+
+/** a revealed cell is drawn this fraction of its pitch, so neighbours read apart */
+export const SNAP_GUIDE_CELL_INSET = 0.86;
+
+/**
+ * three.js layer the guides render on. The main camera enables it; the
+ * contact-shadow camera and every raycaster stay on layer 0, so a guide can
+ * neither darken the felt nor intercept a pointer.
+ */
+export const SNAP_GUIDE_LAYER = 2;

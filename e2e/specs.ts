@@ -367,6 +367,134 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-188: while something that snaps is lifted, every snap point
+		 * rings, a grid shows only the cells near the pointer, the point that
+		 * will catch the drop is filled, Alt hides it all — and every bit of it
+		 * is gone once the entity lands, exactly where the fill promised.
+		 *
+		 * Read two ways: structurally off the rendered guide objects (the
+		 * bridge's `snapGuides`), and as pixels, because a ring that "is
+		 * visible" to three.js but draws nothing is the failure a structural
+		 * probe can't see. 33 discrete points + a grid, so the instanced path
+		 * is what's under test.
+		 */
+		name: 'snap guides: rings light up on lift, the catcher is filled, all gone on drop',
+		run: (context) =>
+			withTable(context, 'snap-guides', async (table) => {
+				const { page } = table;
+				const token = await table.spawn('token', { position: LANE(0) });
+				const ids = await page.evaluate(() => {
+					const actions = window.__tableplace!.actions;
+					const target = actions.addSnapPoint({ position: [2, 1] });
+					// a wide ring well clear of the landing: the pixel probe reads its band
+					const probe = actions.addSnapPoint({ position: [-2, 1], radius: 2 });
+					// a far row of 31 more — the 30+ scenario the guides must stay cheap for
+					for (let i = 0; i < 31; i++) {
+						actions.addSnapPoint({ position: [-15 + i, -9 + (i % 2)], radius: 0.4 });
+					}
+					// cells x ∈ {4,6,8}: only the column nearest the pointer is in reach
+					actions.addSnapPoint({ position: [6, 1], kind: 'grid', pitch: 2, cols: 3, rows: 3 });
+					return { target, probe };
+				});
+				await table.settle();
+
+				const guides = () => page.evaluate(() => window.__tableplace!.snapGuides());
+				const at = (x: number, z: number) =>
+					page.evaluate((wx, wz) => window.__tableplace!.project([wx, 0.26, wz]), x, z);
+
+				const idle = await guides();
+				ok(
+					idle.rings === 0 && idle.target === null && idle.dim === 0,
+					`snap guides draw with nothing lifted: ${JSON.stringify(idle)}`
+				);
+				// the probe pixel: inside the wide ring's band, on bare felt
+				const probePoint = await at(-2 + 2 * 0.93, 1);
+				ok(probePoint, 'the probe ring projects off-screen');
+				const [before] = await table.pixels([probePoint!]);
+				ok(before!.onCanvas, 'the probe ring draws under a HUD pane — move it');
+
+				// lift the token and hold it over the target point
+				const from = await table.locate(token);
+				const to = await at(2, 1);
+				ok(from && to, 'cannot place the gesture on screen');
+				await page.mouse.move(from!.x, from!.y);
+				await sleep(80);
+				await page.mouse.down();
+				await sleep(80);
+				for (let step = 1; step <= 12; step++) {
+					await page.mouse.move(
+						from!.x + ((to!.x - from!.x) * step) / 12,
+						from!.y + ((to!.y - from!.y) * step) / 12
+					);
+					await sleep(20);
+				}
+				try {
+					const lifted = await eventually(guides, (g) => g.opacity >= 0.69 && g.target !== null);
+					const dragging = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+					ok(dragging === token, `the token was never lifted (dragging: ${dragging})`);
+					ok(lifted.rings === 33, `expected 33 rings while lifted, got ${JSON.stringify(lifted)}`);
+					ok(
+						lifted.cells > 0 && lifted.cells < 9,
+						`the grid should show only the cells near the pointer, got ${lifted.cells} of 9`
+					);
+					ok(
+						lifted.target === ids.target,
+						`the filled point is ${lifted.target}, not the one under the drop (${ids.target})`
+					);
+					ok(
+						Math.abs(lifted.targetAt![0] - 2) < 0.01 && Math.abs(lifted.targetAt![2] - 1) < 0.01,
+						`the fill draws at ${JSON.stringify(lifted.targetAt)}, not on the point [2, 1]`
+					);
+					ok(lifted.dim > 0, `overlays under the points did not dim: ${lifted.dim}`);
+					ok(
+						lifted.objects === 4,
+						`the guides should be 4 draw objects however many points exist, got ${lifted.objects}`
+					);
+					const [during] = await table.pixels([probePoint!]);
+					const shift = during!.rgb.reduce((sum, c, i) => sum + Math.abs(c - before!.rgb[i]!), 0);
+					ok(
+						shift > 30,
+						`the probe ring did not draw: felt ${JSON.stringify(before!.rgb)} → ${JSON.stringify(during!.rgb)}`
+					);
+					await table.snap('snap-guides');
+
+					// Alt: the no-snap modifier hides the rings (and the drop won't snap)
+					await page.keyboard.down('Alt');
+					const alt = await eventually(guides, (g) => g.rings === 0);
+					ok(alt.rings === 0 && alt.target === null, `Alt left guides up: ${JSON.stringify(alt)}`);
+					await page.keyboard.up('Alt');
+					const back = await eventually(guides, (g) => g.opacity >= 0.69);
+					ok(back.target === ids.target, `releasing Alt did not bring the guides back`);
+				} finally {
+					await page.mouse.up();
+				}
+
+				const dropped = await eventually(guides, (g) => g.rings === 0 && g.dim === 0);
+				ok(
+					dropped.rings === 0 &&
+						dropped.cells === 0 &&
+						dropped.target === null &&
+						dropped.dim === 0,
+					`snap guides still draw after the drop: ${JSON.stringify(dropped)}`
+				);
+				const landed = await table.positionOf(token);
+				ok(
+					landed && Math.abs(landed[0] - 2) < 0.01 && Math.abs(landed[2] - 1) < 0.01,
+					`the token did not land on the point the guides filled: ${JSON.stringify(landed)}`
+				);
+				const [after] = await table.pixels([probePoint!]);
+				const residue = after!.rgb.reduce((sum, c, i) => sum + Math.abs(c - before!.rgb[i]!), 0);
+				ok(
+					residue < 15,
+					`the probe ring is still drawn after the drop: ${JSON.stringify(before!.rgb)} → ${JSON.stringify(after!.rgb)}`
+				);
+
+				await assertDraggable(table, token, 'the token (after the guides)');
+				assertClean(table, 'with snap guides');
+			})
+	},
+	{
+		/**
 		 * tableplace-145: Alt opts out of the XZ square-up, not of resting on
 		 * top. An Alt-drop overlapping a resting card must land at the pointer's
 		 * XZ (no pull onto the pile) but one card thickness ABOVE the card under
