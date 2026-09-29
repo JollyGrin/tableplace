@@ -53,7 +53,8 @@ describe('verbs by kind', () => {
 			'turn-ccw',
 			'turn-cw',
 			'lock',
-			'focus'
+			'focus',
+			'ping'
 		]);
 		expect(ids(verbsFor({ kind: 'deck', id: 'deck:me:0' }, me))).toEqual([
 			'draw',
@@ -66,7 +67,8 @@ describe('verbs by kind', () => {
 			'turn-ccw',
 			'turn-cw',
 			'lock',
-			'focus'
+			'focus',
+			'ping'
 		]);
 		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual([
 			'preview',
@@ -74,7 +76,8 @@ describe('verbs by kind', () => {
 			'top-down',
 			'focus',
 			'undo',
-			'help'
+			'help',
+			'ping'
 		]);
 	});
 
@@ -116,9 +119,9 @@ describe('verbs by kind', () => {
 });
 
 describe('verbs by capability, never by game', () => {
-	// every piece can be focused, locked and turned by the step (tableplace-200);
-	// what differs by capability is everything else
-	const EVERY_PIECE = ['focus', 'lock', 'turn-ccw', 'turn-cw'];
+	// every piece can be focused, locked, turned by the step (tableplace-200)
+	// and pinged (tableplace-198); what differs by capability is everything else
+	const EVERY_PIECE = ['focus', 'lock', 'turn-ccw', 'turn-cw', 'ping'];
 	const piece = (id: string) =>
 		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => !EVERY_PIECE.includes(verb));
 

@@ -60,7 +60,8 @@ describe('card wheel', () => {
 			'tap',
 			'tap-reverse',
 			'group',
-			'lock'
+			'lock',
+			'ping'
 		]);
 		expect(radialTitle(target)).toBe('Card');
 	});
@@ -91,7 +92,8 @@ describe('deck wheel', () => {
 			// moving a pile is a wedge since tableplace-161 took the long press
 			// for the wheel itself — there is no hold-then-drag left to do it
 			'move',
-			'lock'
+			'lock',
+			'ping'
 		]);
 	});
 
@@ -115,9 +117,10 @@ describe('deck wheel', () => {
 });
 
 describe('table wheel', () => {
-	it('offers the camera presets: seat view, top-down, focus', () => {
+	it('offers the camera presets: seat view, top-down, focus — and ping', () => {
 		const options = radialOptions({ kind: 'table' });
-		expect(options.map((option) => option.id)).toEqual(['reset-view', 'top-down', 'focus']);
+		expect(options.map((option) => option.id)).toEqual(['reset-view', 'top-down', 'focus', 'ping']);
+		expect(options[3]!.key).toBe('double-click felt');
 		options[0]!.run();
 		expect(resetView).toHaveBeenCalled();
 		options[1]!.run();
@@ -131,7 +134,8 @@ describe('table wheel', () => {
 		expect(radialOptions({ kind: 'card' }).map((option) => option.id)).toEqual([
 			'reset-view',
 			'top-down',
-			'focus'
+			'focus',
+			'ping'
 		]);
 	});
 });
@@ -164,7 +168,8 @@ describe('piece wheel', () => {
 			'state-prev': 'Shift + X',
 			'turn-ccw': 'Q',
 			'turn-cw': 'E',
-			lock: 'L'
+			lock: 'L',
+			ping: null
 		});
 		expect(radialTitle({ kind: 'piece', id: 'piece:me:tile' })).toBe('Tile');
 		run({ kind: 'piece', id: 'piece:me:tile' }, 'state-next');
@@ -179,7 +184,8 @@ describe('piece wheel', () => {
 			remove: null,
 			'turn-ccw': 'Q',
 			'turn-cw': 'E',
-			lock: 'L'
+			lock: 'L',
+			ping: null
 		});
 		expect(radialTitle({ kind: 'piece', id: 'piece:me:model' })).toBe('Piece');
 		run({ kind: 'piece', id: 'piece:me:model' }, 'snap-toggle');
@@ -195,7 +201,8 @@ describe('piece wheel', () => {
 			'count-reset': null,
 			'turn-ccw': 'Q',
 			'turn-cw': 'E',
-			lock: 'L'
+			lock: 'L',
+			ping: null
 		});
 		run({ kind: 'piece', id: 'piece:me:tally' }, 'count-up');
 		expect(gameActions.incrementCounter).toHaveBeenCalledWith('piece:me:tally', 1);
@@ -215,7 +222,9 @@ describe('every wedge prints its key', () => {
 			'T',
 			'R',
 			'G',
-			'L'
+			'L',
+			// a ping on a thing has no other way in: a double-click on it focuses
+			undefined
 		]);
 	});
 });

@@ -31,6 +31,7 @@ import type { GameDTO, OverlayDTO } from '$lib/store/game/types';
 import { resolveCardImage, sheetRefCache } from '$lib/packs';
 import { preview as previewStore } from '$lib/HUDPreview/previewStore';
 import { huds } from './hud-registry';
+import { activePings, pingArrows, ping as sendPing } from '$lib/ping';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -188,6 +189,25 @@ export type TestBridge = {
 	 * a spec should not need a pack to test how a board draws.
 	 */
 	addOverlay: (overlay: OverlayDTO) => string;
+	/**
+	 * Every ping this page has drawn since the bridge went up (tableplace-198),
+	 * oldest first — kept after the ripple fades, since a spec polls slower
+	 * than a ping lives. `color` is the ring material's drawn colour (null if
+	 * no ring ever mounted), `rings` the most ring meshes seen visible at once,
+	 * and `arrow` whether an edge arrow was ever put up for it.
+	 */
+	pings: () => PingShape[];
+	/** ping a table point as this player, through the same rate limit a double-click hits */
+	ping: (x: number, z: number) => boolean;
+};
+
+export type PingShape = {
+	playerId: string;
+	x: number;
+	z: number;
+	color: string | null;
+	rings: number;
+	arrow: boolean;
 };
 
 export type SnapGuideShape = {
@@ -372,6 +392,7 @@ export function installTestBridge(handles: SceneHandles): void {
 		];
 	};
 
+	watchPings(handles.scene);
 	window.__tableplace = {
 		get ready() {
 			return handles.isReady?.() ?? true;
@@ -600,11 +621,76 @@ export function installTestBridge(handles: SceneHandles): void {
 		addOverlay: (overlay) => {
 			gameStore.updateState({ overlays: { [overlay.id]: overlay } });
 			return overlay.id;
+		},
+		pings: () => {
+			// sample what is drawn right now before answering
+			samplePings(handles.scene());
+			return [...seenPings.values()].map((p) => ({ ...p }));
+		},
+		ping: (x, z) => sendPing(x, z)
+	};
+}
+
+/**
+ * What the ping probe has seen, by ping key. Sampled from the stores as pings
+ * arrive, and from the scene every animation frame while one is up — a ripple
+ * lives 1.2s, far shorter than a spec's poll.
+ */
+const seenPings = new Map<number, PingShape>();
+let stopPingWatch: (() => void) | null = null;
+
+function samplePings(scene: THREE.Scene | undefined) {
+	const visible = new Map<number, number>();
+	scene?.traverse((object) => {
+		const key = object.userData?.ping as number | undefined;
+		const seen = key === undefined ? undefined : seenPings.get(key);
+		if (!seen || !(object instanceof THREE.Mesh)) return;
+		const material = object.material as THREE.MeshBasicMaterial;
+		seen.color = `#${material.color.getHexString()}`;
+		if (object.visible) visible.set(key!, (visible.get(key!) ?? 0) + 1);
+	});
+	for (const [key, count] of visible) {
+		const seen = seenPings.get(key)!;
+		seen.rings = Math.max(seen.rings, count);
+	}
+}
+
+function watchPings(scene: () => THREE.Scene | undefined) {
+	stopPingWatch?.();
+	let frame = 0;
+	const tick = () => {
+		samplePings(scene());
+		frame = get(activePings).length ? requestAnimationFrame(tick) : 0;
+	};
+	const unsubPings = activePings.subscribe((pings) => {
+		for (const p of pings)
+			if (!seenPings.has(p.key))
+				seenPings.set(p.key, {
+					playerId: p.playerId,
+					x: p.x,
+					z: p.z,
+					color: null,
+					rings: 0,
+					arrow: false
+				});
+		if (pings.length && !frame) frame = requestAnimationFrame(tick);
+	});
+	const unsubArrows = pingArrows.subscribe((arrows) => {
+		for (const arrow of arrows) {
+			const seen = seenPings.get(arrow.key);
+			if (seen) seen.arrow = true;
 		}
+	});
+	stopPingWatch = () => {
+		unsubPings();
+		unsubArrows();
+		if (frame) cancelAnimationFrame(frame);
 	};
 }
 
 export function removeTestBridge(): void {
 	setStall(null);
+	stopPingWatch?.();
+	stopPingWatch = null;
 	delete window.__tableplace;
 }
