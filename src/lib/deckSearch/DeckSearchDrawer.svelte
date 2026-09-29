@@ -39,6 +39,8 @@
 		if ($searchingDeck && event.key === 'Escape') close();
 	}
 
+	// the panel, not the filter: the `/` that opened the drawer is still on its
+	// way to a keypress, and a focused field would type it
 	function focusOnMount(node: HTMLElement) {
 		node.focus();
 	}
@@ -59,6 +61,7 @@
 			aria-modal="true"
 			aria-label="Search deck"
 			tabindex="-1"
+			use:focusOnMount
 			class="flex max-h-full w-full max-w-2xl flex-col rounded-lg bg-neutral-900/95 p-4 font-sans text-sm text-white/80 shadow-xl"
 		>
 			<header class="mb-2 flex items-center justify-between gap-3">
@@ -92,7 +95,6 @@
 				placeholder="Filter by name"
 				bind:value={filter}
 				oninput={() => (page = 0)}
-				use:focusOnMount
 			/>
 			<div class="grid min-h-0 grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-2 overflow-auto">
 				{#each view.cards as card (card.id)}

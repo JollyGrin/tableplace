@@ -413,12 +413,12 @@ function takeFromDeck(
 
 	const remaining = [...available];
 	const [card] = remaining.splice(index, 1);
-	const { id: _deckCardId, ...body } = card!;
+	const { id: takenId, ...body } = card!;
 	const taken = new Set([
 		...Object.keys(get(gameStore)?.cards ?? {}),
 		...Object.keys(player.tray ?? {})
 	]);
-	const cardId = allocateCardId(deckCardId, `${id}:search-0`, taken);
+	const cardId = allocateCardId(takenId, `${id}:search-0`, taken);
 	const faces = {
 		...body,
 		faceImageUrl: body.faceImageUrl ?? '',

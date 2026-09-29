@@ -1913,7 +1913,10 @@ export const SPECS: Spec[] = [
 					wheel.wedges['search'],
 					`the deck's wheel has no search wedge: ${wheel.actions.join(', ')}`
 				);
-				await page.mouse.click(wheel.wedges['search']!.x, wheel.wedges['search']!.y);
+				// the button is still held: flick to the wedge and let go
+				await page.mouse.move(wheel.wedges['search']!.x, wheel.wedges['search']!.y, { steps: 8 });
+				await sleep(120);
+				await page.mouse.up({ button: 'right' });
 				ok(await eventually(drawerOpen, (open) => open), 'the wheel did not open the drawer');
 				ok(
 					!(await page.evaluate(
