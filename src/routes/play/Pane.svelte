@@ -3,6 +3,7 @@
 	import PaneProse from '$lib/tweakpane/PaneProse.svelte';
 	import {
 		Button,
+		Checkbox,
 		Pane,
 		Point,
 		Wheel,
@@ -19,6 +20,7 @@
 	import type { GameDTO } from '$lib/store/game/types';
 	import { gameActions } from '$lib/store/game/actions';
 	import { keybindReference } from '$lib/verbs/registry';
+	import { hintBarEnabled } from '$lib/hint/hintUi';
 	import { connectionStore } from '$lib/store/connectionStore.svelte';
 	import {
 		listScenarios,
@@ -201,6 +203,8 @@
 			label="Seat: {$gameStore?.players?.[gameActions?.getMe()?.id ?? 0]?.seat}"
 			title="Next Seat"
 		/>
+		<!-- the bottom-left line naming what the pointer can do; on by default -->
+		<Checkbox label="Hint bar" bind:value={$hintBarEnabled} />
 		<!--
 			One prose blade where eleven disabled `Text` blades used to be (#115): a
 			keybind is something you read, not a field you were locked out of, and

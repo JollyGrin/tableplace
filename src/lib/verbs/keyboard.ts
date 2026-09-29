@@ -16,7 +16,7 @@
  */
 
 import { get } from 'svelte/store';
-import { dragStore } from '$lib/store/dragStore.svelte';
+import { dragStore, type DragState } from '$lib/store/dragStore.svelte';
 import { hoveredPiece } from '$lib/store/pieceUi';
 import { hoveredTrayCard } from '$lib/HUDTray/trayHover';
 import { gameActions } from '$lib/store/game/actions';
@@ -26,8 +26,22 @@ import type { Hotkey, Verb, VerbActor, VerbTarget } from './types';
 
 /** what is under the pointer right now, most specific first; the table is always last */
 export function pointerTargets(): VerbTarget[] {
-	const { isDeckHovered, isHovered, isDragging } = get(dragStore);
-	const piece = get(hoveredPiece);
+	return targetsUnder(get(dragStore), get(hoveredPiece), get(hoveredTrayCard));
+}
+
+/**
+ * `pointerTargets` over values the caller already holds — the hint bar reads
+ * the same stores reactively and must resolve them exactly the way a key does.
+ */
+export function targetsUnder(
+	{
+		isDeckHovered,
+		isHovered,
+		isDragging
+	}: Pick<DragState, 'isDeckHovered' | 'isHovered' | 'isDragging'>,
+	piece: string | null,
+	handCard: string | null
+): VerbTarget[] {
 	const targets: VerbTarget[] = [];
 	if (isDeckHovered) targets.push({ kind: 'deck', id: isDeckHovered });
 	if (piece) targets.push({ kind: 'piece', id: piece });
@@ -36,7 +50,6 @@ export function pointerTargets(): VerbTarget[] {
 	if (cardId) targets.push({ kind: 'card', id: cardId, dragging: !!isDragging });
 	// a card in your hand: no verbs yet, but a key over it must still reach the
 	// table's (Space previews it — see HUDPreview/preview.ts)
-	const handCard = get(hoveredTrayCard);
 	if (handCard) targets.push({ kind: 'hand-card', id: handCard });
 	targets.push({ kind: 'table' });
 	return targets;

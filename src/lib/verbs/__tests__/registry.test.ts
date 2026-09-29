@@ -57,7 +57,7 @@ describe('verbs by kind', () => {
 			'ungroup',
 			'move'
 		]);
-		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual(['preview', 'reset-view']);
+		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual(['preview', 'reset-view', 'help']);
 	});
 
 	it("another player's deck refuses a draw to your hand; an unowned one deals (tableplace-194)", () => {

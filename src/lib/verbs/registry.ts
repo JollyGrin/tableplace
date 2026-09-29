@@ -29,6 +29,8 @@ import { drawHoveredDeckToHand, DRAW_NOT_MINE } from '$lib/hotkeys/draw';
 import { tableFeatures } from '$lib/store/tableFeatures';
 import { cameraTransforms } from '$lib/utils/transforms/camera';
 import { SNAP_GRID_YAW_STEP_DEFAULT } from '$lib/utils/constants-snap';
+import { toggleHelp } from '$lib/hint/hintUi';
+import type { DropKind } from '$lib/utils/transforms/drop';
 import type { PieceDTO } from '$lib/store/game/types';
 import type {
 	Hotkey,
@@ -88,6 +90,16 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		hotkey: key('KeyC', 'C'),
 		radial: true,
 		run: () => cameraTransforms.resetView()
+	},
+	{
+		// '?' is Shift + Slash on the layouts `code` matching assumes; the list
+		// it opens is `verbReference()`, so it can never miss a verb
+		id: 'help',
+		label: 'All keys',
+		reference: 'Every verb on the table',
+		applies: on('table'),
+		hotkey: key('Slash', '?', true),
+		run: () => toggleHelp()
 	},
 
 	// ---- a loose card ----
@@ -369,6 +381,80 @@ const POINTER_AFTER: KeybindRow[] = [
 ];
 
 export type KeybindRow = { action: string; key: string };
+
+/**
+ * The hint bar's idle line: how to move the camera and find the verbs, when
+ * nothing is under the pointer. OrbitControls owns the drags and the wheel
+ * (TableCamera.svelte); the wheel menu is radial/gesture.ts.
+ */
+export const TABLE_BASICS: readonly KeybindRow[] = [
+	{ action: 'Orbit', key: 'drag' },
+	{ action: 'Zoom', key: 'wheel' },
+	{ action: 'Actions', key: 'right-click' }
+];
+
+/** the hint bar's drag line, after what the release does */
+export const DRAG_MODIFIERS: readonly KeybindRow[] = [
+	{ action: 'Free placement', key: 'hold Alt' },
+	{ action: 'Put back', key: 'Esc' }
+];
+
+/**
+ * What letting go of a drag does, by the landing `resolveDrop` picked — the
+ * same resolution the drop indicator draws and the commit writes, so the
+ * words never disagree with the landing.
+ */
+export const RELEASE_TEXT: Readonly<Record<DropKind, string>> = {
+	table: 'Release to place',
+	stack: 'Release to stack',
+	snap: 'Release to snap into place',
+	deck: 'Release onto the deck',
+	bag: 'Release into the container',
+	tray: 'Release to take into your hand'
+};
+
+/** what to call a thing that has no name of its own (or may not reveal it) */
+export const TARGET_NOUNS: Readonly<Record<VerbTargetKind, string>> = {
+	card: 'Card',
+	deck: 'Deck',
+	piece: 'Piece',
+	'hand-card': 'Card in hand',
+	selection: 'Selection',
+	table: 'Table'
+};
+
+/** reference section order, and the heading each one reads under */
+const REFERENCE_KINDS: readonly VerbTargetKind[] = ['table', 'card', 'deck', 'piece'];
+
+export type VerbReferenceSection = { title: string; rows: KeybindRow[] };
+
+/**
+ * The `?` overlay: every verb that has a key or a gesture, grouped by what it
+ * acts on, then the pointer controls. A verb that applies to several kinds is
+ * listed under each (F flips a card and a deck).
+ */
+export function verbReference(
+	sources: readonly (readonly VerbDef[])[] = VERB_SOURCES
+): VerbReferenceSection[] {
+	const defs = sources.flat();
+	const sections = REFERENCE_KINDS.map((kind) => ({
+		title: TARGET_NOUNS[kind],
+		rows: defs
+			.filter((def) => (def.hotkey || def.gesture) && def.applies(probe(kind)))
+			.map((def) => ({
+				action: def.reference ?? def.label,
+				key: [def.hotkey?.label, def.gesture].filter(Boolean).join(' · ')
+			}))
+	}));
+	return [
+		...sections.filter((section) => section.rows.length > 0),
+		{ title: 'Pointer', rows: uniqueByKey([...POINTER_BEFORE, ...TABLE_BASICS, ...POINTER_AFTER]) }
+	];
+}
+
+function uniqueByKey(rows: KeybindRow[]): KeybindRow[] {
+	return rows.filter((row, i) => rows.findIndex((other) => other.key === row.key) === i);
+}
 
 /** the Keybinds folder: every hotkey in the registry, plus the pointer controls */
 export function keybindReference(
