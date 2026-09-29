@@ -38,7 +38,7 @@ function movePiece(pieceId: string, position: [number, number, number]) {
  */
 function rotatePiece(pieceId: string, delta: number) {
 	const piece = getPieceState(pieceId);
-	if (!piece) return;
+	if (!piece || piece.locked) return;
 	const [x = 0, yaw = 0, z = 0] = piece.rotation ?? [];
 	const next = (((yaw + delta) % 360) + 360) % 360;
 	return gameStore.updateState({ pieces: { [pieceId]: { rotation: [x, next, z] } } });

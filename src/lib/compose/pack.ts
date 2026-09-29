@@ -106,6 +106,8 @@ export type ComposeDeckOptions = CommonOptions & {
 	index?: number;
 	/** how to shuffle when `shuffle` is set; defaults to Fisher–Yates */
 	shuffleWith?: ShuffleFn;
+	/** pinned in place; overrides the pack deck's own `locked` */
+	locked?: boolean;
 };
 
 /**
@@ -156,7 +158,8 @@ export function composePackDeck(
 			position: opts.position ?? defaults.position,
 			rotation: opts.rotation ?? defaults.rotation,
 			packOrigin: origin(pack, deck.slot, opts.source),
-			...(opts.shuffleOnLoad !== undefined ? { shuffleOnLoad: opts.shuffleOnLoad } : {})
+			...(opts.shuffleOnLoad !== undefined ? { shuffleOnLoad: opts.shuffleOnLoad } : {}),
+			...((opts.locked ?? deck.locked) ? { locked: true } : {})
 		}
 	};
 }
@@ -180,6 +183,8 @@ export type ComposePackPieceOptions = CommonOptions & {
 	state?: number;
 	/** piece ids already on the table, so a repeated name gets the next `-n` */
 	taken?: ReadonlySet<string>;
+	/** pinned in place; overrides the pack piece's own `locked` */
+	locked?: boolean;
 };
 
 /**
@@ -217,6 +222,7 @@ export function composePackPiece(
 		model: def.model,
 		snap: def.snap,
 		reach: def.reach,
+		locked: opts.locked ?? def.locked,
 		value: opts.value,
 		...(def.kind === 'bag'
 			? { contents: bagContents(def), drawMode: def.drawMode, infinite: def.infinite }
@@ -238,6 +244,8 @@ export type ComposeOverlayOptions = Omit<CommonOptions, 'ownerId'> & {
 	position?: Vec3;
 	rotation?: Vec3;
 	scale?: number;
+	/** pinned in place; overrides the pack overlay's own `locked` */
+	locked?: boolean;
 };
 
 /**
@@ -265,6 +273,7 @@ export function composePackOverlay(
 			scale: opts.scale ?? def.scale,
 			position: opts.position ?? [0, 0.255, 0],
 			rotation: opts.rotation ?? [0, 0, 0],
+			...((opts.locked ?? def.locked) ? { locked: true } : {}),
 			packOrigin: origin(pack, String(index), opts.source)
 		}
 	};

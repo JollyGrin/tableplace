@@ -35,7 +35,8 @@ function toDeck(
 	name: string,
 	cards: ParsedCard[],
 	slotFallback: string,
-	isFaceUp?: boolean
+	isFaceUp?: boolean,
+	locked?: boolean
 ): PackDeckDef {
 	const seen = new Set<string>();
 	return {
@@ -43,6 +44,8 @@ function toDeck(
 		name,
 		back: cards[0] ? cellToRef(cards[0].back, { back: true }) : CARD_BACK_DEFAULT,
 		...(isFaceUp !== undefined ? { isFaceUp } : {}),
+		// TTS Locked → pinned in place
+		...(locked ? { locked: true } : {}),
 		cards: cards.map((card, i) => {
 			let code = slugify(card.name, `card-${i}`);
 			if (seen.has(code)) code = `${code}-${i}`;
@@ -101,7 +104,9 @@ function toBagContents(items: ParsedBagItem[]): PackBagItemDef[] {
  */
 export function ttsToPack(parsed: ParsedSavedObject, opts: TtsToPackOptions = {}): GamePackDef {
 	const name = opts.name ?? parsed.decks[0]?.name ?? 'TTS Import';
-	const decks = parsed.decks.map((deck, i) => toDeck(deck.name, deck.cards, `deck-${i}`));
+	const decks = parsed.decks.map((deck, i) =>
+		toDeck(deck.name, deck.cards, `deck-${i}`, undefined, deck.locked)
+	);
 	if (parsed.looseCards.length > 0) {
 		decks.push(toDeck('Loose Cards', parsed.looseCards, 'loose', true));
 	}
@@ -132,6 +137,8 @@ export function ttsToPack(parsed: ParsedSavedObject, opts: TtsToPackOptions = {}
 						...(p.infinite ? { infinite: true } : {})
 					}
 				: {}),
+			// TTS Locked → pinned in place (a board, a fixed track)
+			...(p.locked ? { locked: true } : {}),
 			position: p.position
 		};
 	});

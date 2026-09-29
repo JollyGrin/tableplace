@@ -22,8 +22,10 @@ export const PIECE_COLOR_DEFAULT = '#c8c4b8';
 
 /** A `GamePackDef` with every pane-bound optional field made concrete */
 export type EditorCard = PackCardDef & { name: string; orientation: CardOrientation };
-export type EditorDeck = Omit<PackDeckDef, 'cards' | 'isFaceUp'> & {
+export type EditorDeck = Omit<PackDeckDef, 'cards' | 'isFaceUp' | 'locked'> & {
 	isFaceUp: boolean;
+	/** spawns pinned; false is the default and stays out of the file */
+	locked: boolean;
 	cards: EditorCard[];
 };
 export type EditorPieceState = { face: string; name: string };
@@ -51,7 +53,7 @@ export type EditorBagItem = {
 
 export type EditorPiece = Omit<
 	PackPieceDef,
-	'states' | 'contents' | 'drawMode' | 'infinite' | 'snap' | 'model' | 'rotation'
+	'states' | 'contents' | 'drawMode' | 'infinite' | 'snap' | 'model' | 'rotation' | 'locked'
 > & {
 	color: string;
 	imageUrl: string;
@@ -67,13 +69,16 @@ export type EditorPiece = Omit<
 	snap: boolean;
 	/** snap-point links it usually travels; 0 is "none" and stays out of the file */
 	reach: number;
+	/** spawns pinned; false is the default and stays out of the file */
+	locked: boolean;
 	/** table yaw in degrees; 0 is the default and stays out of the file */
 	rotation: number;
 };
+export type EditorOverlay = Omit<PackOverlayDef, 'locked'> & { locked: boolean };
 export type EditorPack = Omit<GamePackDef, 'decks' | 'pieces' | 'overlays'> & {
 	decks: EditorDeck[];
 	pieces: EditorPiece[];
-	overlays: PackOverlayDef[];
+	overlays: EditorOverlay[];
 };
 
 /** The editor shape of one bag item, whichever half of the union it came from. */
@@ -115,6 +120,7 @@ export function withEditorDefaults(pack: GamePackDef): EditorPack {
 		decks: pack.decks.map((deck) => ({
 			...deck,
 			isFaceUp: deck.isFaceUp ?? false,
+			locked: deck.locked ?? false,
 			cards: deck.cards.map((card) => ({
 				...card,
 				name: card.name ?? '',
@@ -137,9 +143,13 @@ export function withEditorDefaults(pack: GamePackDef): EditorPack {
 			infinite: piece.infinite ?? false,
 			snap: piece.snap ?? true,
 			reach: piece.reach ?? 0,
+			locked: piece.locked ?? false,
 			position: [...piece.position] as [number, number]
 		})),
-		overlays: (pack.overlays ?? []).map((overlay) => ({ ...overlay }))
+		overlays: (pack.overlays ?? []).map((overlay) => ({
+			...overlay,
+			locked: overlay.locked ?? false
+		}))
 	};
 }
 
@@ -224,12 +234,17 @@ export function cleanForExport(draft: GamePackDef): GamePackDef {
 			...(piece.snap === false ? { snap: false } : {}),
 			// 0 is "no reach rings", so only a real reach ships
 			...(piece.reach && piece.reach > 0 ? { reach: Math.round(piece.reach) } : {}),
+			// false is the default, so only a pinned piece ships it
+			...(piece.locked ? { locked: true } : {}),
 			position: [...piece.position] as [number, number],
 			// 0 is the default, so only a real yaw ships
 			...(piece.rotation ? { rotation: piece.rotation } : {})
 		};
 	});
-	const overlays = (draft.overlays ?? []).map((overlay) => ({ ...overlay }));
+	const overlays = (draft.overlays ?? []).map(({ locked, ...overlay }) => ({
+		...overlay,
+		...(locked ? { locked: true } : {})
+	}));
 
 	return {
 		id: draft.id,
@@ -240,6 +255,7 @@ export function cleanForExport(draft: GamePackDef): GamePackDef {
 			name: deck.name,
 			back: deck.back,
 			...(deck.isFaceUp ? { isFaceUp: true } : {}),
+			...(deck.locked ? { locked: true } : {}),
 			cards: deck.cards.map((card) => ({
 				code: card.code,
 				...(card.name ? { name: card.name } : {}),

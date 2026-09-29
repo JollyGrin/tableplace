@@ -3262,5 +3262,116 @@ export const SPECS: Spec[] = [
 
 				assertClean(table, 'after hovering, opening ? and resizing');
 			})
+	},
+	{
+		/**
+		 * Lock (tableplace-189): L over a piece pins it, the pin syncs to a
+		 * second client, and a real drag at it then moves nothing — it toasts the
+		 * key instead — while everything else on the table still drags. L again
+		 * frees it, on both clients, and it drags like any other piece.
+		 */
+		name: 'lock: L pins a piece in place, the pin syncs, a drag leaves it where it was',
+		run: async (context) => {
+			const lobby = nextLobby('lock');
+			const table = await openTable(context.browser, context.servers, lobby);
+			try {
+				const page = table.page;
+				const deck = await table.seedDeck();
+				const token = await table.spawn('token', { name: 'Board', position: LANE(0) });
+				await table.settle(1500);
+
+				const lockedOn = (t: Table) =>
+					t.page.evaluate(
+						(id) => window.__tableplace!.state()?.pieces?.[id]?.locked === true,
+						token
+					);
+				/** hover the piece with the real mouse, then press L — the player's gesture */
+				const pressL = async () => {
+					const at = await table.locate(token);
+					ok(at, 'the token is not on screen to hover');
+					await page.mouse.move(at!.x, at!.y, { steps: 6 });
+					await table.settle(300);
+					await page.keyboard.press('KeyL');
+				};
+
+				// ── L pins it ───────────────────────────────────────────────────
+				await pressL();
+				ok(
+					await eventually(
+						() => lockedOn(table),
+						(on) => on,
+						3000
+					),
+					'L over the token did not lock it'
+				);
+				const hint = await page.evaluate(
+					() => document.querySelector('[data-testid="hint-bar"]')?.textContent ?? ''
+				);
+				ok(/locked/.test(hint), `the hint bar does not say the token is locked: "${hint}"`);
+				ok(/Unlock/.test(hint), `the hint bar does not offer L to unlock: "${hint}"`);
+
+				// ── the pin syncs ───────────────────────────────────────────────
+				const remote = await openTable(context.browser, context.servers, lobby);
+				try {
+					await remote.settle(3000);
+					ok(
+						await eventually(
+							() => lockedOn(remote),
+							(on) => on,
+							5000
+						),
+						'the second client never saw the lock'
+					);
+
+					// ── a real drag at it moves nothing, and says why ───────────────
+					const before = await table.positionOf(token);
+					await table.dragBy(token, DRAG.dx, DRAG.dy);
+					await table.settle(500);
+					const after = await table.positionOf(token);
+					ok(
+						planarDistance(before, after) < 0.01,
+						`the locked token moved: ${JSON.stringify(before)} → ${JSON.stringify(after)}`
+					);
+					const drag = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+					ok(!drag, `the locked token was lifted into a drag: ${drag}`);
+					const toasted = await eventually(
+						() => page.evaluate(() => document.body.innerText.includes('press L to unlock')),
+						(shown) => shown,
+						3000
+					);
+					ok(toasted, 'dragging the locked token did not toast the key that unlocks it');
+					await table.snap('lock-refused');
+
+					// everything else on the table still answers the pointer
+					await assertDraggable(table, deck, 'deck (beside a locked token)');
+
+					// ── L again frees it, everywhere, and it drags ──────────────────
+					await pressL();
+					ok(
+						await eventually(
+							() => lockedOn(table),
+							(on) => !on,
+							3000
+						),
+						'a second L did not unlock the token'
+					);
+					ok(
+						await eventually(
+							() => lockedOn(remote),
+							(on) => !on,
+							5000
+						),
+						'the second client never saw the unlock'
+					);
+					await assertDraggable(table, token, 'the unlocked token');
+					assertClean(remote, 'on the second client after lock and unlock');
+				} finally {
+					await remote.close();
+				}
+				assertClean(table, 'after locking, a refused drag and unlocking');
+			} finally {
+				await table.close();
+			}
+		}
 	}
 ];

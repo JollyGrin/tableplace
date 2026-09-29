@@ -23,6 +23,7 @@
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
 	import DropFootprint from './drop/DropFootprint.svelte';
 	import LabelBadge from './LabelBadge.svelte';
+	import { LOCK_BADGE_TEXT } from '$lib/utils/constants-lock';
 	import { selectedDeckId, DECK_SELECT_COLOR } from '$lib/store/deckSelection';
 
 	// No interactivity() here on purpose. It calls setContext, so a per-deck call
@@ -246,8 +247,9 @@
 	onpointerenter={() => setDeckHover(id)}
 	onpointerleave={() => setDeckHover(null)}
 >
+	<!-- a pinned pile says so on hover, beside the count it always shows -->
 	<LabelBadge
-		text={(cards ?? [])?.length?.toString() ?? '0'}
+		text={`${(cards ?? [])?.length ?? 0}${isHovered && deck.locked ? ` · ${LOCK_BADGE_TEXT}` : ''}`}
 		fontSize={0.5}
 		position={[0, 1.75, 0]}
 	/>

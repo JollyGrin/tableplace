@@ -42,12 +42,13 @@ beforeEach(() => vi.clearAllMocks());
 describe('card wheel', () => {
 	const target = { kind: 'card', id: 'card:me:AS' } as const;
 
-	it('offers flip, both taps and group', () => {
+	it('offers flip, both taps, group and lock', () => {
 		expect(radialOptions(target).map((option) => option.id)).toEqual([
 			'flip',
 			'tap',
 			'tap-reverse',
-			'group'
+			'group',
+			'lock'
 		]);
 		expect(radialTitle(target)).toBe('Card');
 	});
@@ -75,7 +76,8 @@ describe('deck wheel', () => {
 			'ungroup',
 			// moving a pile is a wedge since tableplace-161 took the long press
 			// for the wheel itself — there is no hold-then-drag left to do it
-			'move'
+			'move',
+			'lock'
 		]);
 	});
 

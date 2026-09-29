@@ -34,6 +34,12 @@ export type PackDeckDef = {
 	/** Face ref for the card back */
 	back: string;
 	isFaceUp?: boolean;
+	/**
+	 * Spawns pinned in place (TTS `Locked`): the pile can't be moved, flipped or
+	 * ungrouped, but cards still come off its top. `L` unpins it at the table.
+	 * Omitted means unlocked.
+	 */
+	locked?: boolean;
 	cards: PackCardDef[];
 };
 
@@ -142,6 +148,12 @@ export type PackPieceDef = {
 	 * Nothing is blocked. A non-negative whole number; omitted means none.
 	 */
 	reach?: number;
+	/**
+	 * Spawns pinned in place (TTS `Locked`) — a board, a fixed track: it can't
+	 * be dragged or turned, but still counts, rolls or hands things out. `L`
+	 * unpins it at the table. Omitted means unlocked.
+	 */
+	locked?: boolean;
 	/** bags only — what a draw pulls out. Hidden from every player in play. */
 	contents?: PackBagItemDef[];
 	/** bags only — draw order; defaults to `'random'` */
@@ -156,6 +168,8 @@ export type PackOverlayDef = {
 	/** width / height of the image */
 	ratio: number;
 	scale: number;
+	/** spawns pinned in place (TTS `Locked`); omitted means unlocked */
+	locked?: boolean;
 };
 
 export type GamePackDef = {

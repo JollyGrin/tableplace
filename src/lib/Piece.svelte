@@ -15,6 +15,8 @@
 	import { DEG2RAD } from 'three/src/math/MathUtils.js';
 	import Die from './Die.svelte';
 	import LabelBadge from './LabelBadge.svelte';
+	import { toastLocked } from '$lib/hotkeys/lock';
+	import { LOCK_BADGE_TEXT } from '$lib/utils/constants-lock';
 	import Model from './models/Model.svelte';
 	import PieceFace from './PieceFace.svelte';
 	import DropFootprint from './drop/DropFootprint.svelte';
@@ -113,6 +115,9 @@
 	let dragMoved = false;
 
 	function liftIntoDrag() {
+		// pinned: a click still counts / rolls / draws, but the piece stays put
+		// and the toast names the key that frees it
+		if (piece?.locked) return toastLocked();
 		// origin (pre-lift store position) is what Esc returns the piece to
 		dragStart(id, position[1], piece?.position as [number, number, number] | undefined);
 	}
@@ -151,7 +156,9 @@
 		// a bag's draw), and picking the piece up under the menu would drag it as
 		// you choose
 		if (e.nativeEvent.button !== 0) return;
-		if (!clickable) {
+		// a pinned piece waits for travel like a clickable one, so only an actual
+		// drag attempt toasts — a plain click on a pinned board is silent
+		if (!clickable && !piece?.locked) {
 			liftIntoDrag();
 			return;
 		}
@@ -255,6 +262,16 @@
 	});
 
 	const label = $derived.by(() => {
+		const base = baseLabel();
+		// a pinned piece says so on hover, in the badge it already wears
+		return isHovered && piece?.locked
+			? base
+				? `${base} · ${LOCK_BADGE_TEXT}`
+				: LOCK_BADGE_TEXT
+			: base;
+	});
+
+	function baseLabel(): string {
 		if (kind === 'bag') return bagLabel;
 		// name the face, not just the piece: with several states that is the only
 		// on-table clue which one is showing
@@ -265,7 +282,7 @@
 		}
 		const value = piece?.value ?? piece?.maxValue ?? 0;
 		return piece?.maxValue != null ? `${value}/${piece.maxValue}` : `${value}`;
-	});
+	}
 
 	// pulse the label when the value changes (local or remote) so it's noticed
 	const labelScale = new Spring(1, { stiffness: 0.15, damping: 0.5, precision: 0.001 });

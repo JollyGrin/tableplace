@@ -106,4 +106,12 @@ export type VerbDef = {
 	release?: (ctx: VerbContext) => void;
 	/** why this actor may not do it to this target right now, or null */
 	refusal?: (ctx: VerbContext) => string | null;
+	/**
+	 * It moves, turns or swallows its target, so a pinned (`locked`) target
+	 * refuses it — greyed with the reason, and a press toasts it instead of
+	 * running (tableplace-189).
+	 */
+	movesTarget?: boolean;
+	/** the label for this target when it depends on its state (Lock / Unlock) */
+	labelFor?: (ctx: VerbContext) => string;
 };

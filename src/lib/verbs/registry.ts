@@ -28,6 +28,8 @@ import { ungroupHoveredDeck, ungroupRefusalText } from '$lib/hotkeys/ungroup';
 import { cameraTransforms } from '$lib/utils/transforms/camera';
 import { SNAP_GRID_YAW_STEP_DEFAULT } from '$lib/utils/constants-snap';
 import { toggleHelp } from '$lib/hint/hintUi';
+import { isLocked, type LockableKind } from '$lib/store/game/actions/lock';
+import { LOCKED_REFUSAL, toastLocked, toggleLockOn } from '$lib/hotkeys/lock';
 import type { DropKind } from '$lib/utils/transforms/drop';
 import type { PieceDTO } from '$lib/store/game/types';
 import type {
@@ -55,6 +57,18 @@ const key = (code: string, label: string, shift?: boolean): Hotkey => ({
 	label,
 	...(shift === undefined ? {} : { shift })
 });
+
+/** the lock's collection for an entity target, or null for the rest */
+function lockableKind(ctx: VerbContext): LockableKind | null {
+	const { kind } = ctx.target;
+	return kind === 'card' || kind === 'deck' || kind === 'piece' ? kind : null;
+}
+
+/** is the target pinned? (see `store/game/actions/lock.ts`) */
+function lockedTarget(ctx: VerbContext): boolean {
+	const kind = lockableKind(ctx);
+	return !!kind && isLocked(kind, idOf(ctx));
+}
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((n) => `Digit${n}`);
 
@@ -127,6 +141,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: 'Flip',
 		reference: 'Flip card',
 		applies: on('card'),
+		movesTarget: true,
 		hotkey: key('KeyF', 'F'),
 		radial: true,
 		run: (ctx) => void gameActions.flipCard(idOf(ctx))
@@ -136,6 +151,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: 'Tap',
 		reference: 'Tap card',
 		applies: on('card'),
+		movesTarget: true,
 		hotkey: key('KeyT', 'T'),
 		radial: true,
 		run: (ctx) => gameActions.tapCard(false, idOf(ctx))
@@ -145,6 +161,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: 'Tap ⟲',
 		reference: 'Reverse tap card',
 		applies: on('card'),
+		movesTarget: true,
 		hotkey: key('KeyR', 'R'),
 		radial: true,
 		run: (ctx) => gameActions.tapCard(true, idOf(ctx))
@@ -154,6 +171,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: 'Group into deck',
 		reference: 'Group stack into deck',
 		applies: on('card'),
+		movesTarget: true,
 		hotkey: key('KeyG', 'G', false),
 		radial: true,
 		// never swallow the card you are holding into a deck
@@ -169,6 +187,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: 'Nudge higher',
 		reference: 'Nudge card higher',
 		applies: on('card'),
+		movesTarget: true,
 		hotkey: key('ArrowUp', 'Arrow Up'),
 		run: (ctx) => gameActions.incrementHeight(0.01, idOf(ctx))
 	},
@@ -178,6 +197,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		// #113 fixed this label — it is Arrow Down, not the Shift chord it used to claim
 		reference: 'Nudge card lower',
 		applies: on('card'),
+		movesTarget: true,
 		hotkey: key('ArrowDown', 'Arrow Down'),
 		run: (ctx) => gameActions.incrementHeight(-0.01, idOf(ctx))
 	},
@@ -198,6 +218,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: 'Flip',
 		reference: 'Flip hovered deck',
 		applies: on('deck'),
+		movesTarget: true,
 		hotkey: key('KeyF', 'F'),
 		radial: true,
 		run: (ctx) => void gameActions.flipDeck(idOf(ctx))
@@ -219,6 +240,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: 'Ungroup',
 		reference: `Ungroup deck (max ${UNGROUP_MAX_CARDS} cards)`,
 		applies: on('deck'),
+		movesTarget: true,
 		hotkey: key('KeyG', 'Shift + G', true),
 		radial: true,
 		refusal: (ctx) => {
@@ -234,6 +256,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		id: 'move',
 		label: 'Move pile',
 		applies: on('deck'),
+		movesTarget: true,
 		radial: true,
 		run: (ctx) => void grabDeck(idOf(ctx))
 	},
@@ -244,6 +267,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: `Rotate +${STEP}°`,
 		reference: `Rotate hovered model +${STEP}°`,
 		applies: on('piece', (piece) => piece.isGridRotatable),
+		movesTarget: true,
 		hotkey: key('KeyT', 'T'),
 		run: (ctx) => gameActions.rotatePiece(idOf(ctx), STEP)
 	},
@@ -252,6 +276,7 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		label: `Rotate −${STEP}°`,
 		reference: `Rotate hovered model −${STEP}°`,
 		applies: on('piece', (piece) => piece.isGridRotatable),
+		movesTarget: true,
 		hotkey: key('KeyR', 'R'),
 		run: (ctx) => gameActions.rotatePiece(idOf(ctx), -STEP)
 	},
@@ -303,6 +328,25 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		run: (ctx) => void gameActions.drawFromBag(idOf(ctx))
 	},
 	// ---- anything on the table: last, so it never reorders a kind's own verbs ----
+	{
+		// pin it in place (tableplace-189): the verbs marked `movesTarget` then
+		// refuse, and a drag toasts this key. The one verb a pin never refuses.
+		id: 'lock',
+		label: 'Lock',
+		reference: 'Lock / unlock in place',
+		labelFor: (ctx) => (lockedTarget(ctx) ? 'Unlock' : 'Lock'),
+		// a piece that is gone has nothing to pin (`ctx.piece` is its existence)
+		applies: (ctx) =>
+			ctx.target.kind === 'card' ||
+			ctx.target.kind === 'deck' ||
+			(ctx.target.kind === 'piece' && !!ctx.piece),
+		hotkey: key('KeyL', 'L', false),
+		radial: true,
+		run: (ctx) => {
+			const kind = lockableKind(ctx);
+			if (kind) toggleLockOn(kind, idOf(ctx));
+		}
+	},
 	{
 		id: 'focus',
 		label: 'Focus',
@@ -359,14 +403,16 @@ export function verbsFor(
 		.flat()
 		.filter((def) => def.applies(ctx))
 		.map((def) => {
-			const reason = def.refusal?.(ctx) ?? null;
+			// a pin refuses before anything else: the fix (L) is the same whoever asks
+			const pinned = !!def.movesTarget && lockedTarget(ctx);
+			const reason = pinned ? LOCKED_REFUSAL : (def.refusal?.(ctx) ?? null);
 			return {
 				id: def.id,
-				label: def.label,
+				label: def.labelFor?.(ctx) ?? def.label,
 				...(def.hotkey ? { hotkey: def.hotkey } : {}),
 				...(def.gesture ? { gesture: def.gesture } : {}),
 				radial: def.radial ?? false,
-				run: (arg?: number) => def.run(ctx, arg),
+				run: pinned ? () => toastLocked() : (arg?: number) => def.run(ctx, arg),
 				...(def.release ? { release: () => def.release!(ctx) } : {}),
 				enabled: reason === null,
 				...(reason === null ? {} : { reasonDisabled: reason })

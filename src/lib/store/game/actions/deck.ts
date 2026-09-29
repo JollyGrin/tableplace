@@ -94,6 +94,8 @@ function groupStackIntoDeck(cardId?: string) {
 	const cards = get(gameStore)?.cards;
 	const group = collectStackGroup(cards, anchorId);
 	if (!group) return console.error('No stack found to group');
+	// a pinned card is never swallowed — not even one lying under the anchor
+	if (group.ids.some((memberId) => cards?.[memberId]?.locked)) return;
 
 	// the top card decides the pile's facing: a face-up top becomes a face-up
 	// deck (discard-pile style), which also flips the ordering convention —
@@ -143,7 +145,11 @@ export const UNGROUP_MAX_CARDS = 40;
 
 export type UngroupResult =
 	| { ok: true; deckId: string; cardIds: string[] }
-	| { ok: false; reason: 'no-deck' | 'not-mine' | 'empty' | 'too-many'; count?: number };
+	| {
+			ok: false;
+			reason: 'no-deck' | 'not-mine' | 'locked' | 'empty' | 'too-many';
+			count?: number;
+	  };
 
 export type UngroupRefusal = Extract<UngroupResult, { ok: false }>;
 
@@ -165,6 +171,7 @@ export function ungroupRefusal(
 	const deck = get(gameStore)?.decks?.[deckId];
 	if (!deck) return { ok: false, reason: 'no-deck' };
 	if (!isDeckOwnedBy(deckId, playerId)) return { ok: false, reason: 'not-mine' };
+	if (deck.locked) return { ok: false, reason: 'locked' };
 	const count = deck.cards?.length ?? 0;
 	if (count === 0) return { ok: false, reason: 'empty' };
 	if (count > UNGROUP_MAX_CARDS) return { ok: false, reason: 'too-many', count };
@@ -368,7 +375,7 @@ function flipDeck(deckId?: string) {
 	const id = deckId ?? get(dragStore).isDeckHovered;
 	if (!id) return;
 	const deck = get(gameStore)?.decks?.[id];
-	if (!deck) return;
+	if (!deck || deck.locked) return;
 	gameStore.updateState({ decks: { [id]: { isFaceUp: !(deck.isFaceUp ?? false) } } });
 	return id;
 }
