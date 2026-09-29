@@ -24,6 +24,7 @@ import { dragStore } from '$lib/store/dragStore.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
+import { snapGuideDimMaterial } from '$lib/drop/snap-guide-dim';
 import type { GameDTO } from '$lib/store/game/types';
 
 export type ScreenPoint = { x: number; y: number };
@@ -45,6 +46,7 @@ export type TestBridge = {
 		isHovered: string | null;
 		isBagHovered: string | null;
 		isDeckHovered: string | null;
+		noSnap: boolean;
 	};
 	/**
 	 * Where the table camera is right now. A pan — dragged with the right button
@@ -71,6 +73,14 @@ export type TestBridge = {
 	 */
 	badge: (id: string) => { scale: number } | null;
 	/**
+	 * The lift-time snap guides as they are drawn right now (tableplace-188),
+	 * read off the rendered objects rather than a store: `rings`/`cells` are
+	 * the instance counts on screen (0 while hidden), `opacity` the ring
+	 * material's live fade, `target` the snap id the filled mark sits on and
+	 * `targetAt` where it sits, and `dim` the shared overlay-dim opacity.
+	 */
+	snapGuides: () => SnapGuideShape;
+	/**
 	 * Inject artificial main-thread stalls — the long frame gaps a shared CI
 	 * runner, a slow GPU or a backgrounded window produce, made deterministic.
 	 *
@@ -93,6 +103,17 @@ export type TestBridge = {
 	 * assert the injection really happened rather than trusting that it did.
 	 */
 	stall: (options: { ms: number; everyMs?: number } | null) => number;
+};
+
+export type SnapGuideShape = {
+	rings: number;
+	cells: number;
+	opacity: number;
+	target: string | null;
+	targetAt: [number, number, number] | null;
+	dim: number;
+	/** how many draw objects the guides use — the instancing claim, checkable */
+	objects: number;
 };
 
 /**
@@ -273,10 +294,38 @@ export function installTestBridge(handles: SceneHandles): void {
 		},
 		hits,
 		drag: () => {
-			const { isDragging, isHovered, isBagHovered, isDeckHovered } = get(dragStore);
-			return { isDragging, isHovered, isBagHovered, isDeckHovered };
+			const { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap } = get(dragStore);
+			return { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap: !!noSnap };
 		},
 		connected: () => isWebSocketConnected(),
+		snapGuides: () => {
+			const shape: SnapGuideShape = {
+				rings: 0,
+				cells: 0,
+				opacity: 0,
+				target: null,
+				targetAt: null,
+				dim: snapGuideDimMaterial.visible ? snapGuideDimMaterial.opacity : 0,
+				objects: 0
+			};
+			handles.scene()?.traverse((object) => {
+				const role = object.userData.snapGuide as 'rings' | 'cells' | 'target' | undefined;
+				if (!role) return;
+				shape.objects++;
+				const mesh = object as THREE.Mesh;
+				const material = mesh.material as THREE.Material;
+				const shown = mesh.visible && material.visible && material.opacity > 0;
+				if (role === 'rings' || role === 'cells') {
+					const count = shown ? (mesh as THREE.InstancedMesh).count : 0;
+					shape[role] = count;
+					if (role === 'rings') shape.opacity = shown ? material.opacity : 0;
+				} else if (role === 'target' && shown && object.userData.snapGuideTarget) {
+					shape.target = object.userData.snapGuideTarget;
+					shape.targetAt = object.getWorldPosition(new THREE.Vector3()).toArray();
+				}
+			});
+			return shape;
+		},
 		camera: () => {
 			const camera = handles.camera();
 			if (!camera) return null;
