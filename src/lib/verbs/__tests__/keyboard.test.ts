@@ -19,6 +19,8 @@ const gameActions = {
 	groupStackIntoDeck: vi.fn(),
 	incrementHeight: vi.fn(),
 	drawFromTop: vi.fn(),
+	drawToHand: vi.fn(() => ({ ok: true, deckId: 'deck:me:0', cardIds: [] })),
+	canDrawToHand: vi.fn(() => true),
 	shuffleDeck: vi.fn(),
 	ungroupDeck: vi.fn(() => ({ ok: true, deckId: 'deck:me:0', cardIds: [] })),
 	rotatePiece: vi.fn(),
@@ -86,7 +88,10 @@ describe('the table: works with nothing under the pointer', () => {
 			down({ code });
 		for (const code of ['KeyS', 'KeyG']) down({ code, shift: true });
 		expect(
-			Object.values(gameActions).some((fn) => fn !== gameActions.getMe && fn.mock.calls.length)
+			// getMe and canDrawToHand are read-only: every verbsFor() asks them
+			Object.values(gameActions).some(
+				(fn) => fn !== gameActions.getMe && fn !== gameActions.canDrawToHand && fn.mock.calls.length
+			)
 		).toBe(false);
 	});
 });
@@ -165,13 +170,14 @@ describe('a hovered deck', () => {
 		expect(gameActions.groupStackIntoDeck).not.toHaveBeenCalled();
 	});
 
-	it('1-9 draw that many', () => {
+	it('1-9 draw that many into the hand (tableplace-194)', () => {
 		down({ code: 'Digit1' });
-		expect(gameActions.drawFromTop).toHaveBeenLastCalledWith('deck:me:0', 1);
+		expect(gameActions.drawToHand).toHaveBeenLastCalledWith('deck:me:0', 1);
 		down({ code: 'Digit7', shift: true });
-		expect(gameActions.drawFromTop).toHaveBeenLastCalledWith('deck:me:0', 7);
+		expect(gameActions.drawToHand).toHaveBeenLastCalledWith('deck:me:0', 7);
 		down({ code: 'Digit0' });
-		expect(gameActions.drawFromTop).toHaveBeenCalledTimes(2);
+		expect(gameActions.drawToHand).toHaveBeenCalledTimes(2);
+		expect(gameActions.drawFromTop).not.toHaveBeenCalled();
 	});
 
 	it('a key the deck has no verb for falls through to the card (G, T)', () => {
@@ -299,7 +305,10 @@ describe('composed with the held preview keys', () => {
 		expect(event.stopPropagation).not.toHaveBeenCalled();
 		expect(camera.togglePreviewHud).not.toHaveBeenCalled();
 		expect(
-			Object.values(gameActions).some((fn) => fn !== gameActions.getMe && fn.mock.calls.length)
+			// getMe and canDrawToHand are read-only: every verbsFor() asks them
+			Object.values(gameActions).some(
+				(fn) => fn !== gameActions.getMe && fn !== gameActions.canDrawToHand && fn.mock.calls.length
+			)
 		).toBe(false);
 	});
 
