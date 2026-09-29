@@ -90,6 +90,8 @@ export type PieceProps = {
 	rotation?: Vec3;
 	/** false opts this piece out of snap points/grids (default true) */
 	snap?: boolean;
+	/** how many snap-point links it usually travels — advisory reach rings */
+	reach?: number;
 	/** bags only; the hidden pool a draw pulls from */
 	contents?: BagItem[];
 	/** bags only; defaults to 'random' */
@@ -150,6 +152,7 @@ export function composePiece(
 	if (opts.packOrigin) piece.packOrigin = opts.packOrigin;
 	// only the opt-out is worth carrying: absent already means "snaps"
 	if (opts.snap === false) piece.snap = false;
+	if (opts.reach !== undefined) piece.reach = opts.reach;
 	if (kind === 'counter') {
 		const maxValue = opts.maxValue ?? COUNTER_MAX_DEFAULT;
 		piece.maxValue = maxValue;

@@ -515,9 +515,11 @@ export const SPECS: Spec[] = [
 					);
 					ok(lifted.dim > 0, `overlays under the points did not dim: ${lifted.dim}`);
 					ok(
-						lifted.objects === 4,
-						`the guides should be 4 draw objects however many points exist, got ${lifted.objects}`
+						lifted.objects === 5,
+						`the guides should be 5 draw objects however many points exist, got ${lifted.objects}`
 					);
+					// a token without `reach` gets no bright set, whatever the links
+					ok(lifted.reach === 0, `reach rings drew for a piece without reach: ${lifted.reach}`);
 					const [during] = await table.pixels([probePoint!]);
 					const shift = during!.rgb.reduce((sum, c, i) => sum + Math.abs(c - before!.rgb[i]!), 0);
 					ok(
@@ -563,6 +565,124 @@ export const SPECS: Spec[] = [
 
 				await assertDraggable(table, token, 'the token (after the guides)');
 				assertClean(table, 'with snap guides');
+			})
+	},
+	{
+		/**
+		 * tableplace-190: links and reach. A ring of six linked snap points; a
+		 * piece with `reach: 2` lifted off one of them lights the points within
+		 * two links brighter, from their own instanced mesh, and fades the rest.
+		 * A second piece sits on a neighbour: that point is not a landing, but
+		 * the walk still passes through it. Advisory only — the piece is then
+		 * dropped on the one point *out* of reach, and it lands there.
+		 */
+		name: 'reach rings: a linked board lights the points within reach, and blocks nothing',
+		run: (context) =>
+			withTable(context, 'reach-rings', async (table) => {
+				const { page } = table;
+				// a ring of six, 0-1-2-3-4-5-0, plus a link to a point that doesn't exist
+				const spots: [number, number][] = [
+					[-6, -1],
+					[-3, 1],
+					[3, 1],
+					[6, -1],
+					[3, -4],
+					[-3, -4]
+				];
+				const link = (i: number) => [`snap:${(i + 1) % 6}`];
+				const add = (points: Record<string, unknown>[]) =>
+					page.evaluate(
+						(batch) => batch.map((p) => window.__tableplace!.actions.addSnapPoint(p as never)),
+						points
+					);
+				// paced under the relay's burst budget, like the snap-guides seed
+				const ids: string[] = [];
+				for (let i = 0; i < 6; i += 3) {
+					if (i) await sleep(700);
+					ids.push(
+						...(await add(
+							spots.slice(i, i + 3).map((position, k) => ({
+								position,
+								radius: 1.2,
+								links: i + k === 0 ? [...link(0), 'snap:99'] : link(i + k),
+								tags: [i + k < 3 ? 'north' : 'south']
+							}))
+						))
+					);
+				}
+				ok(
+					ids.join() === 'snap:0,snap:1,snap:2,snap:3,snap:4,snap:5',
+					`the board seeded unexpected ids: ${ids.join()}`
+				);
+				await sleep(700);
+				const runner = await table.spawn('token', {
+					position: [spots[0]![0], PIECE_REST_Y, spots[0]![1]],
+					reach: 2
+				});
+				const blocker = await table.spawn('token', {
+					position: [spots[1]![0], PIECE_REST_Y, spots[1]![1]]
+				});
+				await table.settle();
+
+				const guides = () => page.evaluate(() => window.__tableplace!.snapGuides());
+				const at = (x: number, z: number) =>
+					page.evaluate((wx, wz) => window.__tableplace!.project([wx, 0.26, wz]), x, z);
+
+				// lift the runner off snap:0 and carry it to snap:3, three links away
+				const from = await table.locate(runner);
+				const to = await at(spots[3]![0], spots[3]![1]);
+				ok(from && to, 'cannot place the gesture on screen');
+				await page.mouse.move(from!.x, from!.y);
+				await sleep(80);
+				await page.mouse.down();
+				await sleep(80);
+				for (let step = 1; step <= 12; step++) {
+					await page.mouse.move(
+						from!.x + ((to!.x - from!.x) * step) / 12,
+						from!.y + ((to!.y - from!.y) * step) / 12
+					);
+					await sleep(20);
+				}
+				try {
+					const lifted = await eventually(guides, (g) => g.reach > 0 && g.target !== null);
+					const dragging = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+					ok(dragging === runner, `the runner was never lifted (dragging: ${dragging})`);
+					// within 2 links of snap:0: 1 and 5, then 2 and 4 — minus the occupied snap:1
+					const expected = ['snap:0', 'snap:2', 'snap:4', 'snap:5'];
+					ok(
+						JSON.stringify(lifted.reachIds) === JSON.stringify(expected),
+						`bright set is ${JSON.stringify(lifted.reachIds)}, expected ${JSON.stringify(expected)}`
+					);
+					ok(
+						lifted.reach === 4 && lifted.rings === 2,
+						`expected 4 bright + 2 ordinary rings (occupied snap:1, far snap:3): ${JSON.stringify(lifted)}`
+					);
+					ok(
+						lifted.target === 'snap:3',
+						`the drop should still be caught by snap:3, out of reach: ${lifted.target}`
+					);
+					await table.snap('reach-rings');
+				} finally {
+					await page.mouse.up();
+				}
+
+				const dropped = await eventually(guides, (g) => g.reach === 0 && g.rings === 0);
+				ok(
+					dropped.reach === 0 && dropped.reachIds.length === 0,
+					`reach rings still draw after the drop: ${JSON.stringify(dropped)}`
+				);
+				// advisory: the out-of-reach drop landed exactly where it was aimed
+				const landed = await table.positionOf(runner);
+				ok(
+					landed &&
+						Math.abs(landed[0] - spots[3]![0]) < 0.01 &&
+						Math.abs(landed[2] - spots[3]![1]) < 0.01,
+					`an out-of-reach drop was blocked or moved: ${JSON.stringify(landed)}`
+				);
+
+				await assertDraggable(table, blocker, 'the blocker (after reach rings)');
+				await assertDraggable(table, runner, 'the runner (after reach rings)');
+				assertClean(table, 'with reach rings');
 			})
 	},
 	{

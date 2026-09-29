@@ -390,6 +390,7 @@
 			drawMode: 'random',
 			infinite: false,
 			snap: true,
+			reach: 0,
 			position: [0, 0],
 			rotation: 0
 		});
@@ -1121,6 +1122,9 @@
 						<!-- the per-piece snap opt-out (unticked = drops as if Alt were
 						     held): a room section snaps to a grid, a loose prop doesn't -->
 						<Checkbox label="Snaps to points" bind:value={piece.snap} />
+						<!-- advisory: lifted off a linked snap point, the points within
+						     this many links glow brighter. 0 = no reach rings -->
+						<Stepper label="Reach (links)" bind:value={piece.reach} min={0} step={1} />
 						{#if piece.kind === 'counter'}
 							<AutoValue label="Max value" bind:value={piece.maxValue} />
 						{/if}

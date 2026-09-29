@@ -102,6 +102,8 @@ export type TestBridge = {
 	 * the instance counts on screen (0 while hidden), `opacity` the ring
 	 * material's live fade, `target` the snap id the filled mark sits on and
 	 * `targetAt` where it sits, and `dim` the shared overlay-dim opacity.
+	 * `reach`/`reachIds` are the bright rings a piece with `reach` lights
+	 * (tableplace-190).
 	 */
 	snapGuides: () => SnapGuideShape;
 	/**
@@ -130,7 +132,12 @@ export type TestBridge = {
 };
 
 export type SnapGuideShape = {
+	/** rings drawn at the ordinary brightness — out of reach, or no reach set */
 	rings: number;
+	/** rings drawn bright: the points within the lifted piece's reach (tableplace-190) */
+	reach: number;
+	/** ids of the points in the bright set, sorted; [] while none is shown */
+	reachIds: string[];
 	cells: number;
 	opacity: number;
 	target: string | null;
@@ -361,6 +368,8 @@ export function installTestBridge(handles: SceneHandles): void {
 		snapGuides: () => {
 			const shape: SnapGuideShape = {
 				rings: 0,
+				reach: 0,
+				reachIds: [],
 				cells: 0,
 				opacity: 0,
 				target: null,
@@ -369,13 +378,21 @@ export function installTestBridge(handles: SceneHandles): void {
 				objects: 0
 			};
 			handles.scene()?.traverse((object) => {
-				const role = object.userData.snapGuide as 'rings' | 'cells' | 'target' | undefined;
+				const role = object.userData.snapGuide as
+					| 'rings'
+					| 'reach'
+					| 'cells'
+					| 'target'
+					| undefined;
 				if (!role) return;
 				shape.objects++;
 				const mesh = object as THREE.Mesh;
 				const material = mesh.material as THREE.Material;
 				const shown = mesh.visible && material.visible && material.opacity > 0;
-				if (role === 'rings' || role === 'cells') {
+				if (role === 'reach') {
+					shape.reach = shown ? (mesh as THREE.InstancedMesh).count : 0;
+					shape.reachIds = shown ? [...(object.userData.snapGuideReach ?? [])] : [];
+				} else if (role === 'rings' || role === 'cells') {
 					const count = shown ? (mesh as THREE.InstancedMesh).count : 0;
 					shape[role] = count;
 					if (role === 'rings') shape.opacity = shown ? material.opacity : 0;

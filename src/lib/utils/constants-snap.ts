@@ -84,3 +84,21 @@ export const SNAP_GUIDE_CELL_INSET = 0.86;
  * neither darken the felt nor intercept a pointer.
  */
 export const SNAP_GUIDE_LAYER = 2;
+
+/**
+ * Reach rings (tableplace-190): lifting a piece with `reach` off a linked snap
+ * point draws the points within reach brighter than the rest. Advisory — the
+ * other rings stay drawn, and still catch.
+ */
+
+/** peak opacity of a point within reach */
+export const SNAP_GUIDE_REACH_OPACITY = 0.95;
+
+/** what every other ring fades to while a reach set is showing, so the reach reads */
+export const SNAP_GUIDE_OUT_OF_REACH_OPACITY = 0.3;
+
+/** a ring within reach is this much wider than its catch radius, so it reads as a glow */
+export const SNAP_GUIDE_REACH_SCALE = 1.08;
+
+/** a ring within reach is drawn in this lighter tone of the drop colour */
+export const SNAP_GUIDE_REACH_COLOR = '#ede9fe';

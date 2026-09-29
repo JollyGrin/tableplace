@@ -120,6 +120,16 @@ export type SnapPoint = {
 	rows?: number;
 	/** grid only — degrees a landing's yaw rounds to, from the grid's own yaw (default 90) */
 	yawStep?: number;
+	/**
+	 * Connected snap points, by id — an optional board graph. A point's id is
+	 * `snap:<its index in this array>` (`snap:0` is the first), the same id it
+	 * gets in state. Undirected: a link written on either end joins both. A
+	 * link to an index that doesn't exist is ignored. Only read to light the
+	 * points a lifted piece with `reach` can get to — nothing is ever blocked.
+	 */
+	links?: string[];
+	/** free-form labels (regions, sides, anything) the table itself never reads */
+	tags?: string[];
 };
 
 export type Scenario = {
@@ -306,6 +316,14 @@ function parseSnapPoint(v: unknown, path: string): SnapPoint {
 			}
 			point.yawStep = v.yawStep;
 		}
+	}
+	for (const field of ['links', 'tags'] as const) {
+		const list = v[field];
+		if (list === undefined) continue;
+		if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) {
+			fail(`${path}.${field} must be an array of strings`);
+		}
+		if (list.length) point[field] = [...(list as string[])];
 	}
 	return point;
 }

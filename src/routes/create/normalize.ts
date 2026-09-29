@@ -65,6 +65,8 @@ export type EditorPiece = Omit<
 	drawMode: PackBagDrawMode;
 	infinite: boolean;
 	snap: boolean;
+	/** snap-point links it usually travels; 0 is "none" and stays out of the file */
+	reach: number;
 	/** table yaw in degrees; 0 is the default and stays out of the file */
 	rotation: number;
 };
@@ -134,6 +136,7 @@ export function withEditorDefaults(pack: GamePackDef): EditorPack {
 			drawMode: piece.drawMode ?? 'random',
 			infinite: piece.infinite ?? false,
 			snap: piece.snap ?? true,
+			reach: piece.reach ?? 0,
 			position: [...piece.position] as [number, number]
 		})),
 		overlays: (pack.overlays ?? []).map((overlay) => ({ ...overlay }))
@@ -219,6 +222,8 @@ export function cleanForExport(draft: GamePackDef): GamePackDef {
 			...(piece.kind === 'model' && piece.model ? { model: piece.model } : {}),
 			// true is the default, so only the opt-out ships
 			...(piece.snap === false ? { snap: false } : {}),
+			// 0 is "no reach rings", so only a real reach ships
+			...(piece.reach && piece.reach > 0 ? { reach: Math.round(piece.reach) } : {}),
 			position: [...piece.position] as [number, number],
 			// 0 is the default, so only a real yaw ships
 			...(piece.rotation ? { rotation: piece.rotation } : {})

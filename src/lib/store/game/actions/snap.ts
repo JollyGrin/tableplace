@@ -12,7 +12,7 @@ export { compareSnapIds };
 
 /**
  * Authoring snap points — the /setup layer's whole vocabulary: add, move,
- * retune, remove.
+ * retune, link, tag, remove.
  *
  * Everything goes through `updateState`, so the editor's edits are ordinary
  * surgical patches (and `null` deletes) exactly like a piece's. Snap points are
@@ -54,6 +54,10 @@ export type AddSnapPointOptions = {
 	cols?: number;
 	rows?: number;
 	yawStep?: number;
+	/** ids of connected points (see `toggleSnapLink` to keep both ends in step) */
+	links?: string[];
+	/** free-form labels */
+	tags?: string[];
 };
 
 /** Place a snap point. Returns its id. */
@@ -65,7 +69,17 @@ function addSnapPoint(opts: AddSnapPointOptions = {}): string {
 		position: [x, z],
 		radius: opts.radius ?? SNAP_RADIUS_DEFAULT
 	};
-	for (const field of ['y', 'rotation', 'kind', 'pitch', 'cols', 'rows', 'yawStep'] as const) {
+	for (const field of [
+		'y',
+		'rotation',
+		'kind',
+		'pitch',
+		'cols',
+		'rows',
+		'yawStep',
+		'links',
+		'tags'
+	] as const) {
 		if (opts[field] !== undefined) (point as Record<string, unknown>)[field] = opts[field];
 	}
 	gameStore.updateState({ snapPoints: { [id]: point } });
@@ -85,7 +99,17 @@ function moveSnapPoint(id: string, position: [number, number]) {
  */
 function updateSnapPoint(id: string, patch: Partial<Omit<SnapPointDTO, 'id'>>) {
 	const next: Record<string, unknown> = { ...patch };
-	for (const field of ['y', 'rotation', 'kind', 'pitch', 'cols', 'rows', 'yawStep'] as const) {
+	for (const field of [
+		'y',
+		'rotation',
+		'kind',
+		'pitch',
+		'cols',
+		'rows',
+		'yawStep',
+		'links',
+		'tags'
+	] as const) {
 		if (field in patch && patch[field] === undefined) next[field] = null;
 	}
 	gameStore.updateState({
@@ -93,8 +117,69 @@ function updateSnapPoint(id: string, patch: Partial<Omit<SnapPointDTO, 'id'>>) {
 	} as Parameters<typeof gameStore.updateState>[0]);
 }
 
+/**
+ * Remove a point, and every other point's link to it in the same patch — a
+ * dangling link is harmless to the table, but an export renumbers ids and a
+ * stale one must not survive to be misread.
+ */
 function removeSnapPoint(id: string) {
-	gameStore.updateState({ snapPoints: { [id]: null } });
+	const points = get(gameStore)?.snapPoints ?? {};
+	const update: Record<string, Partial<SnapPointState> | null> = { [id]: null };
+	for (const other in points) {
+		const links = points[other]?.links;
+		if (other === id || !links?.includes(id)) continue;
+		const rest = links.filter((link) => link !== id);
+		// an emptied list is deleted, not shipped
+		update[other] = { links: rest.length ? rest : null } as Partial<SnapPointState>;
+	}
+	gameStore.updateState({ snapPoints: update });
+}
+
+/** are `a` and `b` linked — from either end, since links are undirected */
+function snapPointsLinked(a: string, b: string, state?: Partial<GameDTO> | null): boolean {
+	const points = (state ?? get(gameStore))?.snapPoints;
+	return !!points?.[a]?.links?.includes(b) || !!points?.[b]?.links?.includes(a);
+}
+
+/**
+ * Draw a link between two points, or remove it if they are already linked.
+ * Written on both ends, so a file reads the same from either point. Returns
+ * whether they are linked afterwards.
+ */
+function toggleSnapLink(a: string, b: string): boolean {
+	const points = get(gameStore)?.snapPoints;
+	if (a === b || !points?.[a] || !points?.[b]) return false;
+	const linked = snapPointsLinked(a, b);
+	const next = (self: string, other: string) => {
+		const links = (points[self]?.links ?? []).filter((link) => link !== other);
+		if (!linked) links.push(other);
+		// an empty list is deleted rather than shipped
+		return { links: links.length ? links : null };
+	};
+	gameStore.updateState({
+		snapPoints: { [a]: next(a, b), [b]: next(b, a) }
+	} as Parameters<typeof gameStore.updateState>[0]);
+	return !linked;
+}
+
+/** Drop every link on the table — the editor's "clear links". */
+function clearSnapLinks() {
+	const points = get(gameStore)?.snapPoints ?? {};
+	// `null` deletes the field — see updateSnapPoint for why the cast
+	const update: Record<string, Partial<SnapPointState>> = {};
+	for (const id in points) {
+		if (points[id]?.links) update[id] = { links: null } as unknown as Partial<SnapPointState>;
+	}
+	if (!Object.keys(update).length) return;
+	gameStore.updateState({ snapPoints: update });
+}
+
+/** Replace a point's tags; an empty list deletes the field. */
+function setSnapTags(id: string, tags: string[]) {
+	const clean = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+	gameStore.updateState({
+		snapPoints: { [id]: { tags: clean.length ? clean : null } }
+	} as Parameters<typeof gameStore.updateState>[0]);
 }
 
 /** Drop every snap point on the table (the editor's clear, and scenario load). */
@@ -112,5 +197,9 @@ export const snapActions = {
 	updateSnapPoint,
 	removeSnapPoint,
 	clearSnapPoints,
+	toggleSnapLink,
+	snapPointsLinked,
+	clearSnapLinks,
+	setSnapTags,
 	snapPointIds
 };
