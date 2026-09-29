@@ -10,6 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const gameActions = {
+	getMe: () => ({ id: 'me' }),
 	flipCard: vi.fn(),
 	tapCard: vi.fn(),
 	groupStackIntoDeck: vi.fn(),
@@ -21,7 +22,7 @@ const shuffleHoveredDeck = vi.fn();
 const resetView = vi.fn();
 
 vi.mock('$lib/store/game/actions', () => ({ gameActions }));
-vi.mock('$lib/hotkeys/shuffle', () => ({ shuffleHoveredDeck }));
+vi.mock('$lib/hotkeys/shuffle', () => ({ shuffleHoveredDeck, SHUFFLE_NOT_MINE: 'not yours' }));
 vi.mock('$lib/utils/transforms/camera', () => ({ cameraTransforms: { resetView } }));
 
 const { radialOptions, radialTitle } = await import('../actions');

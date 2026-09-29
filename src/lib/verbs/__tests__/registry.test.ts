@@ -1,0 +1,203 @@
+/**
+ * The registry as data: which verbs a target gets, keyed by kind and
+ * capability; ownership gates surfacing as `enabled: false` with a reason; and
+ * the Keybinds folder being exactly the registry's hotkeys.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { gameStore } from '$lib/store/game/gameStore.svelte';
+
+vi.mock('svelte-french-toast', () => ({ default: { error: vi.fn(), success: vi.fn() } }));
+
+const { verbsFor, keybindReference, BUILTIN_VERBS, hotkeyLabel } = await import('../registry');
+const { UNGROUP_MAX_CARDS } = await import('$lib/store/game/actions/deck');
+
+const me = { playerId: 'me' };
+const cards = (n: number) =>
+	Array.from({ length: n }, (_, i) => ({ id: `c${i}`, faceImageUrl: '' }));
+const ids = (verbs: { id: string }[]) => verbs.map((verb) => verb.id);
+const verb = (target: Parameters<typeof verbsFor>[0], id: string) =>
+	verbsFor(target, me).find((v) => v.id === id)!;
+
+beforeEach(() => {
+	gameStore.set({
+		cards: {},
+		players: {},
+		decks: {
+			'deck:me:0': { cards: cards(3) },
+			'deck:me:1': { cards: [] },
+			'deck:me:2': { cards: cards(UNGROUP_MAX_CARDS + 1) },
+			'deck:them:0': { cards: cards(3) }
+		},
+		pieces: {
+			'piece:me:m': { kind: 'model', position: [0, 0, 0] },
+			'piece:me:s': { kind: 'pawn', position: [0, 0, 0], states: [{}, {}] },
+			'piece:me:c': { kind: 'counter', position: [0, 0, 0] },
+			'piece:me:b': { kind: 'bag', position: [0, 0, 0] },
+			'piece:me:d': { kind: 'die', position: [0, 0, 0] },
+			'piece:me:t': { kind: 'token', position: [0, 0, 0] }
+		}
+	} as never);
+});
+
+describe('verbs by kind', () => {
+	it('a card, a deck and the table get their verbs, in wheel order', () => {
+		expect(ids(verbsFor({ kind: 'card', id: 'card:me:AS' }, me))).toEqual([
+			'flip',
+			'tap',
+			'tap-reverse',
+			'group',
+			'raise',
+			'lower'
+		]);
+		expect(ids(verbsFor({ kind: 'deck', id: 'deck:me:0' }, me))).toEqual([
+			'draw',
+			'flip',
+			'shuffle',
+			'ungroup',
+			'move'
+		]);
+		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual(['preview', 'reset-view']);
+	});
+
+	it('hand cards and selections are reserved kinds with nothing on them yet', () => {
+		expect(verbsFor({ kind: 'hand-card', id: 'card:me:AS' }, me)).toEqual([]);
+		expect(verbsFor({ kind: 'selection', ids: ['card:me:AS'] }, me)).toEqual([]);
+	});
+});
+
+describe('verbs by capability, never by game', () => {
+	const piece = (id: string) => ids(verbsFor({ kind: 'piece', id }, me));
+
+	it('grid-rotatable → rotate; has states → next/previous state', () => {
+		expect(piece('piece:me:m')).toEqual(['rotate-cw', 'rotate-ccw']);
+		expect(piece('piece:me:s')).toEqual(['state-next', 'state-prev']);
+	});
+
+	it('counter → ±1, randomiser → roll, container → take one out', () => {
+		expect(piece('piece:me:c')).toEqual(['count-down', 'count-up']);
+		expect(piece('piece:me:d')).toEqual(['roll']);
+		expect(piece('piece:me:b')).toEqual(['take-out']);
+	});
+
+	it('a plain token, or a piece that is gone, has nothing', () => {
+		expect(piece('piece:me:t')).toEqual([]);
+		expect(piece('piece:me:missing')).toEqual([]);
+	});
+});
+
+describe('ownership gates surface before you press', () => {
+	it('your own deck: shuffle and ungroup are enabled', () => {
+		expect(verb({ kind: 'deck', id: 'deck:me:0' }, 'shuffle')).toMatchObject({ enabled: true });
+		expect(verb({ kind: 'deck', id: 'deck:me:0' }, 'ungroup')).toMatchObject({ enabled: true });
+	});
+
+	it("someone else's deck: shuffle and ungroup are disabled, with the toast's reason", () => {
+		expect(verb({ kind: 'deck', id: 'deck:them:0' }, 'shuffle')).toMatchObject({
+			enabled: false,
+			reasonDisabled: "That deck isn't yours to shuffle"
+		});
+		expect(verb({ kind: 'deck', id: 'deck:them:0' }, 'ungroup')).toMatchObject({
+			enabled: false,
+			reasonDisabled: "That deck isn't yours to spread"
+		});
+	});
+
+	it('the same deck is enabled for its owner and disabled for everyone else', () => {
+		const target = { kind: 'deck', id: 'deck:them:0' } as const;
+		expect(verbsFor(target, { playerId: 'them' }).find((v) => v.id === 'shuffle')!.enabled).toBe(
+			true
+		);
+	});
+
+	it('ungroup explains an empty deck and the card cap', () => {
+		expect(verb({ kind: 'deck', id: 'deck:me:1' }, 'ungroup').reasonDisabled).toBe(
+			'That deck is empty'
+		);
+		expect(verb({ kind: 'deck', id: 'deck:me:2' }, 'ungroup').reasonDisabled).toMatch(
+			`capped at ${UNGROUP_MAX_CARDS}`
+		);
+	});
+
+	it('group refuses the card you are holding', () => {
+		expect(verb({ kind: 'card', id: 'card:me:AS', dragging: true }, 'group')).toMatchObject({
+			enabled: false,
+			reasonDisabled: 'Put the card down first'
+		});
+	});
+
+	it('verbs without a gate are enabled for anyone', () => {
+		const flip = verbsFor({ kind: 'deck', id: 'deck:them:0' }, { playerId: null }).find(
+			(v) => v.id === 'flip'
+		)!;
+		expect(flip.enabled).toBe(true);
+		expect(flip.reasonDisabled).toBeUndefined();
+	});
+});
+
+describe('the Keybinds folder is generated from the registry', () => {
+	const rows = keybindReference();
+	const keyFor = (action: string) => rows.find((row) => row.action === action)?.key;
+
+	it('lists every hotkey the registry binds, once', () => {
+		for (const def of BUILTIN_VERBS.filter((d) => d.hotkey)) {
+			expect(keyFor(def.reference ?? def.label)).toBe(def.hotkey!.label);
+		}
+		expect(new Set(rows.map((row) => row.action)).size).toBe(rows.length);
+	});
+
+	it('still lists every binding it listed before the registry', () => {
+		const before: [string, string][] = [
+			['Actions on card / deck / table', 'right-click'],
+			['Same wheel, no right button', 'press & hold'],
+			['Pan camera', 'W A S D'],
+			['Reset camera', 'C'],
+			['Preview hovered (card, hand, deck, piece)', 'hold Space or Alt'],
+			['Tap card', 'T'],
+			['Reverse tap card', 'R'],
+			['Rotate hovered model +90°', 'T'],
+			['Rotate hovered model −90°', 'R'],
+			['Flip card', 'F'],
+			['Group stack into deck', 'G'],
+			[`Ungroup deck (max ${UNGROUP_MAX_CARDS} cards)`, 'Shift + G'],
+			['Shuffle hovered deck', 'Shift + S'],
+			['Drop without snapping', 'hold Alt'],
+			['Cancel drag', 'Esc'],
+			['Nudge card higher', 'Arrow Up'],
+			['Nudge card lower', 'Arrow Down']
+		];
+		for (const [action, key] of before) expect(keyFor(action), action).toBe(key);
+	});
+
+	it('now also lists the bindings the hand-written card left out', () => {
+		expect(keyFor('Flip hovered deck')).toBe('F');
+		expect(keyFor('Draw that many from hovered deck')).toBe('1 – 9');
+		expect(keyFor("Hovered piece's next state")).toBe('X');
+		expect(keyFor("Hovered piece's previous state")).toBe('Shift + X');
+	});
+
+	it('menus print their hotkeys from the same place', () => {
+		expect(hotkeyLabel('state-next', 'piece')).toBe('X');
+		expect(hotkeyLabel('rotate-cw', 'piece')).toBe('T');
+		expect(hotkeyLabel('rotate-ccw', 'piece')).toBe('R');
+	});
+});
+
+describe('no two verbs on one target answer the same chord', () => {
+	const chords = (codes: readonly string[], shift?: boolean) =>
+		codes.flatMap((code) =>
+			shift === undefined ? [`${code}+shift`, `${code}`] : [shift ? `${code}+shift` : code]
+		);
+
+	it.each([
+		['card', { kind: 'card', id: 'card:me:AS' }],
+		['deck', { kind: 'deck', id: 'deck:me:0' }],
+		['model', { kind: 'piece', id: 'piece:me:m' }],
+		['multi-state piece', { kind: 'piece', id: 'piece:me:s' }],
+		['table', { kind: 'table' }]
+	] as const)('%s', (_, target) => {
+		const all = verbsFor(target, me).flatMap((v) =>
+			v.hotkey ? chords(v.hotkey.codes, v.hotkey.shift) : []
+		);
+		expect(new Set(all).size).toBe(all.length);
+	});
+});

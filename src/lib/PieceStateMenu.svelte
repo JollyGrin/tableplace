@@ -15,6 +15,10 @@
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { gameActions } from '$lib/store/game/actions';
 	import { pieceMenu, closePieceMenu } from '$lib/store/pieceUi';
+	import { hotkeyLabel } from '$lib/verbs/registry';
+
+	// printed from the registry, so the footer cannot drift from the binding
+	const nextKey = hotkeyLabel('state-next', 'piece');
 
 	const piece = $derived($pieceMenu ? $gameStore?.pieces?.[$pieceMenu.id] : undefined);
 	const states = $derived(piece?.states ?? []);
@@ -73,6 +77,8 @@
 				<span>{state.name || `State ${index + 1}`}</span>
 			</button>
 		{/each}
-		<div class="border-t border-white/10 px-3 py-1.5 text-xs text-gray-500">X — next state</div>
+		<div class="border-t border-white/10 px-3 py-1.5 text-xs text-gray-500">
+			{nextKey} — next state
+		</div>
 	</div>
 {/if}

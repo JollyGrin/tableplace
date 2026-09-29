@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shuffleDeck = vi.fn();
 const gameActions = {
+	getMe: () => ({ id: 'me' }),
 	// nothing on this table belongs to us
 	getMyDecks: () => [] as [string, unknown][],
 	shuffleDeck,

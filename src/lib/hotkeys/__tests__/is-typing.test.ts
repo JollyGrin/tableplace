@@ -36,34 +36,59 @@ describe('isTyping', () => {
 	});
 });
 
-const ROUTES = ['create', 'setup', 'play'];
+/**
+ * Where each table route's key handlers live. /play and /setup bind the verb
+ * registry's dispatcher (tableplace-183), so the guard is checked there, once;
+ * /create still carries its own.
+ */
+const HANDLERS = [
+	{
+		name: '/create',
+		file: 'src/routes/create/+page.svelte',
+		fns: ['handleKeyDown', 'handleKeyUp'],
+		indent: '\t'
+	},
+	{
+		name: 'the verb dispatcher (/play, /setup)',
+		file: 'src/lib/verbs/keyboard.ts',
+		fns: ['handleVerbKeyDown', 'handleVerbKeyUp'],
+		indent: ''
+	}
+];
 
-function body(source: string, fn: string) {
+function body(source: string, fn: string, indent: string) {
 	const start = source.indexOf(`function ${fn}(event: KeyboardEvent) {`);
 	expect(start, fn).toBeGreaterThan(-1);
-	const end = source.indexOf('\n\t}', start);
+	const end = source.indexOf(`\n${indent}}`, start);
 	return source.slice(start, end);
 }
 
 describe('route keyboard handlers', () => {
-	for (const route of ROUTES) {
-		const source = readFileSync(join(process.cwd(), 'src/routes', route, '+page.svelte'), 'utf8');
+	for (const { name, file, fns, indent } of HANDLERS) {
+		const source = readFileSync(join(process.cwd(), file), 'utf8');
 
-		it(`/${route} imports the shared helper rather than defining its own`, () => {
+		it(`${name} imports the shared helper rather than defining its own`, () => {
 			expect(source).toContain("from '$lib/hotkeys/is-typing'");
 			expect(source).not.toMatch(/function isTyping\b/);
 		});
 
 		// keyup matters too: Space's preview HUD is a latch, so a guarded press
 		// with an unguarded release would leave the HUD stuck on
-		for (const fn of ['handleKeyDown', 'handleKeyUp']) {
-			it(`/${route} ${fn} bails out before reading the key`, () => {
-				const source_ = body(source, fn);
+		for (const fn of fns) {
+			it(`${name} ${fn} bails out before reading the key`, () => {
+				const source_ = body(source, fn, indent);
 				const guard = source_.indexOf('isTyping(event.target)');
 				expect(guard, 'no isTyping guard').toBeGreaterThan(-1);
-				const firstUse = source_.indexOf('event.code');
+				const firstUse = source_.search(/event\.code|verbForKey\(event|verbsFor\(/);
 				if (firstUse > -1) expect(guard).toBeLessThan(firstUse);
 			});
 		}
 	}
+
+	it('/play and /setup bind that dispatcher', () => {
+		for (const route of ['play', 'setup']) {
+			const page = readFileSync(join(process.cwd(), 'src/routes', route, '+page.svelte'), 'utf8');
+			expect(page).toContain("from '$lib/verbs/keyboard'");
+		}
+	});
 });

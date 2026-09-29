@@ -2395,6 +2395,183 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-183, the verb registry: /play binds no key of its own any
+		 * more — every hotkey is resolved against what is under the REAL pointer
+		 * and dispatched through `verbs/keyboard.ts`. Unit tests prove the table
+		 * of bindings; this proves the hover the registry reads is the hover the
+		 * scene actually produces, with deck-beats-card routing, digit counts,
+		 * Shift chords and the ownership gate all live in one browser.
+		 */
+		name: 'verbs: every hotkey dispatches through the registry at the real pointer',
+		run: (context) =>
+			withTable(context, 'verbs', async (table) => {
+				const page = table.page;
+				const [mine, theirs] = await page.evaluate(() => {
+					const cards = (tag: string) =>
+						['AS', 'KH', 'QD', 'JC', 'TS'].map((code) => ({
+							id: `card:std:${tag}-${code}`,
+							faceImageUrl: `gen:std52/${code}`,
+							backImageUrl: 'gen:std52/back'
+						}));
+					const actions = window.__tableplace!.actions;
+					return [
+						String(
+							actions.addDeck({ cards: cards('mine'), position: [-2, 0.4, -2] } as never) ?? ''
+						),
+						String(
+							actions.addDeck({
+								deckId: 'deck:someone-else:0',
+								cards: cards('theirs'),
+								position: [2, 0.4, -2]
+							} as never) ?? ''
+						)
+					];
+				});
+				ok(!!mine && theirs === 'deck:someone-else:0', `decks did not spawn: ${mine}, ${theirs}`);
+				const tile = await table.spawn('token', {
+					position: ON_FELT(2),
+					states: [
+						{ face: 'gen:std52/AS', name: 'front' },
+						{ face: 'gen:std52/KH', name: 'back' }
+					]
+				});
+				await table.settle(1500);
+				const card = await page.evaluate(
+					(id) => window.__tableplace!.actions.drawFromTop(id, 1)[0]?.id ?? '',
+					mine
+				);
+				ok(!!card, 'nothing came off the top of the deck');
+				await table.settle(1500);
+				await table.dragTo(card, -4, 1);
+				await table.settle(900);
+
+				const state = () => page.evaluate(() => window.__tableplace!.state());
+				const hover = async (id: string, field: 'isHovered' | 'isDeckHovered' | null) => {
+					const at = await table.locate(id);
+					ok(at, `${id} is not on screen to hover`);
+					await page.mouse.move(at!.x, at!.y, { steps: 6 });
+					if (field) {
+						const hovered = await eventually(
+							() => page.evaluate((f) => window.__tableplace!.drag()[f], field),
+							(value) => value === id
+						);
+						ok(hovered === id, `the pointer is over ${id} but ${field} is ${hovered}`);
+					} else await sleep(300);
+				};
+				const chord = async (code: string, shift = false) => {
+					if (shift) await page.keyboard.down('Shift');
+					await page.keyboard.press(code as never);
+					if (shift) await page.keyboard.up('Shift');
+				};
+
+				// ── a card: F flips, T taps, R taps back, Arrow Up lifts ──────
+				await hover(card, 'isHovered');
+				const cardNow = async () => (await state())?.cards?.[card];
+				const before = await cardNow();
+				await chord('KeyF');
+				const flipped = await eventually(
+					cardNow,
+					(c) => c?.rotation?.[0] !== before?.rotation?.[0]
+				);
+				ok(flipped?.rotation?.[0] !== before?.rotation?.[0], 'F did not flip the hovered card');
+				await chord('KeyT');
+				const tapped = await eventually(
+					cardNow,
+					(c) => c?.rotation?.[2] !== flipped?.rotation?.[2]
+				);
+				ok(
+					(tapped?.rotation?.[2] ?? 0) - (flipped?.rotation?.[2] ?? 0) === 90,
+					`T did not tap the card 90°: ${JSON.stringify(flipped?.rotation)} → ${JSON.stringify(tapped?.rotation)}`
+				);
+				await chord('KeyR');
+				const untapped = await eventually(
+					cardNow,
+					(c) => c?.rotation?.[2] === flipped?.rotation?.[2]
+				);
+				ok(untapped?.rotation?.[2] === flipped?.rotation?.[2], 'R did not tap the card back');
+				await chord('ArrowUp');
+				const lifted = await eventually(
+					cardNow,
+					(c) => (c?.position?.[1] ?? 0) > (untapped?.position?.[1] ?? 0)
+				);
+				ok(
+					(lifted?.position?.[1] ?? 0) > (untapped?.position?.[1] ?? 0),
+					'Arrow Up did not nudge the card higher'
+				);
+
+				// ── your deck: 2 draws two, F flips the deck (not a card), Shift+S shuffles
+				await hover(mine, 'isDeckHovered');
+				const deckNow = async (id: string) => (await state())?.decks?.[id];
+				const count = (await deckNow(mine))?.cards?.length ?? 0;
+				await chord('Digit2');
+				const drawn = await eventually(
+					() => deckNow(mine),
+					(d) => (d?.cards?.length ?? 0) === count - 2
+				);
+				ok(
+					drawn?.cards?.length === count - 2,
+					`2 drew ${count - (drawn?.cards?.length ?? 0)}, not 2`
+				);
+				await table.settle(900);
+				await hover(mine, 'isDeckHovered');
+				const faceUp = (await deckNow(mine))?.isFaceUp ?? false;
+				const cardRotation = JSON.stringify((await cardNow())?.rotation);
+				await chord('KeyF');
+				const turned = await eventually(
+					() => deckNow(mine),
+					(d) => (d?.isFaceUp ?? false) !== faceUp
+				);
+				ok((turned?.isFaceUp ?? false) !== faceUp, 'F over the deck did not flip the deck');
+				ok(
+					JSON.stringify((await cardNow())?.rotation) === cardRotation,
+					'F over the deck also flipped a card — the deck must take the key'
+				);
+				await chord('KeyS', true);
+				const shuffled = await eventually(
+					() => deckNow(mine),
+					(d) => !!d?.shuffledAt
+				);
+				ok(!!shuffled?.shuffledAt, 'Shift+S did not shuffle your own deck');
+
+				// ── someone else's deck: the gate refuses, nothing moves ──────
+				await hover(theirs, 'isDeckHovered');
+				await chord('KeyS', true);
+				await chord('KeyG', true);
+				await table.settle(600);
+				const other = await deckNow(theirs);
+				ok(!!other, "Shift+G spread someone else's deck");
+				ok(!other?.shuffledAt, "Shift+S shuffled someone else's deck");
+
+				// ── a two-state piece: X steps its face, Shift+X steps back ───
+				await hover(tile, null);
+				const face = async () => (await state())?.pieces?.[tile]?.state ?? 0;
+				await chord('KeyX');
+				const stepped = await eventually(face, (s) => s === 1);
+				ok(stepped === 1, `X did not step the hovered piece: state ${stepped}`);
+				await chord('KeyX', true);
+				const back = await eventually(face, (s) => s === 0);
+				ok(back === 0, `Shift+X did not step the piece back: state ${back}`);
+
+				// ── the Keybinds folder is the registry, row for row ──────────
+				const rows = await page.evaluate(() =>
+					[...document.querySelectorAll('dt')].map((dt) => dt.textContent?.trim() ?? '')
+				);
+				for (const row of [
+					'Flip card',
+					'Flip hovered deck',
+					'Shuffle hovered deck',
+					"Hovered piece's next state"
+				])
+					ok(rows.includes(row), `Keybinds is missing "${row}": ${JSON.stringify(rows)}`);
+
+				await page.mouse.move(5, 5);
+				await assertDraggable(table, mine, 'deck (after driving every verb by key)');
+				assertClean(table, 'after driving the verbs by key');
+				await table.snap('verbs');
+			})
+	},
+	{
+		/**
 		 * tableplace-192: the zoomed preview follows whatever is under the
 		 * pointer — a hand card, a table card, a deck, a piece — while Space or
 		 * Alt is held, and never while something is being dragged.

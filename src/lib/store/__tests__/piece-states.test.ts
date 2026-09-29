@@ -13,7 +13,10 @@ import { get } from 'svelte/store';
 import { gameStore } from '../game/gameStore.svelte';
 import { gameActions } from '../game/actions';
 import { hoveredPiece, setPieceHover, clearPieceHover } from '../pieceUi';
-import { cycleHoveredPieceState } from '$lib/hotkeys/piece-state';
+import { handleVerbKeyDown } from '$lib/verbs/keyboard';
+
+const pressX = (shiftKey = false) =>
+	handleVerbKeyDown({ code: 'KeyX', shiftKey, target: null } as unknown as KeyboardEvent);
 import { spawnPack, spawnPackPiece } from '$lib/packs/spawn';
 import { parsePackFile, serializePackFile } from '$lib/packs/file';
 import { saveLibraryPack, PACK_SOURCE_LOCAL } from '$lib/packs/library';
@@ -149,14 +152,17 @@ describe('the X hotkey acts on the hovered piece', () => {
 	});
 
 	it('does nothing when no piece is hovered', () => {
-		expect(cycleHoveredPieceState()).toBeNull();
+		pressX();
 		expect(only()[1].state).toBe(0);
 	});
 
 	it('cycles the hovered piece', () => {
 		setPieceHover(id);
-		expect(cycleHoveredPieceState()).toBe(id);
+		pressX();
 		expect(only()[1].state).toBe(1);
+		// Shift+X steps back
+		pressX(true);
+		expect(only()[1].state).toBe(0);
 	});
 
 	it('only the piece that claimed the hover may release it', () => {
