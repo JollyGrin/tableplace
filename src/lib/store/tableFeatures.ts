@@ -22,9 +22,20 @@ export interface TableFeatures {
 	 * the moment the guide is actually worth seeing.
 	 */
 	snapEditing: boolean;
+	/**
+	 * Where a plain click on a deck sends the drawn card: your hand (`true`,
+	 * /play) or the felt in front of the deck. Shift+click always takes the
+	 * felt. Off in /setup, where the table is being authored and a hand is not
+	 * part of what a scenario saves, and wherever there is no hand to receive.
+	 */
+	drawToHand: boolean;
 }
 
-export const TABLE_FEATURES_DEFAULT: TableFeatures = { hand: true, snapEditing: false };
+export const TABLE_FEATURES_DEFAULT: TableFeatures = {
+	hand: true,
+	snapEditing: false,
+	drawToHand: true
+};
 
 export const tableFeatures = writable<TableFeatures>({ ...TABLE_FEATURES_DEFAULT });
 

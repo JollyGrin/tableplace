@@ -1,8 +1,10 @@
 <script lang="ts">
-	import { T } from '@threlte/core';
+	import { untrack } from 'svelte';
+	import { T, useThrelte } from '@threlte/core';
 	import * as THREE from 'three';
 	import { ImageMaterial } from '@threlte/extras';
-	import { Spring } from 'svelte/motion';
+	import { Spring, Tween } from 'svelte/motion';
+	import { cubicOut } from 'svelte/easing';
 	import { degrees } from '$lib/utils/constants-rotation';
 	import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
 	import { DEG2RAD } from 'three/src/math/MathUtils.js';
@@ -11,6 +13,7 @@
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { gameActions } from '$lib/store/game/actions';
 	import { hoveredTrayCard } from './trayHover';
+	import { FLIGHT_MS, getTableCamera, prefersReducedMotion, takeFlight } from './drawFlight';
 
 	// No interactivity() here on purpose — one call per card in hand meant one
 	// Raycaster and one full set of DOM listeners per card. The handlers below
@@ -62,7 +65,60 @@
 		precision: 0.0001
 	});
 
+	/**
+	 * Deck → hand (tableplace-194): a card drawn into the hand starts over the
+	 * deck it left, and glides to its slot. `flight` is the offset from the
+	 * slot (and a scale factor), so it is zero/one at rest and the hover
+	 * springs above keep working untouched. The deck's table point goes through
+	 * the table camera to the screen, and back out through this HUD's own
+	 * orthographic camera into the tray group's space.
+	 */
+	const { camera: hudCamera } = useThrelte();
+	const flight = new Tween({ x: 0, y: 0, s: 1 }, { duration: FLIGHT_MS, easing: cubicOut });
+	let flying = $state(false);
+	let mesh: THREE.Mesh | undefined = $state();
+
+	// Launched from an effect, not onMount: threlte binds `mesh` after this
+	// component's own mount, and the drawer queues the flight just after the
+	// patch that mounts us. By the first effect flush both are in place. Reads
+	// only `mesh`; everything it writes is untracked, and it runs once.
+	let launched = false;
+	$effect(() => {
+		const target = mesh;
+		if (!target || launched) return;
+		launched = true;
+		untrack(() => launchFlight(target));
+	});
+
+	function launchFlight(mesh: THREE.Mesh, tries = 3) {
+		// threlte may attach the mesh to the tray group a frame after binding it
+		if (!mesh.parent) {
+			if (tries > 0) requestAnimationFrame(() => launchFlight(mesh, tries - 1));
+			return;
+		}
+		const launch = takeFlight(id);
+		const tableCamera = getTableCamera();
+		const parent = mesh.parent;
+		if (!launch || !tableCamera || prefersReducedMotion()) return;
+		const ndc = new THREE.Vector3(...launch.from).project(tableCamera);
+		// behind the table camera: no honest screen point to fly from
+		if (ndc.z > 1) return;
+		parent.updateWorldMatrix(true, false);
+		const from = parent.worldToLocal(
+			new THREE.Vector3(ndc.x, ndc.y, 0).unproject(hudCamera.current)
+		);
+		flying = true;
+		flight.set(
+			{ x: from.x - mesh.position.x, y: from.y - mesh.position.y, s: 0.8 },
+			{ duration: 0 }
+		);
+		flight.set({ x: 0, y: 0, s: 1 }, { delay: launch.delayMs }).then(() => (flying = false));
+	}
+
 	function handlePointerEnter() {
+		// a card still in the air isn't in the hand yet: sweeping over its path
+		// must not blow it up to the hover size mid-flight
+		if (flying) return;
 		hoveredTrayCard.set(id);
 	}
 	function handlePointerLeave() {
@@ -92,11 +148,12 @@
 
 {#key trayUrl}
 	<T.Mesh
+		bind:ref={mesh}
 		name={id}
-		scale={cardScale.current}
-		position.z={cardZ}
-		position.y={cardY.current}
-		position.x={-trayWidth / 2 + 0.65 + offsetX}
+		scale={cardScale.current * flight.current.s}
+		position.z={cardZ + (flying ? 2 : 0)}
+		position.y={cardY.current + flight.current.y}
+		position.x={-trayWidth / 2 + 0.65 + offsetX + flight.current.x}
 		rotation.z={isLandscape ? -Math.PI / 2 : 0}
 		onpointerenter={handlePointerEnter}
 		onpointerleave={handlePointerLeave}
