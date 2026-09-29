@@ -3,12 +3,14 @@ import { gameStore } from '../gameStore.svelte';
 import type { GameDTO } from '../types';
 
 function moveCardToTray(cardId: string, playerId: string) {
-	const card = get(gameStore)?.cards?.[cardId] as NonNullable<
-		GameDTO['cards'][string]
-	>;
+	const card = get(gameStore)?.cards?.[cardId] as NonNullable<GameDTO['cards'][string]>;
+	// in a hand the card is the holder's to read — a peek mark means nothing
+	// there, and must not ride back out onto the table with it
+	const held = { ...card };
+	delete held.placedBy;
 	return gameStore.updateState({
 		cards: { [cardId]: null },
-		players: { [playerId]: { tray: { [cardId]: card } } }
+		players: { [playerId]: { tray: { [cardId]: held } } }
 	});
 }
 
