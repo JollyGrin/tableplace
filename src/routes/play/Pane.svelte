@@ -21,6 +21,7 @@
 	import { gameActions } from '$lib/store/game/actions';
 	import { keybindReference } from '$lib/verbs/registry';
 	import { hintBarEnabled } from '$lib/hint/hintUi';
+	import { classicMouse } from '$lib/store/mouseMode';
 	import { connectionStore } from '$lib/store/connectionStore.svelte';
 	import {
 		listScenarios,
@@ -205,6 +206,9 @@
 		/>
 		<!-- the bottom-left line naming what the pointer can do; on by default -->
 		<Checkbox label="Hint bar" bind:value={$hintBarEnabled} />
+		<!-- tableplace-202 moved orbit to right-drag so left-drag on the felt can
+		     box-select; this puts the old mapping back, for one release -->
+		<Checkbox label="Classic mouse" bind:value={$classicMouse} />
 		<!--
 			One prose blade where eleven disabled `Text` blades used to be (#115): a
 			keybind is something you read, not a field you were locked out of, and

@@ -5,8 +5,7 @@
 	import { dragStore } from '$lib/store/dragStore.svelte';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { tableFeatures } from '$lib/store/tableFeatures';
-	import { resolveDrop } from '$lib/utils/transforms/drop';
-	import { modelSurfaceYAt } from '$lib/models/surface';
+	import { previewDrop } from './preview';
 	import { SNAP_DROP_COLOR } from '$lib/utils/constants-snap';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
 	import DropFootprint from './DropFootprint.svelte';
@@ -28,22 +27,10 @@
 
 	const dragId = $derived($dragStore.isDragging);
 
-	const drop = $derived(
-		resolveDrop(
-			$gameStore,
-			dragId,
-			$dragStore.intersectionPoint,
-			{
-				deckId: $dragStore.isDeckHovered,
-				bagId: $dragStore.isBagHovered,
-				tray: $dragStore.isTrayHovered
-			},
-			// live: pressing or releasing Alt mid-drag redraws the preview. Same
-			// options the commit resolves with — surfaceYAt included — so the
-			// preview stays honest.
-			{ noSnap: $dragStore.noSnap, hand: $tableFeatures.hand, surfaceYAt: modelSurfaceYAt(dragId) }
-		)
-	);
+	// live: pressing or releasing Alt mid-drag redraws the preview. Same
+	// resolution the commit makes — a group drag previews its lead as the
+	// group commit lands it (see drop/preview.ts).
+	const drop = $derived(previewDrop($gameStore, $dragStore, $tableFeatures.hand));
 
 	// the deck / bag / tray highlights are the cue for those targets — a table
 	// footprint there would promise a landing that isn't going to happen

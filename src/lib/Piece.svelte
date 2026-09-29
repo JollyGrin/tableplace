@@ -2,7 +2,15 @@
 	import { T } from '@threlte/core';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { Spring } from 'svelte/motion';
-	import { clearBagHover, dragStart, dragStore, setBagHover } from './store/dragStore.svelte';
+	import {
+		clearBagHover,
+		dragStart,
+		dragStore,
+		isCarried,
+		setBagHover
+	} from './store/dragStore.svelte';
+	import { isSelectClick, selectedIds, toggleSelected } from './store/selection';
+	import SelectionRing from './SelectionRing.svelte';
 	import { gameStore } from './store/game/gameStore.svelte';
 	import { gameActions } from './store/game/actions';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
@@ -57,7 +65,9 @@
 	const stateIndex = $derived(gameActions.currentPieceState(piece));
 	const faceRef = $derived(states.length ? states[stateIndex]?.face : piece?.imageUrl);
 	const imageUrl = $derived(resolveCardImage(faceRef, $sheetRefCache));
-	const isDragging = $derived($dragStore.isDragging === id);
+	// carried: grabbed, or riding along with a selected entity (tableplace-202)
+	const isDragging = $derived(isCarried($dragStore, id));
+	const isSelected = $derived($selectedIds.includes(id));
 	let isHovered = $state(false);
 
 	// a bag under the pointer mid-drag swallows the drop, so it has to be the
@@ -174,6 +184,15 @@
 		// claims the pointerdown for the topmost piece in a pile — see
 		// claimPointerDown — so the rest of the stack never sees this event
 		if (!claimPointerDown(e)) return;
+		// Shift/Ctrl+click adds the piece to the selection or takes it out — only
+		// Ctrl/Cmd on a counter, whose Shift+click counts up. `dragMoved` makes
+		// the click that follows do nothing (no count, roll or draw).
+		if (isSelectClick(e.nativeEvent, kind === 'counter')) {
+			dragMoved = true;
+			if (piece?.locked) return toastLocked();
+			toggleSelected(id);
+			return;
+		}
 		dragMoved = false;
 		pendingDrag = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
 		// press-and-hold-still opens the wheel instead; the first travel past
@@ -421,4 +440,14 @@
 			/>
 		{/if}
 	</T.Group>
+{/if}
+
+<!-- the box selection's ring (tableplace-202), at the piece's foot. Outside its
+     group: a child would be raycast as part of the piece and widen its grab. -->
+{#if piece && isSelected}
+	<SelectionRing
+		shape="circle"
+		r={radius}
+		position={[position[0], position[1] - THICKNESS / 2 + 0.01, position[2]]}
+	/>
 {/if}

@@ -22,12 +22,13 @@ import { hoveredTrayCard } from '$lib/HUDTray/trayHover';
 import { gameActions } from '$lib/store/game/actions';
 import { isTyping } from '$lib/hotkeys/is-typing';
 import { searchingDeck } from '$lib/deckSearch/deckSearch';
+import { selectedIds } from '$lib/store/selection';
 import { verbsFor } from './registry';
 import type { Hotkey, Verb, VerbActor, VerbTarget } from './types';
 
 /** what is under the pointer right now, most specific first; the table is always last */
 export function pointerTargets(): VerbTarget[] {
-	return targetsUnder(get(dragStore), get(hoveredPiece), get(hoveredTrayCard));
+	return targetsUnder(get(dragStore), get(hoveredPiece), get(hoveredTrayCard), get(selectedIds));
 }
 
 /**
@@ -41,7 +42,8 @@ export function targetsUnder(
 		isDragging
 	}: Pick<DragState, 'isDeckHovered' | 'isHovered' | 'isDragging'>,
 	piece: string | null,
-	handCard: string | null
+	handCard: string | null,
+	selected: readonly string[] = []
 ): VerbTarget[] {
 	const targets: VerbTarget[] = [];
 	if (isDeckHovered) targets.push({ kind: 'deck', id: isDeckHovered });
@@ -52,6 +54,15 @@ export function targetsUnder(
 	// a card in your hand: no verbs yet, but a key over it must still reach the
 	// table's (Space previews it — see HUDPreview/preview.ts)
 	if (handCard) targets.push({ kind: 'hand-card', id: handCard });
+	// The selection (tableplace-202) goes first while the pointer is on one of
+	// its members, or on nothing: F there flips the lot. Over something NOT
+	// selected, that thing keeps its keys and the selection is not a target
+	// at all — pointing at a card and pressing F flips that card.
+	if (selected.length) {
+		const pointed = targets.filter((t) => 'id' in t && t.kind !== 'hand-card');
+		if (!pointed.length || pointed.some((t) => 'id' in t && selected.includes(t.id)))
+			targets.unshift({ kind: 'selection', ids: [...selected] });
+	}
 	targets.push({ kind: 'table' });
 	return targets;
 }

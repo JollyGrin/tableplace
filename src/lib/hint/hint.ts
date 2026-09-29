@@ -10,6 +10,7 @@
 
 import { currentPieceState } from '$lib/compose/piece';
 import {
+	CLASSIC_TABLE_BASICS,
 	DRAG_MODIFIERS,
 	RELEASE_TEXT,
 	TABLE_BASICS,
@@ -41,6 +42,10 @@ export type HintInput = {
 	dragging: string | null;
 	/** where the carried thing would land on release, if it resolves */
 	dropKind: DropKind | null;
+	/** how many things the pointer carries — more than one is a group drag */
+	carrying?: number;
+	/** the classic mouse mapping is on (store/mouseMode.ts) */
+	classicMouse?: boolean;
 };
 
 type VerbsFor = (target: VerbTarget, actor: VerbActor) => Verb[];
@@ -73,6 +78,7 @@ function revealedName(
 	target: VerbTarget
 ): string {
 	const noun = TARGET_NOUNS[target.kind];
+	if (target.kind === 'selection') return `${target.ids.length} selected`;
 	if (!('id' in target)) return noun;
 	if (target.kind === 'card') {
 		const card = game?.cards?.[target.id];
@@ -156,11 +162,13 @@ function entityTargetFor(id: string): VerbTarget {
 }
 
 export function hintFor(input: HintInput, verbs: VerbsFor = verbsFor): Hint {
-	const { game, actor, targets, dragging, dropKind } = input;
+	const { game, actor, targets, dragging, dropKind, carrying = 0 } = input;
 
 	if (dragging) {
 		return {
-			name: entityName(game, actor, entityTargetFor(dragging)),
+			// a group names its size: which member you grabbed doesn't matter
+			name:
+				carrying > 1 ? `${carrying} selected` : entityName(game, actor, entityTargetFor(dragging)),
 			parts: [
 				...(dropKind ? [part('', RELEASE_TEXT[dropKind])] : []),
 				...DRAG_MODIFIERS.map((row) => part(row.key, row.action))
@@ -173,9 +181,13 @@ export function hintFor(input: HintInput, verbs: VerbsFor = verbsFor): Hint {
 		const under = targets.slice(targets.indexOf(top));
 		return {
 			name: entityName(game, actor, top),
-			parts: ordered(offeredVerbs(under, actor, verbs), isPinned(game, top))
-				.slice(0, HINT_MAX_VERBS)
-				.map(verbPart)
+			parts: [
+				// the one gesture a selection has: it is the ordinary drag
+				...(top.kind === 'selection' ? [part('drag', 'Move together')] : []),
+				...ordered(offeredVerbs(under, actor, verbs), isPinned(game, top))
+					.slice(0, HINT_MAX_VERBS)
+					.map(verbPart)
+			]
 		};
 	}
 
@@ -190,7 +202,9 @@ export function hintFor(input: HintInput, verbs: VerbsFor = verbsFor): Hint {
 		name: null,
 		parts: [
 			...help.map(verbPart),
-			...TABLE_BASICS.map((row) => part(row.key, row.action)),
+			...(input.classicMouse ? CLASSIC_TABLE_BASICS : TABLE_BASICS).map((row) =>
+				part(row.key, row.action)
+			),
 			...rest.map(verbPart)
 		]
 	};
