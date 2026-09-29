@@ -14,8 +14,13 @@
 	import { createDieInput } from '$lib/utils/die-input';
 	import { createBagInput } from '$lib/utils/bag-input';
 	import { DEG2RAD } from 'three/src/math/MathUtils.js';
+	import { SEAT_ROTATION_DEG } from '$lib/hud/players';
+	import { placeholderSeat } from '$lib/compose/pack';
+	import CounterDial from './CounterDial.svelte';
 	import Die from './Die.svelte';
 	import LabelBadge from './LabelBadge.svelte';
+	import { toastLocked } from '$lib/hotkeys/lock';
+	import { LOCK_BADGE_TEXT } from '$lib/utils/constants-lock';
 	import Model from './models/Model.svelte';
 	import PieceFace from './PieceFace.svelte';
 	import DropFootprint from './drop/DropFootprint.svelte';
@@ -114,6 +119,9 @@
 	let dragMoved = false;
 
 	function liftIntoDrag() {
+		// pinned: a click still counts / rolls / draws, but the piece stays put
+		// and the toast names the key that frees it
+		if (piece?.locked) return toastLocked();
 		// origin (pre-lift store position) is what Esc returns the piece to
 		dragStart(id, position[1], piece?.position as [number, number, number] | undefined);
 	}
@@ -241,27 +249,51 @@
 		return isHovered && piece?.name ? `${piece.name} · ${remaining}` : remaining;
 	});
 
+	// a counter's base label is empty — its dial face prints name and value
+	// (tableplace-191) — so a hovered locked counter wears just the lock pill
 	const label = $derived.by(() => {
-		if (kind === 'bag') return bagLabel;
-		// name the face, not just the piece: with several states that is the only
-		// on-table clue which one is showing
-		if (kind !== 'counter') {
-			const stateName = states.length > 1 ? states[stateIndex]?.name : undefined;
-			const name = piece?.name ?? '';
-			return stateName ? (name ? `${name} — ${stateName}` : stateName) : name;
-		}
-		const value = piece?.value ?? piece?.maxValue ?? 0;
-		return piece?.maxValue != null ? `${value}/${piece.maxValue}` : `${value}`;
+		const base = baseLabel();
+		// a pinned piece says so on hover, in the badge it already wears
+		return isHovered && piece?.locked
+			? base
+				? `${base} · ${LOCK_BADGE_TEXT}`
+				: LOCK_BADGE_TEXT
+			: base;
 	});
 
-	// pulse the label when the value changes (local or remote) so it's noticed
-	const labelScale = new Spring(1, { stiffness: 0.15, damping: 0.5, precision: 0.001 });
+	function baseLabel(): string {
+		if (kind === 'bag') return bagLabel;
+		if (kind === 'counter') return '';
+		// name the face, not just the piece: with several states that is the only
+		// on-table clue which one is showing
+		const stateName = states.length > 1 ? states[stateIndex]?.name : undefined;
+		const name = piece?.name ?? '';
+		return stateName ? (name ? `${name} — ${stateName}` : stateName) : name;
+	}
+
+	const counterValue = $derived(piece?.value ?? piece?.maxValue ?? 0);
+
+	/**
+	 * The seat a counter's face reads from: its owner's (the player id in
+	 * `piece:<owner>:…`, or a scenario's `seatN` placeholder), else seat 0.
+	 * Returned as a yaw in the piece's own frame, so the text stays square to
+	 * that seat however the piece itself has been turned.
+	 */
+	const dialFacing = $derived.by(() => {
+		if (kind !== 'counter') return 0;
+		const owner = id.split(':')[1] ?? '';
+		const seat = placeholderSeat(owner) ?? $gameStore?.players?.[owner]?.seat ?? 0;
+		return (SEAT_ROTATION_DEG[seat] ?? 0) * DEG2RAD - yaw;
+	});
+
+	// pulse the dial once when the value changes (local or remote) so it's noticed
+	const valuePulse = new Spring(1, { stiffness: 0.15, damping: 0.5, precision: 0.001 });
 	let prevValue: number | undefined = undefined;
 	$effect(() => {
 		const v = piece?.value;
 		if (prevValue !== undefined && v !== undefined && v !== prevValue) {
-			labelScale.set(1.6, { instant: true });
-			labelScale.target = 1;
+			valuePulse.set(1.18, { instant: true });
+			valuePulse.target = 1;
 		}
 		prevValue = v;
 	});
@@ -351,16 +383,29 @@
 				<T.MeshStandardMaterial {color} />
 			</T.Mesh>
 			{#if imageUrl}
+				<!-- a counter's image (dial art from an import) is its face background -->
 				<PieceFace url={imageUrl} radius={radius * 0.96} position={[0, THICKNESS / 2 + 0.002, 0]} />
+			{/if}
+			{#if kind === 'counter'}
+				<CounterDial
+					name={piece.name ?? ''}
+					value={counterValue}
+					maxValue={piece.maxValue}
+					overImage={!!imageUrl}
+					radius={radius * 0.97}
+					y={THICKNESS / 2 + 0.004}
+					facing={dialFacing}
+					scale={valuePulse.current}
+				/>
 			{/if}
 		{/if}
 
-		<!-- a bag's remaining count is always on, like a counter's value: it's the
-		     only thing about a bag that is legible from across the table -->
-		{#if label && (kind === 'counter' || kind === 'bag' || isHovered)}
+		<!-- a bag's remaining count is always on: it's the only thing about a bag
+		     that is legible from across the table -->
+		{#if label && (kind === 'bag' || isHovered)}
 			<LabelBadge
 				text={label}
-				fontSize={kind === 'counter' ? 0.55 : kind === 'bag' ? 0.45 : 0.35}
+				fontSize={kind === 'bag' ? 0.45 : 0.35}
 				position={[
 					0,
 					kind === 'pawn'
@@ -372,7 +417,6 @@
 								: 0.75,
 					0
 				]}
-				scale={kind === 'counter' ? labelScale.current : 1}
 			/>
 		{/if}
 	</T.Group>

@@ -287,6 +287,7 @@
 			name: `Deck ${pack.decks.length + 1}`,
 			back: CARD_BACK_DEFAULT,
 			isFaceUp: false,
+			locked: false,
 			cards: []
 		});
 		selectDeckAfterEdit(pack.decks.length - 1);
@@ -391,6 +392,7 @@
 			infinite: false,
 			snap: true,
 			reach: 0,
+			locked: false,
 			position: [0, 0],
 			rotation: 0
 		});
@@ -470,7 +472,7 @@
 
 	function addOverlay() {
 		if (!pack) return;
-		pack.overlays.push({ imageUrl: '', ratio: 1, scale: 12 });
+		pack.overlays.push({ imageUrl: '', ratio: 1, scale: 12, locked: false });
 		overlayCursor = pack.overlays.length - 1;
 	}
 
@@ -969,6 +971,8 @@
 					<Text label="Slot" bind:value={deck.slot} />
 					<Text label="Name" bind:value={deck.name} />
 					<Checkbox label="Face up" bind:value={deck.isFaceUp} />
+					<!-- spawns pinned: can't be moved, flipped or ungrouped until L -->
+					<Checkbox label="Locked" bind:value={deck.locked} />
 					<!-- keyed on the cursor: a fresh editor for whichever deck is selected -->
 					{#key deckIndex}
 						<FaceRef title="Deck back" value={deck.back} onchange={(ref) => (deck.back = ref)} />
@@ -1125,6 +1129,9 @@
 						<!-- advisory: lifted off a linked snap point, the points within
 						     this many links glow brighter. 0 = no reach rings -->
 						<Stepper label="Reach (links)" bind:value={piece.reach} min={0} step={1} />
+						<!-- spawns pinned (a board, a fixed track): can't be dragged or
+						     turned until someone presses L on it -->
+						<Checkbox label="Locked" bind:value={piece.locked} />
 						{#if piece.kind === 'counter'}
 							<AutoValue label="Max value" bind:value={piece.maxValue} />
 						{/if}
@@ -1197,6 +1204,7 @@
 						<RefThumb value={overlay.imageUrl} label="overlay image" aspect="wide" />
 						<AutoValue label="Ratio (w/h)" bind:value={overlay.ratio} />
 						<AutoValue label="Scale" bind:value={overlay.scale} />
+						<Checkbox label="Locked" bind:value={overlay.locked} />
 						<Button title="Remove overlay" on:click={removeOverlay} />
 					{/if}
 				</Folder>

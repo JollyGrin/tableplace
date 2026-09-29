@@ -2120,13 +2120,12 @@ export const SPECS: Spec[] = [
 		/**
 		 * tableplace-156: every floating label is the same LabelBadge, and the
 		 * restyle must not have changed WHEN one shows or how it reacts. Pinned
-		 * here with a real pointer: a counter's value, a bag's count and a deck's
-		 * card count wear their badges with no hover anywhere; a plain piece's
-		 * name badge mounts under the pointer and unmounts when it leaves; and a
-		 * real click on the counter kicks the value-change pulse (the badge's
-		 * scale springs toward 1.6, then settles back to rest).
+		 * here with a real pointer: a bag's count and a deck's card count wear
+		 * their badges with no hover anywhere; a plain piece's name badge mounts
+		 * under the pointer and unmounts when it leaves. A counter wears none —
+		 * since tableplace-191 its dial face prints the value (see the dial spec).
 		 */
-		name: 'badges: hover-only labels, always-on counts, and the value pulse',
+		name: 'badges: hover-only labels and always-on counts',
 		run: (context) =>
 			withTable(context, 'badges', async (table) => {
 				const deck = await table.seedDeck();
@@ -2146,7 +2145,6 @@ export const SPECS: Spec[] = [
 
 				// always-on: the pointer has not been near any of these
 				for (const [id, label] of [
-					[counter, 'the counter'],
 					[bag, 'the bag'],
 					[deck, 'the deck']
 				] as const) {
@@ -2155,6 +2153,7 @@ export const SPECS: Spec[] = [
 
 				// hover-only: the plain token wears its name only under the pointer
 				ok(!(await badge(token)), 'the plain token mounted a badge with no pointer near it');
+				ok(!(await badge(counter)), 'the counter still wears a floating pill over its dial');
 				const over = await table.locate(token);
 				ok(over, 'the token never mounted — nothing to hover');
 				await table.page.mouse.move(over!.x, over!.y);
@@ -2173,51 +2172,155 @@ export const SPECS: Spec[] = [
 				);
 				ok(!unhovered, 'the token badge stayed mounted after the pointer left');
 
-				// the pulse: a real click deals 1 damage (counter-input's plain-click
-				// branch; shift-click is the heal) and the badge scale kicks toward
-				// 1.6 before springing back to rest. The kick is watched FIRST — it
-				// is instant on the value change, so waiting on the value and then
-				// looking for the kick could miss a fast pulse entirely.
-				const at = await table.locate(counter);
-				ok(at, 'the counter never mounted — nothing to click');
-				await table.page.mouse.click(at!.x, at!.y);
-				const kicked = await eventually(
-					() => badge(counter),
-					(b) => !!b && b.scale > 1.15,
-					5000
-				);
-				ok(
-					!!kicked && kicked.scale > 1.15,
-					`the value change never kicked the badge pulse: ${JSON.stringify(kicked)}`
-				);
-				const value = await eventually(
-					() =>
-						table.page.evaluate(
-							(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
-							counter
-						),
-					(v) => v === 4
-				);
-				ok(value === 4, `the click did not damage the counter to 4: ${JSON.stringify(value)}`);
-				const rested = await eventually(
-					() => badge(counter),
-					(b) => !!b && Math.abs(b.scale - 1) < 0.05
-				);
-				ok(
-					!!rested && Math.abs(rested.scale - 1) < 0.05,
-					`the pulse never settled back to rest: ${JSON.stringify(rested)}`
-				);
-
 				// badges must not have cost the table its raycast
 				await assertDraggable(table, counter, 'the counter (wearing its badge)');
 				await assertDraggable(table, deck, 'deck (with badges on the table)');
 				assertClean(table, 'at the end of the badge suite');
 
-				// the train's visual evidence: counter, bag and deck badges always-on,
+				// the train's visual evidence: bag and deck badges always-on,
 				// and the token hovered so its name badge is in the frame too
 				const pose = await table.locate(token);
 				if (pose) await table.page.mouse.move(pose.x, pose.y);
 				await table.snap('badges');
+			})
+	},
+	{
+		/**
+		 * tableplace-191: a counter reads as a dial. Its top face prints name,
+		 * value and `of max`, with the rim arc for value/max — drawn onto a
+		 * canvas that is redrawn only when one of those changes. A real click
+		 * (counter-input's plain-click −1) must change the PRINTED value, pulse
+		 * the face once, and cost exactly one redraw; a counter owned by another
+		 * seat prints square to that seat.
+		 */
+		name: 'counter dial: click changes the printed value, pulses once, faces its seat, honours lock',
+		run: (context) =>
+			withTable(context, 'dial', async (table) => {
+				const deck = await table.seedDeck();
+				const counter = await table.spawn('counter', {
+					name: 'Health',
+					maxValue: 17,
+					value: 5,
+					radius: 1,
+					position: ON_FELT(0)
+				});
+				const plain = await table.spawn('counter', {
+					name: 'Score',
+					value: 3,
+					radius: 1,
+					position: ON_FELT(1),
+					ownerId: 'seat1'
+				});
+				await table.settle(1500);
+				assertClean(table, 'with two counter dials on the table');
+
+				const dial = (id: string) =>
+					table.page.evaluate((entityId) => window.__tableplace!.dial(entityId), id);
+
+				const first = await dial(counter);
+				ok(first, 'the counter drew no dial face');
+				ok(
+					first!.name === 'Health' && first!.value === 5 && first!.maxValue === 17,
+					`the dial printed the wrong thing: ${JSON.stringify(first)}`
+				);
+				ok(Math.abs(first!.facing) < 0.01, `seat 0's dial does not face seat 0: ${first!.facing}`);
+				const other = await dial(plain);
+				ok(
+					other?.name === 'Score' && other.value === 3,
+					`the second dial printed the wrong thing: ${JSON.stringify(other)}`
+				);
+				ok(
+					Math.abs(Math.abs(other!.facing) - Math.PI) < 0.01,
+					`seat 1's dial does not face seat 1: ${other!.facing}`
+				);
+
+				// frames alone never redraw the canvas
+				await table.settle(800);
+				const idle = await dial(counter);
+				ok(
+					idle!.redraws === first!.redraws,
+					`the dial redrew with nothing changed: ${first!.redraws} → ${idle!.redraws}`
+				);
+
+				// the pulse is instant on the value change, so watch for the kick
+				// first — waiting on the value, then looking, could miss it
+				const at = await table.locate(counter);
+				ok(at, 'the counter never mounted — nothing to click');
+				await table.page.mouse.click(at!.x, at!.y);
+				const kicked = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.scale > 1.05,
+					5000
+				);
+				ok(
+					!!kicked && kicked.scale > 1.05,
+					`the value change never pulsed the dial: ${JSON.stringify(kicked)}`
+				);
+				const printed = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.value === 4 && Math.abs(d.scale - 1) < 0.02
+				);
+				ok(
+					printed?.value === 4,
+					`the click did not change the printed value to 4: ${JSON.stringify(printed)}`
+				);
+				ok(
+					printed!.redraws === first!.redraws + 1,
+					`one value change cost ${printed!.redraws - first!.redraws} redraws`
+				);
+				ok(
+					Math.abs(printed!.scale - 1) < 0.02,
+					`the pulse never settled: ${JSON.stringify(printed)}`
+				);
+				const stored = await table.page.evaluate(
+					(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
+					counter
+				);
+				ok(stored === 4, `the store disagrees with the dial: ${JSON.stringify(stored)}`);
+
+				// locked (tableplace-189): a real drag leaves the dial where it is,
+				// a real click still counts, and hovering it shows the lock pill —
+				// the dial took over the counter's value badge, not the lock cue
+				await table.page.evaluate(
+					(id) => window.__tableplace!.actions.setLocked('piece', id, true),
+					counter
+				);
+				const pinnedAt = await table.positionOf(counter);
+				await table.dragBy(counter, DRAG.dx, DRAG.dy);
+				await table.settle(500);
+				const pinnedAfter = await table.positionOf(counter);
+				ok(
+					planarDistance(pinnedAt, pinnedAfter) < 0.01,
+					`the locked counter moved: ${JSON.stringify(pinnedAt)} → ${JSON.stringify(pinnedAfter)}`
+				);
+				const lifted = await table.page.evaluate(() => window.__tableplace!.drag().isDragging);
+				ok(!lifted, `the locked counter was lifted into a drag: ${lifted}`);
+				const pinned = await table.locate(counter);
+				ok(pinned, 'the locked counter vanished');
+				await table.page.mouse.click(pinned!.x, pinned!.y);
+				const counted = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.value === 3
+				);
+				ok(
+					counted?.value === 3,
+					`a click on the locked counter did not count: ${JSON.stringify(counted)}`
+				);
+				const lockPill = await eventually(
+					() => table.page.evaluate((id) => window.__tableplace!.badge(id), counter),
+					(b) => !!b
+				);
+				ok(!!lockPill, 'hovering the locked counter shows no lock pill');
+				await table.page.evaluate(
+					(id) => window.__tableplace!.actions.setLocked('piece', id, false),
+					counter
+				);
+
+				// the face must not have cost the table its raycast
+				await assertDraggable(table, counter, 'the counter dial');
+				await assertDraggable(table, deck, 'deck (with counter dials on the table)');
+				assertClean(table, 'at the end of the dial suite');
+				await table.snap('dial');
 			})
 	},
 	{
@@ -3869,5 +3972,141 @@ export const SPECS: Spec[] = [
 
 				assertClean(table, 'after hovering, opening ? and resizing');
 			})
+	},
+	{
+		/**
+		 * Lock (tableplace-189): L over a piece pins it, the pin syncs to a
+		 * second client, and a real drag at it then moves nothing — it toasts the
+		 * key instead — while everything else on the table still drags. L again
+		 * frees it, on both clients, and it drags like any other piece.
+		 */
+		name: 'lock: L pins a piece in place, the pin syncs, a drag leaves it where it was',
+		run: async (context) => {
+			const lobby = nextLobby('lock');
+			const table = await openTable(context.browser, context.servers, lobby);
+			try {
+				const page = table.page;
+				const deck = await table.seedDeck();
+				const token = await table.spawn('token', { name: 'Board', position: LANE(0) });
+				await table.settle(1500);
+
+				const lockedOn = (t: Table) =>
+					t.page.evaluate(
+						(id) => window.__tableplace!.state()?.pieces?.[id]?.locked === true,
+						token
+					);
+				/** hover the piece with the real mouse, then press L — the player's gesture */
+				const pressL = async () => {
+					const at = await table.locate(token);
+					ok(at, 'the token is not on screen to hover');
+					await page.mouse.move(at!.x, at!.y, { steps: 6 });
+					await table.settle(300);
+					await page.keyboard.press('KeyL');
+				};
+
+				// ── L pins it ───────────────────────────────────────────────────
+				await pressL();
+				ok(
+					await eventually(
+						() => lockedOn(table),
+						(on) => on,
+						3000
+					),
+					'L over the token did not lock it'
+				);
+				const hint = await page.evaluate(
+					() => document.querySelector('[data-testid="hint-bar"]')?.textContent ?? ''
+				);
+				ok(/locked/.test(hint), `the hint bar does not say the token is locked: "${hint}"`);
+				ok(/Unlock/.test(hint), `the hint bar does not offer L to unlock: "${hint}"`);
+
+				// ── a real drag at it moves nothing, and says why ───────────────
+				// the toast is short (it should be) and a loaded runner can spend
+				// longer than its life inside dragBy, so watch for it from the start
+				await page.evaluate(() => {
+					const seen = window as unknown as { __lockToast?: boolean };
+					seen.__lockToast = false;
+					new MutationObserver(() => {
+						if (document.body.textContent?.includes('press L to unlock')) seen.__lockToast = true;
+					}).observe(document.body, { subtree: true, childList: true, characterData: true });
+				});
+				const before = await table.positionOf(token);
+				await table.dragBy(token, DRAG.dx, DRAG.dy);
+				await table.settle(500);
+				const after = await table.positionOf(token);
+				ok(
+					planarDistance(before, after) < 0.01,
+					`the locked token moved: ${JSON.stringify(before)} → ${JSON.stringify(after)}`
+				);
+				const drag = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+				ok(!drag, `the locked token was lifted into a drag: ${drag}`);
+				const toasted = await eventually(
+					() => page.evaluate(() => !!(window as unknown as { __lockToast?: boolean }).__lockToast),
+					(shown) => shown,
+					3000
+				);
+				ok(toasted, 'dragging the locked token did not toast the key that unlocks it');
+				await table.snap('lock-refused');
+
+				// everything else on the table still answers the pointer
+				await assertDraggable(table, deck, 'deck (beside a locked token)');
+
+				// ── the pin syncs, both ways ────────────────────────────────────
+				// the second client only watches: every real-mouse step runs while
+				// the table is the one foreground page, so a backgrounded tab's
+				// throttled frames can't pass for a refused drag
+				const remote = await openTable(context.browser, context.servers, lobby);
+				try {
+					ok(
+						await eventually(
+							() => lockedOn(remote),
+							(on) => on,
+							8000
+						),
+						'the second client never saw the lock'
+					);
+					await page.bringToFront();
+					await pressL();
+					ok(
+						await eventually(
+							() => lockedOn(table),
+							(on) => !on,
+							8000
+						),
+						`a second L did not unlock the token — under the pointer: ${JSON.stringify(
+							await page.evaluate(() => {
+								const game = window.__tableplace!.state();
+								const locked = [
+									...Object.entries(game?.pieces ?? {}),
+									...Object.entries(game?.decks ?? {}),
+									...Object.entries(game?.cards ?? {})
+								]
+									.filter(([, e]) => (e as { locked?: boolean } | null)?.locked)
+									.map(([id]) => id);
+								return { drag: window.__tableplace!.drag(), locked };
+							})
+						)}`
+					);
+					ok(
+						await eventually(
+							() => lockedOn(remote),
+							(on) => !on,
+							8000
+						),
+						'the second client never saw the unlock'
+					);
+					assertClean(remote, 'on the second client after lock and unlock');
+				} finally {
+					await remote.close();
+				}
+
+				// ── unpinned, it drags like any other piece ─────────────────────
+				await page.bringToFront();
+				await assertDraggable(table, token, 'the unlocked token');
+				assertClean(table, 'after locking, a refused drag and unlocking');
+			} finally {
+				await table.close();
+			}
+		}
 	}
 ];

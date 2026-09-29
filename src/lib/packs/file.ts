@@ -112,6 +112,7 @@ function parseDeck(v: unknown, path: string): PackDeckDef {
 		cards: arr(v.cards, `${path}.cards`).map((c, i) => parseCard(c, `${path}.cards[${i}]`))
 	};
 	if (v.isFaceUp !== undefined) deck.isFaceUp = Boolean(v.isFaceUp);
+	if (v.locked !== undefined) deck.locked = Boolean(v.locked);
 	return deck;
 }
 
@@ -223,6 +224,7 @@ function parsePiece(v: unknown, path: string): PackPieceDef {
 	}
 	if (v.infinite !== undefined) piece.infinite = Boolean(v.infinite);
 	if (v.snap !== undefined) piece.snap = Boolean(v.snap);
+	if (v.locked !== undefined) piece.locked = Boolean(v.locked);
 	if (v.reach !== undefined) {
 		const reach = num(v.reach, `${path}.reach`);
 		if (!Number.isInteger(reach) || reach < 0) fail(`${path}.reach`, 'must be a whole number ≥ 0');
@@ -233,11 +235,13 @@ function parsePiece(v: unknown, path: string): PackPieceDef {
 
 function parseOverlay(v: unknown, path: string): PackOverlayDef {
 	if (!isRecord(v)) fail(path, 'must be an object');
-	return {
+	const overlay: PackOverlayDef = {
 		imageUrl: str(v.imageUrl, `${path}.imageUrl`),
 		ratio: num(v.ratio, `${path}.ratio`),
 		scale: num(v.scale, `${path}.scale`)
 	};
+	if (v.locked !== undefined) overlay.locked = Boolean(v.locked);
+	return overlay;
 }
 
 /**

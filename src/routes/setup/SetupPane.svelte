@@ -126,6 +126,7 @@
 		scale = overlay?.scale ?? 12;
 		rot = (overlay?.rotation?.[1] ?? 0) / DEG2RAD;
 		point3d = { x: overlay?.position?.[0] ?? 0, y: overlay?.position?.[2] ?? 0 };
+		overlayLocked = overlay?.locked ?? false;
 	}
 
 	async function handleLoad() {
@@ -451,6 +452,8 @@
 	let scale = $state($gameStore?.overlays?.table?.scale ?? 12);
 	let point3d = $state({ x: 0, y: 0 });
 	let imageUrl = $state($gameStore?.overlays?.table?.imageUrl ?? '');
+	// an overlay can't be hovered for L, so its pin is a control here
+	let overlayLocked = $state($gameStore?.overlays?.table?.locked ?? false);
 
 	$effect(() => {
 		const _imageUrl = imageUrl === '' ? undefined : imageUrl;
@@ -460,7 +463,9 @@
 					imageUrl: _imageUrl,
 					rotation: [0, rot * DEG2RAD, 0],
 					position: [point3d.x, 0.255, point3d.y],
-					scale
+					scale,
+					// null deletes the key: an unpinned board carries no flag at all
+					locked: overlayLocked ? true : null
 				}) as NonNullable<GameDTO['overlays']>[string]
 			}
 		});
@@ -719,6 +724,7 @@
 		<Point bind:value={point3d} label="Position" />
 		<AutoValue label="Scale" bind:value={scale} />
 		<Wheel label="Rotation" bind:value={rot} format={(v) => `${(Math.abs(v) % 360).toFixed(0)}°`} />
+		<Checkbox label="Locked" bind:value={overlayLocked} />
 	</Folder>
 	<Folder title="Save / Load" expanded={true}>
 		<Text label="Name" bind:value={scenarioName} />

@@ -91,11 +91,23 @@ export type TestBridge = {
 	describe: (id: string) => EntityShape | null;
 	/**
 	 * The entity's floating label badge (LabelBadge.svelte), or null while none
-	 * is mounted — which is itself the assertion for hover-only labels. `scale`
-	 * is the live pulse spring, so a spec can watch a counter's value-change
-	 * kick (jumps toward 1.6) and settle back to 1.
+	 * is mounted — which is itself the assertion for hover-only labels.
 	 */
 	badge: (id: string) => { scale: number } | null;
+	/**
+	 * A counter's printed dial face (CounterDial.svelte), or null when none is
+	 * drawn: what the canvas last printed, how many times it has been drawn (a
+	 * redraw only ever follows a change to name/value/max), its live pulse
+	 * `scale`, and the world yaw its text faces (0 reads from seat 0).
+	 */
+	dial: (id: string) => {
+		name: string;
+		value: number;
+		maxValue: number | null;
+		redraws: number;
+		scale: number;
+		facing: number;
+	} | null;
 	/**
 	 * The lift-time snap guides as they are drawn right now (tableplace-188),
 	 * read off the rendered objects rather than a store: `rings`/`cells` are
@@ -444,6 +456,29 @@ export function installTestBridge(handles: SceneHandles): void {
 				if (!group && node.userData.badge) group = node;
 			});
 			return group ? { scale: (group as THREE.Object3D).scale.x } : null;
+		},
+		dial: (id) => {
+			const object = handles.scene()?.getObjectByName(id);
+			let mesh: THREE.Object3D | null = null;
+			object?.traverse((node) => {
+				if (!mesh && node.userData.dial) mesh = node;
+			});
+			const face = mesh as THREE.Object3D | null;
+			if (!face?.parent) return null;
+			// where the text's baseline points: the viewer it reads for
+			const down = new THREE.Vector3(0, 0, 1).applyQuaternion(
+				face.parent.getWorldQuaternion(new THREE.Quaternion())
+			);
+			return {
+				...(face.userData.dial as {
+					name: string;
+					value: number;
+					maxValue: number | null;
+					redraws: number;
+				}),
+				scale: face.parent.scale.x,
+				facing: Math.atan2(down.x, down.z)
+			};
 		},
 		stall: setStall
 	};

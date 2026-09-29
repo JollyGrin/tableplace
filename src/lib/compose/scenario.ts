@@ -111,7 +111,8 @@ function place(
 			source,
 			position: placement.position,
 			rotation: placement.rotation,
-			scale: placement.scale
+			scale: placement.scale,
+			locked: placement.locked
 		});
 		if (composed) (state.overlays ??= {})[composed.id] = composed.overlay;
 		return;
@@ -140,7 +141,8 @@ function place(
 			order: placement.order,
 			shuffle: placement.shuffleOnLoad === true,
 			shuffleOnLoad: placement.shuffleOnLoad,
-			shuffleWith
+			shuffleWith,
+			locked: placement.locked
 		});
 		(state.decks ??= {})[composed.id] = composed.deck;
 		return;
@@ -160,7 +162,8 @@ function place(
 		position: placement.position,
 		rotation: placement.rotation,
 		value: placement.value,
-		state: placement.state
+		state: placement.state,
+		locked: placement.locked
 	});
 	if (composed) (state.pieces ??= {})[composed.id] = composed.piece;
 }
