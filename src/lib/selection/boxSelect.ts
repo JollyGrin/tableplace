@@ -138,4 +138,3 @@ export function beginBoxSelect(press: PointerEvent, project: Project) {
 	window.addEventListener('pointercancel', onCancel);
 	active = stop;
 }
-

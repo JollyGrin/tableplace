@@ -149,7 +149,8 @@ function carryPatch(
 		(patch[collectionOf(id)] ??= {})[id] = { position: [cx, carryY(id), cz] };
 	};
 	place(lead, x, z);
-	for (const member of state.group ?? []) place(member.id, x + member.offset[0], z + member.offset[1]);
+	for (const member of state.group ?? [])
+		place(member.id, x + member.offset[0], z + member.offset[1]);
 	return patch as Partial<GameDTO>;
 }
 

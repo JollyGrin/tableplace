@@ -165,7 +165,8 @@ export function hintFor(input: HintInput, verbs: VerbsFor = verbsFor): Hint {
 	if (dragging) {
 		return {
 			// a group names its size: which member you grabbed doesn't matter
-			name: carrying > 1 ? `${carrying} selected` : entityName(game, actor, entityTargetFor(dragging)),
+			name:
+				carrying > 1 ? `${carrying} selected` : entityName(game, actor, entityTargetFor(dragging)),
 			parts: [
 				...(dropKind ? [part('', RELEASE_TEXT[dropKind])] : []),
 				...DRAG_MODIFIERS.map((row) => part(row.key, row.action))

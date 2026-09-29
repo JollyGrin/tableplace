@@ -86,9 +86,22 @@ describe('verbs by kind', () => {
 		expect(verb({ kind: 'deck', id: 'deck:them:0' }, 'draw-table').enabled).toBe(true);
 	});
 
-	it('hand cards and selections are reserved kinds with nothing on them yet', () => {
+	it('hand cards are a reserved kind with nothing on them yet', () => {
 		expect(verbsFor({ kind: 'hand-card', id: 'card:me:AS' }, me)).toEqual([]);
-		expect(verbsFor({ kind: 'selection', ids: ['card:me:AS'] }, me)).toEqual([]);
+	});
+
+	it('a selection takes F, Q/E, G and L, and lists Esc (tableplace-202)', () => {
+		const verbs = verbsFor({ kind: 'selection', ids: ['card:me:AS'] }, me);
+		expect(verbs.map((verb) => [verb.id, verb.hotkey?.label])).toEqual([
+			['flip-selection', 'F'],
+			['rotate-selection-ccw', 'Q'],
+			['rotate-selection-cw', 'E'],
+			['group-selection', 'G'],
+			['lock-selection', 'L'],
+			['clear-selection', 'Esc']
+		]);
+		// Esc is listed, never dispatched: TableScene's capture listener owns it
+		expect(verbs.find((verb) => verb.id === 'clear-selection')?.hotkey?.codes).toEqual([]);
 	});
 });
 

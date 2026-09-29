@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
-	import {
-		clearHover,
-		dragStart,
-		dragStore,
-		isCarried,
-		setHover
-	} from './store/dragStore.svelte';
+	import { clearHover, dragStart, dragStore, isCarried, setHover } from './store/dragStore.svelte';
 	import { isSelectClick, selectedIds, toggleSelected } from './store/selection';
 	import SelectionRing from './SelectionRing.svelte';
 	import { Spring } from 'svelte/motion';
