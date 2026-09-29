@@ -102,6 +102,8 @@ export type TestBridge = {
 	 * the instance counts on screen (0 while hidden), `opacity` the ring
 	 * material's live fade, `target` the snap id the filled mark sits on and
 	 * `targetAt` where it sits, and `dim` the shared overlay-dim opacity.
+	 * `reach`/`reachIds` are the bright rings a piece with `reach` lights
+	 * (tableplace-190).
 	 */
 	snapGuides: () => SnapGuideShape;
 	/**

@@ -165,10 +165,13 @@ function toggleSnapLink(a: string, b: string): boolean {
 /** Drop every link on the table — the editor's "clear links". */
 function clearSnapLinks() {
 	const points = get(gameStore)?.snapPoints ?? {};
-	const update: Record<string, { links: null }> = {};
-	for (const id in points) if (points[id]?.links) update[id] = { links: null };
+	// `null` deletes the field — see updateSnapPoint for why the cast
+	const update: Record<string, Partial<SnapPointState>> = {};
+	for (const id in points) {
+		if (points[id]?.links) update[id] = { links: null } as unknown as Partial<SnapPointState>;
+	}
 	if (!Object.keys(update).length) return;
-	gameStore.updateState({ snapPoints: update } as Parameters<typeof gameStore.updateState>[0]);
+	gameStore.updateState({ snapPoints: update });
 }
 
 /** Replace a point's tags; an empty list deletes the field. */

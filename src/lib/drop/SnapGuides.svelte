@@ -72,6 +72,7 @@
 	// primitives, so a drag's per-move store updates don't rebuild the pools
 	const capacity = $derived(snapGuideCapacity(snapPoints));
 	const pointPool = $derived(poolSize(capacity.points));
+	const cellPool = $derived(poolSize(capacity.cells));
 
 	/**
 	 * The points within the lifted piece's reach, or null for the ordinary
@@ -79,7 +80,6 @@
 	 * where the piece came from, wherever it is being carried.
 	 */
 	const reachSet = $derived(active ? liftReachSet($gameStore, dragId, $dragStore.origin) : null);
-	const cellPool = $derived(poolSize(capacity.cells));
 
 	const ringGeometry = new THREE.RingGeometry(0.86, 1, 48);
 	// a 4-segment ring is a diamond; turned 45° it is a square frame
