@@ -22,11 +22,15 @@ const gameActions = {
 const shuffleHoveredDeck = vi.fn();
 const drawHoveredDeckToHand = vi.fn();
 const resetView = vi.fn();
+const toggleTopDown = vi.fn();
+const focus = vi.fn();
 
 vi.mock('$lib/store/game/actions', () => ({ gameActions }));
 vi.mock('$lib/hotkeys/shuffle', () => ({ shuffleHoveredDeck, SHUFFLE_NOT_MINE: 'not yours' }));
 vi.mock('$lib/hotkeys/draw', () => ({ drawHoveredDeckToHand, DRAW_NOT_MINE: 'not yours' }));
-vi.mock('$lib/utils/transforms/camera', () => ({ cameraTransforms: { resetView } }));
+vi.mock('$lib/utils/transforms/camera', () => ({
+	cameraTransforms: { resetView, toggleTopDown, focus }
+}));
 
 const { radialOptions, radialTitle } = await import('../actions');
 
@@ -99,14 +103,23 @@ describe('deck wheel', () => {
 });
 
 describe('table wheel', () => {
-	it('is deliberately sparse, and the layout still has to hold', () => {
+	it('offers the camera presets: seat view, top-down, focus', () => {
 		const options = radialOptions({ kind: 'table' });
-		expect(options.map((option) => option.id)).toEqual(['reset-view']);
+		expect(options.map((option) => option.id)).toEqual(['reset-view', 'top-down', 'focus']);
 		options[0]!.run();
 		expect(resetView).toHaveBeenCalled();
+		options[1]!.run();
+		expect(toggleTopDown).toHaveBeenCalled();
+		options[2]!.run();
+		// the table's focus names nothing: it frames what you moved last
+		expect(focus).toHaveBeenCalledWith();
 	});
 
 	it('falls back to the table wheel when an entity target lost its id', () => {
-		expect(radialOptions({ kind: 'card' }).map((option) => option.id)).toEqual(['reset-view']);
+		expect(radialOptions({ kind: 'card' }).map((option) => option.id)).toEqual([
+			'reset-view',
+			'top-down',
+			'focus'
+		]);
 	});
 });

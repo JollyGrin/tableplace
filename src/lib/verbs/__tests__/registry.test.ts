@@ -47,7 +47,8 @@ describe('verbs by kind', () => {
 			'tap-reverse',
 			'group',
 			'raise',
-			'lower'
+			'lower',
+			'focus'
 		]);
 		expect(ids(verbsFor({ kind: 'deck', id: 'deck:me:0' }, me))).toEqual([
 			'draw',
@@ -55,9 +56,16 @@ describe('verbs by kind', () => {
 			'flip',
 			'shuffle',
 			'ungroup',
-			'move'
+			'move',
+			'focus'
 		]);
-		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual(['preview', 'reset-view', 'help']);
+		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual([
+			'preview',
+			'reset-view',
+			'top-down',
+			'focus',
+			'help'
+		]);
 	});
 
 	it("another player's deck refuses a draw to your hand; an unowned one deals (tableplace-194)", () => {
@@ -80,7 +88,9 @@ describe('verbs by kind', () => {
 });
 
 describe('verbs by capability, never by game', () => {
-	const piece = (id: string) => ids(verbsFor({ kind: 'piece', id }, me));
+	// every piece can be focused; what differs by capability is everything else
+	const piece = (id: string) =>
+		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => verb !== 'focus');
 
 	it('grid-rotatable → rotate; has states → next/previous state', () => {
 		expect(piece('piece:me:m')).toEqual(['rotate-cw', 'rotate-ccw']);
@@ -164,7 +174,7 @@ describe('the Keybinds folder is generated from the registry', () => {
 			['Actions on card / deck / table', 'right-click'],
 			['Same wheel, no right button', 'press & hold'],
 			['Pan camera', 'W A S D'],
-			['Reset camera', 'C'],
+			['Seat view (reset camera)', 'C'],
 			['Preview hovered (card, hand, deck, piece)', 'hold Space or Alt'],
 			['Tap card', 'T'],
 			['Reverse tap card', 'R'],
@@ -192,6 +202,13 @@ describe('the Keybinds folder is generated from the registry', () => {
 	it('says a deck click draws to the hand and Shift+click to the table (tableplace-194)', () => {
 		expect(keyFor('Draw into your hand')).toBe('click deck');
 		expect(keyFor('Draw onto the table')).toBe('Shift + click deck');
+	});
+
+	it('lists the camera presets (tableplace-185)', () => {
+		expect(keyFor('Toggle top-down / seat view')).toBe('P');
+		expect(keyFor('Focus hovered card, deck or piece')).toBe('Z');
+		expect(keyFor('Focus what you moved last')).toBe('Z');
+		expect(keyFor('Focus a card, deck or piece')).toBe('double-click');
 	});
 
 	it('menus print their hotkeys from the same place', () => {
