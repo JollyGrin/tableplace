@@ -12,8 +12,9 @@
  * hovered card.
  *
  * Nothing here calls `preventDefault` or `stopPropagation`, and no verb claims
- * a modifier: Alt is the no-snap modifier and the second preview key, read by
- * TableScene's own listener, and it must reach it untouched.
+ * Alt: it is the no-snap modifier and the second preview key, read by
+ * TableScene's own listener, and it must reach it untouched. Ctrl/⌘ belongs
+ * to the one verb that asks for it (undo); a bare key never fires under it.
  */
 
 import { get } from 'svelte/store';
@@ -83,14 +84,18 @@ export function currentActor(): VerbActor {
 	return { playerId: gameActions.getMe()?.id };
 }
 
-export function matchesHotkey(hotkey: Hotkey, event: Pick<KeyboardEvent, 'code' | 'shiftKey'>) {
+type KeyChord = Pick<KeyboardEvent, 'code' | 'shiftKey'> &
+	Partial<Pick<KeyboardEvent, 'ctrlKey' | 'metaKey'>>;
+
+export function matchesHotkey(hotkey: Hotkey, event: KeyChord) {
 	if (!hotkey.codes.includes(event.code)) return false;
+	if (!!hotkey.mod !== !!(event.ctrlKey || event.metaKey)) return false;
 	return hotkey.shift === undefined || hotkey.shift === event.shiftKey;
 }
 
 /** the verb a keypress means right now, or null */
 export function verbForKey(
-	event: Pick<KeyboardEvent, 'code' | 'shiftKey'>,
+	event: KeyChord,
 	targets: VerbTarget[] = pointerTargets(),
 	actor: VerbActor = currentActor()
 ): Verb | null {

@@ -11,6 +11,7 @@
 	import HintBar from '$lib/hint/HintBar.svelte';
 	import HelpOverlay from '$lib/hint/HelpOverlay.svelte';
 	import DeckSearchDrawer from '$lib/deckSearch/DeckSearchDrawer.svelte';
+	import JournalPanel from '$lib/journal/JournalPanel.svelte';
 	import { startAutoClaim } from '$lib/scenario/autoClaim';
 	import Pane from './Pane.svelte';
 	import { page } from '$app/state';
@@ -86,6 +87,7 @@
 <HintBar />
 <HelpOverlay />
 <DeckSearchDrawer />
+<JournalPanel />
 
 <!-- a pack or scenario dropped mid-game lands on the live table (and, for a
      pack, in this browser's library) — no detour through /setup -->
