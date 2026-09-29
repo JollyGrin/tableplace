@@ -19,6 +19,8 @@
 	import CounterDial from './CounterDial.svelte';
 	import Die from './Die.svelte';
 	import LabelBadge from './LabelBadge.svelte';
+	import { toastLocked } from '$lib/hotkeys/lock';
+	import { LOCK_BADGE_TEXT } from '$lib/utils/constants-lock';
 	import Model from './models/Model.svelte';
 	import PieceFace from './PieceFace.svelte';
 	import DropFootprint from './drop/DropFootprint.svelte';
@@ -117,6 +119,9 @@
 	let dragMoved = false;
 
 	function liftIntoDrag() {
+		// pinned: a click still counts / rolls / draws, but the piece stays put
+		// and the toast names the key that frees it
+		if (piece?.locked) return toastLocked();
 		// origin (pre-lift store position) is what Esc returns the piece to
 		dragStart(id, position[1], piece?.position as [number, number, number] | undefined);
 	}
@@ -244,8 +249,19 @@
 		return isHovered && piece?.name ? `${piece.name} · ${remaining}` : remaining;
 	});
 
-	// a counter wears no pill: its dial face prints name and value (tableplace-191)
+	// a counter's base label is empty — its dial face prints name and value
+	// (tableplace-191) — so a hovered locked counter wears just the lock pill
 	const label = $derived.by(() => {
+		const base = baseLabel();
+		// a pinned piece says so on hover, in the badge it already wears
+		return isHovered && piece?.locked
+			? base
+				? `${base} · ${LOCK_BADGE_TEXT}`
+				: LOCK_BADGE_TEXT
+			: base;
+	});
+
+	function baseLabel(): string {
 		if (kind === 'bag') return bagLabel;
 		if (kind === 'counter') return '';
 		// name the face, not just the piece: with several states that is the only
@@ -253,7 +269,7 @@
 		const stateName = states.length > 1 ? states[stateIndex]?.name : undefined;
 		const name = piece?.name ?? '';
 		return stateName ? (name ? `${name} — ${stateName}` : stateName) : name;
-	});
+	}
 
 	const counterValue = $derived(piece?.value ?? piece?.maxValue ?? 0);
 

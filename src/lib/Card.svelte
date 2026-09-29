@@ -27,6 +27,13 @@
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
 	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
+	import { toastLocked } from '$lib/hotkeys/lock';
+	import LabelBadge from './LabelBadge.svelte';
+	import {
+		LOCK_BADGE_FONT_SIZE,
+		LOCK_BADGE_LIFT_CARD,
+		LOCK_BADGE_TEXT
+	} from '$lib/utils/constants-lock';
 	type Vec3Array = [number, number, number];
 
 	let { id }: { id: string } = $props();
@@ -181,6 +188,9 @@
 	let pendingDrag: { x: number; y: number } | null = null;
 
 	function liftIntoDrag() {
+		// pinned: the press still claimed the pile (nothing under it moves either),
+		// but the card stays put and the toast names the key that frees it
+		if (cardState?.locked) return toastLocked();
 		// origin is the store position from before the lift, so Esc can put the
 		// card back exactly where it was
 		dragStart(id, position[1], (cardState?.position as Vec3Array) ?? undefined);
@@ -335,6 +345,15 @@
 		</T.Mesh>
 	{/if}
 </T.Group>
+
+{#if isHovered && cardState?.locked}
+	<!-- the pin's hover mark: outside the card's group so a flip never turns it -->
+	<LabelBadge
+		text={LOCK_BADGE_TEXT}
+		fontSize={LOCK_BADGE_FONT_SIZE}
+		position={[posX, posY + LOCK_BADGE_LIFT_CARD, posZ]}
+	/>
+{/if}
 
 {#if isPicked}
 	<!--

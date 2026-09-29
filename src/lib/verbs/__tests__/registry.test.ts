@@ -50,6 +50,7 @@ describe('verbs by kind', () => {
 			'group',
 			'raise',
 			'lower',
+			'lock',
 			'focus'
 		]);
 		expect(ids(verbsFor({ kind: 'deck', id: 'deck:me:0' }, me))).toEqual([
@@ -59,6 +60,7 @@ describe('verbs by kind', () => {
 			'shuffle',
 			'ungroup',
 			'move',
+			'lock',
 			'focus'
 		]);
 		expect(ids(verbsFor({ kind: 'table' }, me))).toEqual([
@@ -90,9 +92,9 @@ describe('verbs by kind', () => {
 });
 
 describe('verbs by capability, never by game', () => {
-	// every piece can be focused; what differs by capability is everything else
+	// every piece can be focused and locked; what differs by capability is everything else
 	const piece = (id: string) =>
-		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => verb !== 'focus');
+		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => verb !== 'focus' && verb !== 'lock');
 
 	it('grid-rotatable → rotate; has states → next/previous state', () => {
 		expect(piece('piece:me:m')).toEqual(['rotate-cw', 'rotate-ccw', 'snap-toggle', 'remove']);

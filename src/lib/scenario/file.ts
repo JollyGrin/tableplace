@@ -72,6 +72,13 @@ export type PackPlacement = {
 	state?: number;
 	/** overlays only */
 	scale?: number;
+	/**
+	 * Place it pinned (tableplace-189): it can't be dragged, flipped, turned or
+	 * grouped until someone presses `L` on it. Any kind — how a layout lays a
+	 * board down locked. `false` unpins content the pack itself marks locked;
+	 * omitted keeps the pack's own default.
+	 */
+	locked?: boolean;
 };
 
 /**
@@ -262,6 +269,7 @@ function parsePlacement(v: unknown, path: string): PackPlacement {
 		if (typeof v.scale !== 'number') fail(`${path}.scale must be a number`);
 		placement.scale = v.scale;
 	}
+	if (v.locked !== undefined) placement.locked = Boolean(v.locked);
 	return placement;
 }
 

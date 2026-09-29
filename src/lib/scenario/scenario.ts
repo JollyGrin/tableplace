@@ -117,6 +117,8 @@ function toPlacement(
 	};
 	if (entity.position) placement.position = entity.position as [number, number, number];
 	if (entity.rotation) placement.rotation = entity.rotation as [number, number, number];
+	// pinned is authoring intent for any kind (a board laid down locked)
+	if (entity.locked) placement.locked = true;
 
 	if (kind === 'deck') {
 		const deck = entity as unknown as Partial<DeckDTO>;

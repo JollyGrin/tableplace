@@ -1,6 +1,7 @@
 import toast from 'svelte-french-toast';
 import { gameActions } from '$lib/store/game/actions';
 import { UNGROUP_MAX_CARDS, type UngroupRefusal } from '$lib/store/game/actions/deck';
+import { LOCKED_REFUSAL } from './lock';
 
 /**
  * What a refused ungroup says out loud — the toast, and the verb registry's
@@ -12,6 +13,8 @@ export function ungroupRefusalText(refusal: UngroupRefusal): string | null {
 			return null;
 		case 'not-mine':
 			return "That deck isn't yours to spread";
+		case 'locked':
+			return LOCKED_REFUSAL;
 		case 'empty':
 			return 'That deck is empty';
 		case 'too-many':
