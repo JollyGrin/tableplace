@@ -6,6 +6,9 @@ import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { deckHeightForCount } from '$lib/utils/constants-cards';
 import { launchFlights } from '$lib/HUDTray/drawFlight';
 
+/** why someone else's deck refuses — the toast, and the verb's reasonDisabled */
+export const DRAW_NOT_MINE = "That deck isn't yours to draw from";
+
 /**
  * Draw into your hand — a deck click, number keys 1-9, the wheel's "Draw to
  * hand". Shared so the refusal wording is written once and the wheel can
@@ -23,7 +26,7 @@ export function drawHoveredDeckToHand(deckId?: string, count = 1) {
 	const deck = get(gameStore)?.decks?.[id];
 	const result = gameActions.drawToHand(id, count);
 	if (!result.ok) {
-		if (result.reason === 'not-yours') toast.error("That deck isn't yours to draw from");
+		if (result.reason === 'not-yours') toast.error(DRAW_NOT_MINE);
 		else if (result.reason === 'empty') toast.error('That deck is empty');
 		return result;
 	}

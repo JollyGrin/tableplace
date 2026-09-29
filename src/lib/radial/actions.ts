@@ -1,10 +1,10 @@
 /**
- * What each kind of thing offers on its wheel.
+ * What each kind of thing offers on its wheel — read from the verb registry.
  *
- * Every option routes through the SAME call the keybind does — the hotkey
- * wrappers for shuffle and ungroup, not `gameActions` directly — so ownership
- * refusals and their toasts are written once and the wheel can never quietly
- * become a second, more permissive way to touch a deck.
+ * A wedge IS the registry verb the keybind runs — the hotkey wrappers for
+ * shuffle and ungroup, not `gameActions` directly — so ownership refusals and
+ * their toasts are written once and the wheel can never quietly become a
+ * second, more permissive way to touch a deck.
  *
  * The target id is always the entity the press landed on, passed explicitly.
  * The hover fallback inside `flipCard`/`tapCard`/`flipDeck` must never decide a
@@ -13,11 +13,8 @@
  */
 
 import { gameActions } from '$lib/store/game/actions';
-import { grabDeck } from '$lib/drop/grab';
-import { shuffleHoveredDeck } from '$lib/hotkeys/shuffle';
-import { drawHoveredDeckToHand } from '$lib/hotkeys/draw';
-import { ungroupHoveredDeck } from '$lib/hotkeys/ungroup';
-import { cameraTransforms } from '$lib/utils/transforms/camera';
+import { verbsFor } from '$lib/verbs/registry';
+import type { VerbTarget } from '$lib/verbs/types';
 
 export type RadialTargetKind = 'card' | 'deck' | 'table';
 
@@ -39,34 +36,17 @@ export function radialTitle(target: RadialTarget): string {
 }
 
 /**
- * Wedges are laid out from the top, clockwise (see geometry.ts), so this order
- * is the layout: for four options that reads up / right / down / left.
+ * The verbs marked `radial` in the registry (`$lib/verbs/registry.ts`), in its
+ * order. Wedges are laid out from the top, clockwise (see geometry.ts), so that
+ * order is the layout: for four options that reads up / right / down / left.
  */
 export function radialOptions(target: RadialTarget): RadialOption[] {
-	const id = target.id;
-	if (target.kind === 'card' && id) {
-		return [
-			{ id: 'flip', label: 'Flip', run: () => void gameActions.flipCard(id) },
-			{ id: 'tap', label: 'Tap', run: () => gameActions.tapCard(false, id) },
-			{ id: 'tap-reverse', label: 'Tap ⟲', run: () => gameActions.tapCard(true, id) },
-			{ id: 'group', label: 'Group into deck', run: () => void gameActions.groupStackIntoDeck(id) }
-		];
-	}
-	if (target.kind === 'deck' && id) {
-		return [
-			// a click draws to your hand; the felt is the wheel's (and Shift+click's)
-			{ id: 'draw', label: 'Draw to hand', run: () => void drawHoveredDeckToHand(id, 1) },
-			{ id: 'draw-table', label: 'Draw to table', run: () => void gameActions.drawFromTop(id, 1) },
-			{ id: 'flip', label: 'Flip', run: () => void gameActions.flipDeck(id) },
-			{ id: 'shuffle', label: 'Shuffle', run: () => void shuffleHoveredDeck(id) },
-			{ id: 'ungroup', label: 'Ungroup', run: () => void ungroupHoveredDeck(id) },
-			// moving a pile lives here now rather than on a long press: dragging a
-			// deck draws off its top, and the hold it used to need is this wheel.
-			// The pile follows the pointer until you click it down (see drop/grab).
-			{ id: 'move', label: 'Move pile', run: () => void grabDeck(id) }
-		];
-	}
-	// deliberately sparse — the layout handles 1-8, so a table verb (spawn, ping)
-	// is a line here and nothing else
-	return [{ id: 'reset-view', label: 'Reset view', run: () => cameraTransforms.resetView() }];
+	return verbsFor(toVerbTarget(target), { playerId: gameActions.getMe()?.id })
+		.filter((verb) => verb.radial)
+		.map(({ id, label, run }) => ({ id, label, run: () => run() }));
+}
+
+/** an entity target that lost its id falls back to the table's wheel */
+function toVerbTarget({ kind, id }: RadialTarget): VerbTarget {
+	return kind === 'table' || !id ? { kind: 'table' } : { kind, id };
 }

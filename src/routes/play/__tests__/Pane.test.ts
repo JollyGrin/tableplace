@@ -11,6 +11,7 @@ import Pane from '../Pane.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import type { GameDTO } from '$lib/store/game/types';
+import { keybindReference } from '$lib/verbs/registry';
 
 // the pane reads the lobby out of the URL and can navigate; neither module
 // boots outside a real SvelteKit client runtime
@@ -121,11 +122,10 @@ describe('/play settings pane on first paint', () => {
 		await settle();
 
 		// the whole point of #115: nothing read-only may look like a field you
-		// are locked out of. Every keybind lives in the list — 12 at #115, plus
-		// the four tableplace-161 added (the wheel, its no-right-button opener,
-		// WASD panning and shuffle's new Shift+S home), plus tableplace-194's
-		// draw-to-hand and Shift draw-to-table...
-		expect(container.querySelectorAll('dt').length).toBe(18);
+		// are locked out of. Every keybind lives in the list — which since
+		// tableplace-183 is generated from the verb registry, row for row...
+		expect(container.querySelectorAll('dt').length).toBe(keybindReference().length);
+		expect(keybindReference().length).toBeGreaterThanOrEqual(16);
 		// ...and no blade in the pane is rendered disabled
 		expect(container.querySelectorAll('.tp-lblv-disabled').length).toBe(0);
 		expect([...container.querySelectorAll('input')].filter((i) => i.disabled).length).toBe(0);

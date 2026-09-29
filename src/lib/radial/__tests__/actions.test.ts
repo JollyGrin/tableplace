@@ -10,10 +10,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const gameActions = {
+	getMe: () => ({ id: 'me' }),
 	flipCard: vi.fn(),
 	tapCard: vi.fn(),
 	groupStackIntoDeck: vi.fn(),
 	drawFromTop: vi.fn(),
+	canDrawToHand: () => true,
 	flipDeck: vi.fn(),
 	ungroupDeck: vi.fn(() => ({ ok: true, deckId: 'deck:me:0', cardIds: [] }))
 };
@@ -22,8 +24,8 @@ const drawHoveredDeckToHand = vi.fn();
 const resetView = vi.fn();
 
 vi.mock('$lib/store/game/actions', () => ({ gameActions }));
-vi.mock('$lib/hotkeys/shuffle', () => ({ shuffleHoveredDeck }));
-vi.mock('$lib/hotkeys/draw', () => ({ drawHoveredDeckToHand }));
+vi.mock('$lib/hotkeys/shuffle', () => ({ shuffleHoveredDeck, SHUFFLE_NOT_MINE: 'not yours' }));
+vi.mock('$lib/hotkeys/draw', () => ({ drawHoveredDeckToHand, DRAW_NOT_MINE: 'not yours' }));
 vi.mock('$lib/utils/transforms/camera', () => ({ cameraTransforms: { resetView } }));
 
 const { radialOptions, radialTitle } = await import('../actions');
@@ -79,7 +81,7 @@ describe('deck wheel', () => {
 
 	it('acts on the pressed deck', () => {
 		run(target, 'draw');
-		// through the wrapper, so the not-yours toast is the keybind's own
+		// through the wrapper, so the not-yours toast is the key's own
 		expect(drawHoveredDeckToHand).toHaveBeenCalledWith('deck:me:0', 1);
 		run(target, 'draw-table');
 		expect(gameActions.drawFromTop).toHaveBeenCalledWith('deck:me:0', 1);
