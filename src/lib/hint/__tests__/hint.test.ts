@@ -58,10 +58,26 @@ describe('hovering a deck', () => {
 	it('names it by its count and offers draw and shuffle with their keys', () => {
 		const hint = line([{ kind: 'deck', id: 'deck:me:0' }, TABLE]);
 		expect(hint.name).toBe('Deck (3)');
-		expect(keys(hint)).toContain('1 – 9|Draw 1');
+		expect(keys(hint)).toContain('1 – 9|Draw to hand');
 		expect(keys(hint)).toContain('Shift + S|Shuffle');
 		// the pile's own verbs come before the table's
-		expect(hint.parts[0]!.text).toBe('Draw 1');
+		expect(hint.parts[0]!.text).toBe('Draw to hand');
+	});
+
+	it('names the Shift+click that keeps a draw on the felt', () => {
+		expect(keys(line([{ kind: 'deck', id: 'deck:me:0' }, TABLE]))).toContain(
+			'Shift+click|Draw to table'
+		);
+	});
+
+	it("someone else's pile names draw to hand disabled, with the reason", () => {
+		// a pile is someone else's only while its owner sits in the lobby
+		gameStore.set({ ...game, players: { ...game.players, them: {} } } as never);
+		const draw = line([{ kind: 'deck', id: 'deck:them:0' }, TABLE]).parts.find(
+			(p) => p.text === 'Draw to hand'
+		)!;
+		expect(draw.enabled).toBe(false);
+		expect(draw.reason).toBeTruthy();
 	});
 
 	it('a face-up pile is named by the card on top', () => {
@@ -163,6 +179,15 @@ describe('the ? reference', () => {
 				def.id
 			).toBe(true);
 		}
+	});
+
+	it('the deck section names both draws with their keys', () => {
+		const deck = verbReference().find((section) => section.title === 'Deck')!;
+		expect(deck.rows).toContainEqual({
+			action: 'Draw that many into your hand',
+			key: '1 – 9 · click'
+		});
+		expect(deck.rows).toContainEqual({ action: 'Draw to table', key: 'Shift+click' });
 	});
 
 	it('the ? verb toggles it', () => {
