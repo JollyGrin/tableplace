@@ -2,6 +2,7 @@
 	import { T } from '@threlte/core';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { Spring } from 'svelte/motion';
+	import { untrack } from 'svelte';
 	import {
 		clearBagHover,
 		dragStart,
@@ -22,6 +23,7 @@
 	import { createDieInput } from '$lib/utils/die-input';
 	import { createBagInput } from '$lib/utils/bag-input';
 	import { DEG2RAD } from 'three/src/math/MathUtils.js';
+	import { nearestTurn } from '$lib/utils/yaw';
 	import { SEAT_ROTATION_DEG } from '$lib/hud/players';
 	import { placeholderSeat } from '$lib/compose/pack';
 	import CounterDial from './CounterDial.svelte';
@@ -123,8 +125,26 @@
 	 * caught by the same yawed grid cell line up with the drawn cell. This
 	 * binding is what makes snap-written rotations — and R/T on a model —
 	 * visible; it was previously stored and synced but never applied.
+	 *
+	 * Sprung through the shortest arc (tableplace-200): the stored yaw wraps
+	 * into [0, 360), so 315° + 45° is 0° and must turn on to 360°, not spin
+	 * back. The next target is measured from the last one, read untracked —
+	 * the effect writes it.
 	 */
-	const yaw = $derived(-((piece?.rotation?.[1] ?? 0) * DEG2RAD));
+	const yawSpring = new Spring(
+		untrack(() => piece?.rotation?.[1] ?? 0),
+		{
+			stiffness: 0.15,
+			damping: 0.8,
+			precision: 0.01
+		}
+	);
+	$effect(() => {
+		const stored = piece?.rotation?.[1] ?? 0;
+		const heading = untrack(() => yawSpring.target);
+		driveSpring(yawSpring, nearestTurn(heading, stored));
+	});
+	const yaw = $derived(-(yawSpring.current * DEG2RAD));
 
 	let pendingDrag: { x: number; y: number } | null = null;
 	let dragMoved = false;

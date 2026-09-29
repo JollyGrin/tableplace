@@ -226,6 +226,13 @@
 						"required": ["position"]
 					},
 					"title": "snapPoints"
+				},
+				"rotationStep": {
+					"description": "How far Q and E turn a card, deck or piece on this table, in degrees:\ngreater than 0, at most 360. Omitted means 45. T and R on a card stay 90°\ntaps. Seeded into the lobby's synced `state.table`, so every player turns\nby the same step (tableplace-200).",
+					"exclusiveMinimum": 0,
+					"maximum": 360,
+					"type": "number",
+					"title": "rotationStep"
 				}
 			},
 			"required": ["createdAt", "name", "state"]
@@ -323,6 +330,18 @@
 						]
 					},
 					"title": "snapPoints"
+				},
+				"table": {
+					"description": "table-wide settings (`rotationStep`); a field set to null is removed",
+					"type": "object",
+					"properties": {
+						"rotationStep": {
+							"description": "How far Q and E turn a card, deck or piece, in degrees — any value in\n(0, 360]. Absent means `ROTATION_STEP_DEFAULT` (45). T and R on a card\nstay 90° taps whatever this says.",
+							"type": "number",
+							"title": "rotationStep"
+						}
+					},
+					"title": "table"
 				}
 			}
 		},
@@ -989,7 +1008,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.13",
-	"x-generated-at": "2026-09-29T17:43:00.205Z",
-	"x-tableplace-source-sha": "feda91cabf3fdf6b0ec40326f6c9cf86eae73aa1"
+	"x-tableplace-spec-version": "0.1.14",
+	"x-generated-at": "2026-09-29T18:02:41.986Z",
+	"x-tableplace-source-sha": "77e0757b0cebb4b8ca7d301b89fd1b6dcf75e773-dirty"
 }
