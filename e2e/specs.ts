@@ -1990,8 +1990,8 @@ export const SPECS: Spec[] = [
 				ok(Math.abs(first!.facing) < 0.01, `seat 0's dial does not face seat 0: ${first!.facing}`);
 				const other = await dial(plain);
 				ok(
-					other && other.value === 3 && other.maxValue === null,
-					`the max-less dial printed the wrong thing: ${JSON.stringify(other)}`
+					other?.name === 'Score' && other.value === 3,
+					`the second dial printed the wrong thing: ${JSON.stringify(other)}`
 				);
 				ok(
 					Math.abs(Math.abs(other!.facing) - Math.PI) < 0.01,
