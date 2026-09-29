@@ -5529,5 +5529,248 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * tableplace-197: remote pointers. Two players in two browser contexts.
+		 * The first moves a real mouse over the felt; the second must draw a
+		 * cursor, in the pointer's seat colour, gliding to that table point. It
+		 * only ever arrives on the ephemeral `camera` message — no new message
+		 * type — and orbiting while pointing stays inside that stream's ~3 Hz
+		 * throttle. The cursor fades once the mouse idles, goes the moment it
+		 * leaves the canvas, and the setting hides it outright.
+		 */
+		name: 'remote pointers: the other player sees my cursor on the felt, inside the camera budget',
+		run: async (context) => {
+			const lobby = nextLobby('pointers');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const peerContext = await context.browser.createBrowserContext();
+			let remote: Table | null = null;
+			const pointers = (t: Table) => t.page.evaluate(() => window.__tableplace!.remotePointers());
+			const myId = (t: Table) => t.page.evaluate(() => window.__tableplace!.actions.getMyId());
+			// SEAT_COLOR in src/lib/hud/players.ts
+			const SEAT_COLOR: Record<number, string> = {
+				0: '#ff6b8a',
+				1: '#6ee7a0',
+				2: '#b98cff',
+				3: '#ff8a3d'
+			};
+			const project = (t: Table, x: number, z: number) =>
+				t.page.evaluate((w) => window.__tableplace!.project(w), [x, TABLE_TOP_Y, z] as [
+					number,
+					number,
+					number
+				]);
+			try {
+				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
+				await table.settle();
+				remote = await openTable(peerContext, context.servers, lobby);
+				const peer = remote;
+				await peer.page.evaluate(() => window.__tableplace!.actions.setSeat(1));
+				await peer.settle(1500);
+				await assertRenders(peer, piece, 'the piece (second client)');
+				const [me, them] = [await myId(table), await myId(peer)];
+				ok(me && them && me !== them, `the two clients are not two players: ${me} / ${them}`);
+
+				// count every message the pointing client puts on the wire, by type
+				await table.page.evaluate(() => {
+					const w = window as unknown as {
+						__sends?: { type: string; at: number; data: string }[];
+					};
+					w.__sends = [];
+					const send = WebSocket.prototype.send;
+					WebSocket.prototype.send = function (data) {
+						const type = typeof data === 'string' ? /"type":"(\w+)"/.exec(data)?.[1] : null;
+						// the socket's own keepalive (a bare `{"type":"ping"}` every 30s)
+						// is not the table's traffic
+						if (data === '{"type":"ping"}') return send.call(this, data);
+						w.__sends!.push({
+							type: type ?? '?',
+							at: performance.now(),
+							data: String(data).slice(0, 160)
+						});
+						return send.call(this, data);
+					};
+				});
+				const sends = () =>
+					table.page.evaluate(
+						() =>
+							(window as unknown as { __sends: { type: string; at: number; data: string }[] })
+								.__sends
+					);
+
+				// ── point at the felt: the other player draws it there, in my colour ──
+				const spot: [number, number] = [6, 4];
+				const at = await project(table, ...spot);
+				ok(at, 'the felt spot projects off-screen');
+				ok(
+					(await table.elementAt(at!)).startsWith('canvas'),
+					`the felt spot is under a pane: ${await table.elementAt(at!)}`
+				);
+				// a real sweep in, not a teleport — the stream gates on movement
+				await table.page.mouse.move(at!.x - 120, at!.y - 60);
+				await table.page.mouse.move(at!.x, at!.y, { steps: 12 });
+				const seen = await eventually(
+					() => pointers(peer),
+					(list) =>
+						list.some(
+							(p) =>
+								p.playerId === me && p.visible && Math.hypot(p.x - spot[0], p.z - spot[1]) < 0.5
+						),
+					20_000
+				);
+				const mine = seen.find((p) => p.playerId === me);
+				ok(
+					mine?.visible,
+					`the second client never drew the first player's pointer: ${JSON.stringify(seen)}`
+				);
+				ok(
+					Math.hypot(mine!.x - spot[0], mine!.z - spot[1]) < 0.5,
+					`the pointer is drawn at ${mine!.x},${mine!.z}, not the pointed-at ${spot.join(',')}`
+				);
+				const seat = await peer.page.evaluate(
+					(pid) => window.__tableplace!.state()?.players?.[pid]?.seat,
+					me!
+				);
+				ok(
+					typeof seat === 'number'
+						? mine!.color === SEAT_COLOR[seat]
+						: Object.values(SEAT_COLOR).includes(mine!.color ?? ''),
+					`the pointer is ${mine!.color}, not the pointer's seat colour (seat ${seat})`
+				);
+				ok(
+					!(await pointers(table)).some((p) => p.playerId === me && p.visible),
+					'the first client draws its own pointer'
+				);
+				await peer.snap('remote-pointer');
+
+				// it rode the camera message: nothing but `camera` went out for it
+				const pointed = await sends();
+				ok(
+					pointed.some((m) => m.type === 'camera'),
+					`pointing sent no camera sample: ${JSON.stringify(pointed)}`
+				);
+				ok(
+					pointed.every((m) => m.type === 'camera'),
+					`pointing sent something other than camera samples: ${JSON.stringify(pointed.filter((m) => m.type !== 'camera'))}`
+				);
+				ok(
+					!(await table.page.evaluate(() => JSON.stringify(window.__tableplace!.state()))).includes(
+						'"c":['
+					),
+					'a pointer leaked into lobby state'
+				);
+
+				// ── orbiting while pointing stays inside the camera budget ──
+				await sleep(800);
+				const before = (await sends()).length;
+				const t0 = await table.page.evaluate(() => performance.now());
+				await table.page.mouse.move(at!.x, at!.y);
+				await table.page.mouse.down({ button: 'right' });
+				for (let i = 0; i < 60; i++) {
+					// right-drag orbits; the cursor sweeps the felt as it goes
+					await table.page.mouse.move(at!.x + Math.sin(i / 6) * 140, at!.y + Math.cos(i / 9) * 50);
+					await sleep(40);
+				}
+				await table.page.mouse.up({ button: 'right' });
+				await sleep(800); // the trailing sample
+				const t1 = await table.page.evaluate(() => performance.now());
+				const burst = (await sends()).slice(before);
+				ok(
+					burst.every((m) => m.type === 'camera'),
+					`orbiting while pointing sent other messages: ${JSON.stringify(burst.map((m) => m.type))}`
+				);
+				const rate = burst.length / ((t1 - t0) / 1000);
+				ok(
+					burst.length > 2 && rate <= 3.2,
+					`orbit + pointer: ${burst.length} sends in ${Math.round(t1 - t0)}ms (${rate.toFixed(2)}/s) — the camera budget is ≤ ~3/s`
+				);
+				for (let i = 1; i < burst.length; i++)
+					ok(
+						burst[i]!.at - burst[i - 1]!.at > 250,
+						`two camera samples ${Math.round(burst[i]!.at - burst[i - 1]!.at)}ms apart — the throttle is 350ms`
+					);
+				ok(await table.connected(), 'the relay dropped the pointing client');
+
+				// ── idle: the cursor fades out after ~3s without movement ──
+				const now = await project(table, ...spot);
+				await table.page.mouse.move(now!.x - 80, now!.y, { steps: 6 });
+				await table.page.mouse.move(now!.x, now!.y, { steps: 6 });
+				await eventually(
+					() => pointers(peer),
+					(list) => list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				const faded = await eventually(
+					() => pointers(peer),
+					(list) => !list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				ok(
+					!faded.some((p) => p.playerId === me && p.visible),
+					`the pointer did not fade after the mouse idled: ${JSON.stringify(faded)}`
+				);
+
+				// ── leaving the canvas takes it away at once ──
+				await table.page.mouse.move(now!.x + 60, now!.y, { steps: 6 });
+				await eventually(
+					() => pointers(peer),
+					(list) => list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				const viewport = table.page.viewport()!;
+				let off: { x: number; y: number } | null = null;
+				for (const candidate of [
+					{ x: viewport.width - 30, y: 30 },
+					{ x: 30, y: 30 },
+					{ x: viewport.width - 30, y: viewport.height - 30 },
+					{ x: 30, y: viewport.height - 30 }
+				])
+					if (!(await table.elementAt(candidate)).startsWith('canvas')) {
+						off = candidate;
+						break;
+					}
+				ok(off, 'no DOM pane over the canvas to move the mouse onto');
+				await table.page.mouse.move(off!.x, off!.y, { steps: 4 });
+				const left = await eventually(
+					() => pointers(peer),
+					(list) => !list.some((p) => p.playerId === me && p.visible),
+					// well under the idle fade: this is the leave, not the timeout
+					2_500
+				);
+				ok(
+					!left.some((p) => p.playerId === me && p.visible),
+					`the pointer stayed up after the mouse left the canvas: ${JSON.stringify(left)}`
+				);
+
+				// ── the setting hides remote pointers ──
+				await peer.page.evaluate(() => window.__tableplace!.setRemotePointers(false));
+				await table.page.mouse.move(now!.x, now!.y, { steps: 8 });
+				await sleep(1500);
+				ok(
+					!(await pointers(peer)).some((p) => p.playerId === me),
+					'the setting is off but the second client still draws the pointer'
+				);
+				await peer.page.evaluate(() => window.__tableplace!.setRemotePointers(true));
+				await table.page.mouse.move(now!.x + 40, now!.y, { steps: 8 });
+				const back = await eventually(
+					() => pointers(peer),
+					(list) => list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				ok(
+					back.some((p) => p.playerId === me && p.visible),
+					'the pointer did not come back with the setting'
+				);
+
+				await assertDraggable(peer, piece, 'the piece, under a remote pointer');
+				assertClean(table, 'after pointing');
+				assertClean(peer, 'on the second client, watching a pointer');
+			} finally {
+				await remote?.close();
+				await peerContext.close();
+				await table.close();
+			}
+		}
 	}
 ];

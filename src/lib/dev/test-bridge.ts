@@ -32,6 +32,7 @@ import { resolveCardImage, sheetRefCache } from '$lib/packs';
 import { preview as previewStore } from '$lib/HUDPreview/previewStore';
 import { huds } from './hud-registry';
 import { activePings, pingArrows, ping as sendPing } from '$lib/ping';
+import { remotePointersEnabled } from '$lib/pointers/settings';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -205,6 +206,8 @@ export type TestBridge = {
 	 * is gliding to, whether it is up, its opacity and its drawn colour.
 	 */
 	remotePointers: () => RemotePointerShape[];
+	/** the Settings "Remote pointers" toggle — tweakpane cannot be driven synthetically */
+	setRemotePointers: (on: boolean) => void;
 };
 
 export type RemotePointerShape = {
@@ -666,7 +669,8 @@ export function installTestBridge(handles: SceneHandles): void {
 				});
 			});
 			return out;
-		}
+		},
+		setRemotePointers: (on) => remotePointersEnabled.set(on)
 	};
 }
 
