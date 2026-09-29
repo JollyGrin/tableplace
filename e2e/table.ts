@@ -119,7 +119,13 @@ function ignorable(text: string): boolean {
 const SUITS = ['S', 'H', 'D', 'C'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
-export async function openTable(browser: Browser, servers: Servers, lobby: string): Promise<Table> {
+export async function openTable(
+	browser: Browser,
+	servers: Servers,
+	lobby: string,
+	/** extra query string appended to the deeplink, e.g. `&debug` */
+	extraQuery = ''
+): Promise<Table> {
 	const page = await browser.newPage();
 	const problems: Problem[] = [];
 
@@ -161,7 +167,7 @@ export async function openTable(browser: Browser, servers: Servers, lobby: strin
 
 	const url =
 		`${servers.web}/play?lobby=${encodeURIComponent(lobby)}` +
-		`&server=${encodeURIComponent(servers.relay)}`;
+		`&server=${encodeURIComponent(servers.relay)}${extraQuery}`;
 	await page.goto(url, { waitUntil: 'networkidle2', timeout: 60_000 });
 
 	// the bridge mounts inside the Canvas, which mounts only once the socket is

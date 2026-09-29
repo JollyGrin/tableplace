@@ -432,7 +432,7 @@
 <Pane
 	position="draggable"
 	title="Scenario Setup (local)"
-	expanded={true}
+	expanded={false}
 	y={0}
 	x={0}
 	width={320}
