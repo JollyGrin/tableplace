@@ -2376,6 +2376,8 @@ export const SPECS: Spec[] = [
 						piece.caption === 'Marker — Front',
 					`a two-state token previews ${JSON.stringify(piece)}`
 				);
+				await eventually(preview, (p) => !!p?.shown && p.shown === p.url);
+				await table.snap('preview-token');
 				await table.page.keyboard.up('Space');
 				await eventually(preview, (p) => p === null);
 

@@ -17,28 +17,42 @@
 
 	const viewport = useViewport();
 
-	const trayWidth = $derived($viewport.width / 2);
-	const trayHeight = $derived($viewport.height / 2); // Adjust height as needed
-	const trayX = $derived(-$viewport.width / 2 + trayWidth / 2);
-	const trayY = $derived(-$viewport.height / 2 + trayHeight / 2);
-
-	// PreviewCard's plane is 1.96 × 2.8 at scale 2.75; a disc gets the card's width
-	const CARD_HALF_HEIGHT = (2 * 1.4 * 2.75) / 2;
-	const CARD_HALF_WIDTH = (1.4 * 1.4 * 2.75) / 2;
-	const DISC_RADIUS = CARD_HALF_WIDTH;
-	const CAPTION_GAP = 0.35;
+	// The art is fitted into the right half of the screen, below the DOM panes
+	// that sit along the top edge and above the bottom one, leaving room under
+	// it for the caption. Sizes are world units of the zoom-80 ortho camera.
+	const TOP_CLEARANCE = 3.2; // the players/settings panes
+	const BOTTOM_CLEARANCE = 0.3;
+	const CAPTION_ROOM = 0.9;
+	const CAPTION_GAP = 0.3;
+	const MAX_SCALE = 2.75;
+	const MIN_SCALE = 1;
+	// PreviewCard's unscaled plane; a disc is as wide as a card
+	const CARD_W = 1.4 * 1.4;
+	const CARD_H = 2 * 1.4;
 
 	const url = $derived($preview ? resolveCardImage($preview.face, $sheetRefCache) : '');
-	// the caption hangs below the art's bottom edge, whatever shape the art is
-	const captionY = $derived(
-		-(
-			($preview?.shape === 'disc'
-				? DISC_RADIUS
-				: $preview?.landscape
-					? CARD_HALF_WIDTH
-					: CARD_HALF_HEIGHT) + CAPTION_GAP
-		)
-	);
+
+	// unscaled on-screen footprint of the art
+	const box = $derived.by((): [number, number] => {
+		if ($preview?.shape === 'disc') return [CARD_W, CARD_W];
+		return $preview?.landscape ? [CARD_H, CARD_W] : [CARD_W, CARD_H];
+	});
+	const layout = $derived.by(() => {
+		const { width, height } = $viewport;
+		const top = height / 2 - TOP_CLEARANCE;
+		const bottom = -height / 2 + BOTTOM_CLEARANCE + CAPTION_ROOM;
+		const scale = Math.max(
+			MIN_SCALE,
+			Math.min(MAX_SCALE, (top - bottom) / box[1], (width / 2 - 1) / box[0])
+		);
+		const artHeight = box[1] * scale;
+		const y = top - artHeight / 2;
+		return {
+			scale,
+			position: [width / 4, y, 0] as [number, number, number],
+			captionY: -(artHeight / 2 + CAPTION_GAP)
+		};
+	});
 
 	// Space (held in the route's key handler) and Alt (tracked scene-wide as the
 	// no-snap modifier) both open the preview. Two things neither of those
@@ -72,17 +86,17 @@
 <T.PointLight position={[10, 10, 10]} decay={0} intensity={Math.PI * 2} />
 
 {#if $preview && url}
-	<T.Group name="hud-preview" position={[-trayX, trayY + 1, 0] as [number, number, number]}>
+	<T.Group name="hud-preview" position={layout.position}>
 		{#if $preview.shape === 'disc'}
 			<!-- PieceFace lies flat for the table camera; stand it up for this one -->
 			<T.Group rotation.x={Math.PI / 2}>
-				<PieceFace {url} radius={DISC_RADIUS} segments={64} />
+				<PieceFace {url} radius={(CARD_W / 2) * layout.scale} segments={64} position={[0, 0, 0]} />
 			</T.Group>
 		{:else}
-			<PreviewCard {url} landscape={$preview.landscape} />
+			<PreviewCard {url} landscape={$preview.landscape} scale={layout.scale} />
 		{/if}
 		{#if $preview.caption}
-			<LabelBadge text={$preview.caption} fontSize={0.34} position={[0, captionY, 0.1]} />
+			<LabelBadge text={$preview.caption} fontSize={0.34} position={[0, layout.captionY, 0.1]} />
 		{/if}
 	</T.Group>
 {/if}
