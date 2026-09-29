@@ -21,9 +21,14 @@
 	import FileDropZone from '$lib/files/FileDropZone.svelte';
 	import { openDroppedFile } from '$lib/files/drop';
 	import toast from 'svelte-french-toast';
+	import { ROOM_COLOR } from '$lib/utils/constants-table';
 
 	initWrappers();
-	let isConnected = $state(false);
+	// the table only mounts once the relay has us; until then the page says why
+	// it is an empty room (the wrapper's shade used to be the only cue, and the
+	// scene's own backdrop now paints over the wrapper once connected)
+	let connection = $state<'connecting' | 'connected' | 'failed'>('connecting');
+	const isConnected = $derived(connection === 'connected');
 
 	// nothing on the felt yet — point at the Decks pane rather than leaving a
 	// player staring at bare green. Deliberately not gated on `isConnected`: the
@@ -60,7 +65,7 @@
 		const seatParam = page?.url?.searchParams?.get('seat');
 		const connected = initWebsocket(lobbyId, serverUrl);
 		connected.then((res) => {
-			isConnected = res;
+			connection = res ? 'connected' : 'failed';
 			if (res) autoClaimSeat(seatParam);
 		});
 	});
@@ -86,11 +91,7 @@
      pack, in this browser's library) — no detour through /setup -->
 <FileDropZone onfile={async (file) => void (await openDroppedFile(file))} />
 
-<div
-	class="h-screen w-screen overflow-clip transition-all"
-	class:bg-gray-800={!isConnected}
-	class:bg-gray-700={isConnected}
->
+<div class="h-screen w-screen overflow-clip" style:background-color={ROOM_COLOR}>
 	<!-- threlte 8.5 changed the default to AgX, which desaturates the felt to gray -->
 	<Canvas toneMapping={ACESFilmicToneMapping}>
 		{#if isConnected}
@@ -101,10 +102,17 @@
 
 <!-- centred so it clears every pane (Settings left, Decks top, Players right) at
      1280x720 and up, and never eats a click meant for the table -->
-{#if isTableEmpty}
-	<div class="pointer-events-none fixed inset-0 flex items-center justify-center">
-		<span class="animate-pulse font-sans text-sm tracking-widest text-white uppercase opacity-40">
-			Spawn a deck to get started
-		</span>
+{#if isTableEmpty || !isConnected}
+	<div
+		class="pointer-events-none fixed inset-0 flex flex-col items-center justify-center gap-3 font-sans text-sm tracking-widest text-white uppercase"
+	>
+		{#if connection === 'connecting'}
+			<span class="animate-pulse opacity-60"> Connecting to the table… </span>
+		{:else if connection === 'failed'}
+			<span class="text-amber-300 opacity-90"> Not connected — check Settings › Connection </span>
+		{/if}
+		{#if isTableEmpty}
+			<span class="animate-pulse opacity-40">Spawn a deck to get started</span>
+		{/if}
 	</div>
 {/if}

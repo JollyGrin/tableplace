@@ -21,6 +21,13 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { ok, planarDistance } from './assert';
 import type { Servers } from './servers';
 import { PIECE_REST_Y, PIECE_THICKNESS } from '../src/lib/utils/constants-pieces';
+import {
+	TABLE_HALF_X,
+	TABLE_HALF_Z,
+	TABLE_RIM_RISE,
+	TABLE_RIM_WIDTH,
+	TABLE_TOP_Y
+} from '../src/lib/utils/constants-table';
 import { openTable, type Table } from './table';
 
 export type Spec = {
@@ -3604,6 +3611,122 @@ export const SPECS: Spec[] = [
 				} finally {
 					host.close();
 				}
+			})
+	},
+	{
+		/**
+		 * tableplace-154, the room: the table stands in a dark room behind a
+		 * wooden rim, and the grid lives on the felt only. Past the rim, every
+		 * probe reads the same dark room tone — no grid line runs to the
+		 * horizon — and the rim reads as wood, not felt or room. Judged from the
+		 * seat view and top-down; the screenshots are the before/after evidence.
+		 * Spine as ever: what is on the table still renders and drags.
+		 */
+		name: 'room: dark backdrop, wooden rim, grid kept on the felt',
+		run: (context) =>
+			withTable(context, 'room', async (table) => {
+				const { page } = table;
+				const deck = await table.seedDeck([-6, 0.26, 2]);
+				const token = await table.spawn('token', { position: ON_FELT(2), color: '#2f6fb3' });
+				await table.settle(1000);
+				const size = page.viewport()!;
+				await page.mouse.move(size.width / 2, size.height / 2);
+
+				type Sample = { rgb: [number, number, number]; onCanvas: boolean };
+				/** the colour at each world point that projects onto bare canvas */
+				const sample = async (points: [number, number, number][]) => {
+					const screen = await page.evaluate(
+						(world) =>
+							world.map((w) => window.__tableplace!.project(w as [number, number, number])),
+						points
+					);
+					const inside = screen.filter(
+						(p): p is { x: number; y: number } =>
+							!!p && p.x > 4 && p.y > 4 && p.x < size.width - 4 && p.y < size.height - 4
+					);
+					return ((await table.pixels(inside)) as Sample[]).filter((s) => s.onCanvas);
+				};
+				const RIM_TOP = TABLE_TOP_Y + TABLE_RIM_RISE;
+				const RIM_MID_X = TABLE_HALF_X + TABLE_RIM_WIDTH / 2;
+				const RIM_MID_Z = TABLE_HALF_Z + TABLE_RIM_WIDTH / 2;
+
+				/** past the rim: one dark tone, no grid lines drawn over it */
+				const assertEmptyRoom = (samples: Sample[], view: string) => {
+					ok(samples.length >= 2, `${view}: too few room probes land on the canvas`);
+					const rgbs = samples.map((s) => s.rgb);
+					for (const channel of [0, 1, 2] as const) {
+						const values = rgbs.map((rgb) => rgb[channel]);
+						ok(
+							Math.max(...values) - Math.min(...values) <= 6,
+							`${view}: the room past the rim is not one tone (a grid runs past the table?): ${JSON.stringify(rgbs)}`
+						);
+					}
+					ok(
+						rgbs.every((rgb) => Math.max(...rgb) < 50),
+						`${view}: the room is not dark enough for the felt to pop: ${JSON.stringify(rgbs)}`
+					);
+				};
+				/** the rim: warm wood, lighter than the room, not felt green */
+				const assertWood = (samples: Sample[], view: string) => {
+					ok(samples.length >= 2, `${view}: too few rim probes land on the canvas`);
+					for (const { rgb } of samples) {
+						const [r, g, b] = rgb;
+						ok(
+							r > g && r > b + 12 && r > 45,
+							`${view}: the rim does not read as wood: ${JSON.stringify(samples.map((s) => s.rgb))}`
+						);
+					}
+				};
+
+				// ── seat view (the default): the far rim and the room beyond it ──
+				await page.keyboard.press('KeyC');
+				await settleCamera(table);
+				await table.snap('room-seat-fit');
+				// C fits the content; the room shows once the seat pulls back
+				for (let i = 0; i < 15; i++) await page.mouse.wheel({ deltaY: 400 });
+				await settleCamera(table);
+				await table.snap('room-seat');
+				assertEmptyRoom(
+					await sample([
+						[-24, TABLE_TOP_Y, -TABLE_HALF_Z - 12],
+						[0, TABLE_TOP_Y, -TABLE_HALF_Z - 14],
+						[24, TABLE_TOP_Y, -TABLE_HALF_Z - 12],
+						[-TABLE_HALF_X - 8, TABLE_TOP_Y, -TABLE_HALF_Z],
+						[TABLE_HALF_X + 8, TABLE_TOP_Y, -TABLE_HALF_Z]
+					]),
+					'seat view'
+				);
+
+				// ── top-down: the rim on all four sides, the room to either side ──
+				await page.keyboard.press('KeyP');
+				await settleCamera(table);
+				for (let i = 0; i < 15; i++) await page.mouse.wheel({ deltaY: 400 });
+				await settleCamera(table);
+				await table.snap('room-top');
+				assertWood(
+					await sample([
+						[-RIM_MID_X, RIM_TOP, 0],
+						[RIM_MID_X, RIM_TOP, 0],
+						[-10, RIM_TOP, -RIM_MID_Z],
+						[10, RIM_TOP, RIM_MID_Z]
+					]),
+					'top-down'
+				);
+				// the strip beyond the far rim, between the Decks and Players panes
+				assertEmptyRoom(
+					await sample([
+						[-1, TABLE_TOP_Y, -TABLE_HALF_Z - 3.5],
+						[4, TABLE_TOP_Y, -TABLE_HALF_Z - 3.5],
+						[9, TABLE_TOP_Y, -TABLE_HALF_Z - 3.5],
+						[14, TABLE_TOP_Y, -TABLE_HALF_Z - 3.5]
+					]),
+					'top-down'
+				);
+
+				await assertRenders(table, deck, 'deck (in the room)');
+				await assertDraggable(table, deck, 'deck (in the room)');
+				await assertDraggable(table, token, 'token (in the room)');
+				assertClean(table, 'in the room');
 			})
 	},
 	{

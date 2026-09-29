@@ -2,6 +2,7 @@
 	import { Canvas } from '@threlte/core';
 	import { ACESFilmicToneMapping } from 'three';
 	import TableScene from '$lib/TableScene.svelte';
+	import { ROOM_COLOR } from '$lib/utils/constants-table';
 	import { handleVerbKeyDown, handleVerbKeyUp } from '$lib/verbs/keyboard';
 	import { onMount } from 'svelte';
 	import { gameActions } from '$lib/store/game/actions';
@@ -30,7 +31,7 @@
 <SetupPane />
 <RadialMenu />
 
-<div class="h-screen w-screen overflow-clip bg-gray-700">
+<div class="h-screen w-screen overflow-clip" style:background-color={ROOM_COLOR}>
 	<Canvas toneMapping={ACESFilmicToneMapping}>
 		{#if isReady}
 			<TableScene snapEditing drawToHand={false} />
