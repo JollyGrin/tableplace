@@ -12,6 +12,7 @@
 	} from './store/dragStore.svelte';
 	import { isSelectClick, selectedIds, toggleSelected } from './store/selection';
 	import SelectionRing from './SelectionRing.svelte';
+	import HeldMark from './HeldMark.svelte';
 	import { gameStore } from './store/game/gameStore.svelte';
 	import { gameActions } from './store/game/actions';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
@@ -493,6 +494,17 @@
      group: a child would be raycast as part of the piece and widen its grab. -->
 {#if piece && isSelected}
 	<SelectionRing
+		shape="circle"
+		r={radius}
+		position={[position[0], position[1] - THICKNESS / 2 + 0.01, position[2]]}
+	/>
+{/if}
+
+<!-- held-by (tableplace-199): another player is carrying this piece -->
+{#if piece}
+	<HeldMark
+		{id}
+		heldBy={piece.heldBy}
 		shape="circle"
 		r={radius}
 		position={[position[0], position[1] - THICKNESS / 2 + 0.01, position[2]]}

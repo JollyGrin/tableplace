@@ -130,6 +130,12 @@ export type TestBridge = {
 	 */
 	badge: (id: string) => { scale: number } | null;
 	/**
+	 * Held-by marks as they are drawn right now (tableplace-199): which entity
+	 * wears one, whose it is, and its colour. Empty when nobody else is
+	 * carrying anything — a client never draws its own.
+	 */
+	heldMarks: () => { id: string; holder: string; color: string }[];
+	/**
 	 * A counter's printed dial face (CounterDial.svelte), or null when none is
 	 * drawn: what the canvas last printed, how many times it has been drawn (a
 	 * redraw only ever follows a change to name/value/max), its live pulse
@@ -543,6 +549,13 @@ export function installTestBridge(handles: SceneHandles): void {
 			if (!object) return null;
 			const degrees = -object.rotation.y / THREE.MathUtils.DEG2RAD;
 			return Math.round((((degrees % 360) + 360) % 360) * 1000) / 1000;
+		},
+		heldMarks: () => {
+			const marks: { id: string; holder: string; color: string }[] = [];
+			handles.scene()?.traverse((node) => {
+				if (node.userData.heldMark) marks.push({ ...node.userData.heldMark });
+			});
+			return marks;
 		},
 		badge: (id) => {
 			const object = handles.scene()?.getObjectByName(id);

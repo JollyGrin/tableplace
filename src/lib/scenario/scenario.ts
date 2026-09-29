@@ -39,6 +39,7 @@ import {
 import { resolvePacks } from './resolve-packs';
 import { validRotationStep } from '$lib/utils/yaw';
 import { validHandPlayFace } from '$lib/utils/hand';
+import { withoutHolds } from '$lib/store/hold';
 
 const STORAGE_KEY = 'scenarios:v1';
 
@@ -196,7 +197,9 @@ function collectSnapPoints(s: Partial<GameDTO> | undefined | null): SnapPoint[] 
  * `state` snapshot, exactly as v1 did.
  */
 export function saveScenario(name: string): Scenario {
-	const s = get(gameStore);
+	// what is in someone's hand right now is saved where it is, but not as held
+	// — a hold is a pointer on a live table, never a scenario's (tableplace-199)
+	const s = withoutHolds(get(gameStore) ?? {});
 	const players: GameDTO['players'] = {};
 	for (const [id, player] of Object.entries(s?.players ?? {})) {
 		if (isSeatPlaceholder(id)) players[id] = player as GameDTO['players'][string];

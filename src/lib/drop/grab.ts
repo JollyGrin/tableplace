@@ -22,6 +22,8 @@ import { dragStart } from '$lib/store/dragStore.svelte';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
 import { toastLocked } from '$lib/hotkeys/lock';
+import { heldByOther } from '$lib/store/hold';
+import { toastHeld } from '$lib/hotkeys/held';
 
 /**
  * Lift `deckId` into a button-free carry.
@@ -38,6 +40,12 @@ export function grabDeck(deckId: string): ReturnType<typeof setTimeout> | null {
 	// a pinned pile stays put — say so rather than silently not lifting
 	if (deck.locked) {
 		toastLocked();
+		return null;
+	}
+	// in another player's hand: theirs until they put it down (tableplace-199)
+	const holder = heldByOther(get(gameStore), deckId);
+	if (holder) {
+		toastHeld(holder);
 		return null;
 	}
 	// the pre-lift position, so Esc returns the pile to where it was standing

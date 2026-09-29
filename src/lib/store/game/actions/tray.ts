@@ -21,6 +21,8 @@ function moveCardToTray(cardId: string, playerId: string, index?: number) {
 	// there, and must not ride back out onto the table with it
 	const held: Partial<GameDTO['cards'][string]> = { ...card, handOrder: nextHandOrder(tray) };
 	delete held.placedBy;
+	// nor does the carry's hold: it is let go of as the card lands in the hand
+	delete held.heldBy;
 	const order = index === undefined ? null : moveInOrder(handOrderOf(tray), cardId, index);
 	const renumbered = order ? handOrderPatch({ ...tray, [cardId]: held }, order) : {};
 	return gameStore.updateState({
