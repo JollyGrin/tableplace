@@ -78,7 +78,8 @@ Field notes:
 
 #### Locked — pinned in place
 
-A locked entity can't be dragged, flipped, turned or grouped; it can still be previewed, and `L` over it (or the wheel's Lock wedge) unpins it — anyone at the table can. What it does *in place* still works: a locked deck still deals off its top and shuffles, a locked counter counts, a locked die rolls, a locked bag hands things out. Trying to drag one toasts the key that unlocks it, and hovering one says `Locked` in its badge and in the hint bar. The flag is one synced boolean (`locked: true`; unpinning deletes it), so it syncs like any other edit. The TTS importer maps `Locked` onto it one to one. Overlays can't be picked up in play at all today, so on an overlay it is recorded intent that survives export and import.
+A locked entity can't be dragged, flipped, turned or grouped; it can still be previewed, and `L` over it (or the wheel's Lock wedge) unpins it — anyone at the table can. What it does _in place_ still works: a locked deck still deals off its top and shuffles, a locked counter counts, a locked die rolls, a locked bag hands things out. Trying to drag one toasts the key that unlocks it, and hovering one says `Locked` in its badge and in the hint bar. The flag is one synced boolean (`locked: true`; unpinning deletes it), so it syncs like any other edit. The TTS importer maps `Locked` onto it one to one. Overlays can't be picked up in play at all today, so on an overlay it is recorded intent that survives export and import.
+
 - **`source`** (optional) — provenance stamp written by converters (currently only `"tts"`). Native packs omit it.
 
 ### Multi-state pieces
@@ -218,6 +219,7 @@ Scenarios are **seat-relative**: entities belong to placeholder players `seat0`�
   - **`locked`** (any kind) — lay it down pinned (how a layout places a board that shouldn't be knocked around); `false` unpins content the pack itself marks locked. /setup writes it back from the table: press `L` on the entity before saving.
 - **`state`** — a `Partial<GameDTO>` snapshot (`src/lib/store/game/types.ts`) for everything _not_ pack-derived: ad-hoc pieces, hand-placed cards, TTS-imported decks. It is applied on top of the spawned placements, so it can also override them.
   - **`placedBy`** (on `state.cards`) — the player who laid the card face-down out of their hand; only that player's preview shows its face, captioned "Only you see this". A display rule, not secrecy — the face is in the file and on the wire. Save keeps it only when it names a seat placeholder (`seat0`–`seat3`); claiming that seat hands the mark to the claiming player. Flipping face up, taking the card into a hand, or putting it on a pile clears it. Neither /create nor /setup has a hand to play from, so it is written by play, not by an editor control; TTS has no counterpart.
+- **`rotationStep`** (optional, degrees, `0 < step ≤ 360`) — how far `Q` and `E` turn a card, deck or piece on this table; omitted means 45°. Seeded into the lobby's synced `GameDTO.table`, so a player who joins later turns by the same step. `T`/`R` on a card stay 90° taps, and a snap point's `rotation` still wins the landing yaw on a drop. /setup authors it under _Table → Q/E turn step_; TTS saves carry no rotation-step setting, so the importer maps nothing to it.
 
 ### snapPoints — placement guides
 

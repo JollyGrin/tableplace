@@ -33,6 +33,7 @@ import { toggleHelp } from '$lib/hint/hintUi';
 import { openDeckSearch, SEARCH_NOT_MINE } from '$lib/deckSearch/deckSearch';
 import { isLocked, type LockableKind } from '$lib/store/game/actions/lock';
 import { LOCKED_REFUSAL, toastLocked, toggleLockOn } from '$lib/hotkeys/lock';
+import { rotationStep } from '$lib/store/game/actions/rotate';
 import type { DropKind } from '$lib/utils/transforms/drop';
 import { dragStore } from '$lib/store/dragStore.svelte';
 import {
@@ -91,6 +92,56 @@ function lockableKind(ctx: VerbContext): LockableKind | null {
 function lockedTarget(ctx: VerbContext): boolean {
 	const kind = lockableKind(ctx);
 	return !!kind && isLocked(kind, idOf(ctx));
+}
+
+/**
+ * Can Q/E turn it? Any card, deck or piece that exists. A selection has its
+ * own pair (`rotate-selection-*`, one patch for the lot).
+ */
+function turnable(ctx: VerbContext): boolean {
+	const { target } = ctx;
+	if (target.kind === 'piece') return !!ctx.piece;
+	return target.kind === 'card' || target.kind === 'deck';
+}
+
+/** turn the target clockwise by `degrees` (negative: counter-clockwise) */
+function turn(ctx: VerbContext, degrees: number) {
+	const { target } = ctx;
+	if (target.kind === 'card' || target.kind === 'deck' || target.kind === 'piece')
+		gameActions.rotateEntity(target.kind, target.id, degrees);
+}
+
+/**
+ * Q and E: turn by the table's rotation step (a scenario's `rotationStep`,
+ * default 45°). Also while carried — the held thing is the first target then
+ * (keyboard.ts). `once`: every press is one synced patch, so a held key must
+ * not auto-repeat past the relay's message budget.
+ */
+function turnVerbs(applies: VerbDef['applies'], radial: boolean): VerbDef[] {
+	return [
+		{
+			id: 'turn-ccw',
+			label: 'Turn ⟲',
+			labelFor: () => `Turn ⟲ ${rotationStep()}°`,
+			reference: 'Turn counter-clockwise by the rotation step',
+			applies,
+			movesTarget: true,
+			hotkey: { codes: ['KeyQ'], label: 'Q', once: true },
+			radial,
+			run: (ctx) => turn(ctx, -rotationStep())
+		},
+		{
+			id: 'turn-cw',
+			label: 'Turn ⟳',
+			labelFor: () => `Turn ⟳ ${rotationStep()}°`,
+			reference: 'Turn clockwise by the rotation step',
+			applies,
+			movesTarget: true,
+			hotkey: { codes: ['KeyE'], label: 'E', once: true },
+			radial,
+			run: (ctx) => turn(ctx, rotationStep())
+		}
+	];
 }
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((n) => `Digit${n}`);
@@ -429,6 +480,9 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 		radial: true,
 		run: (ctx) => void gameActions.removePiece(idOf(ctx))
 	},
+	// any piece turns by the step — a token or a pawn has no other way to face
+	// something (tableplace-200)
+	...turnVerbs((ctx) => ctx.target.kind === 'piece' && turnable(ctx), true),
 	// ---- a selection (tableplace-202): the same letters, on every member ----
 	// A selection is keyed first while the pointer is on one of its members or
 	// on nothing at all (keyboard.ts), so these shadow the single-entity verbs
@@ -444,17 +498,20 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 	{
 		id: 'rotate-selection-ccw',
 		label: 'Turn ⟲',
-		reference: 'Turn each selected thing anticlockwise',
+		labelFor: () => `Turn ⟲ ${rotationStep()}°`,
+		reference: 'Turn each selected thing anticlockwise by the rotation step',
 		applies: on('selection'),
-		hotkey: key('KeyQ', 'Q'),
+		// one patch per press, never the auto-repeat (see `turnVerbs`)
+		hotkey: { codes: ['KeyQ'], label: 'Q', once: true },
 		run: (ctx) => rotateSelection(idsOf(ctx), -1)
 	},
 	{
 		id: 'rotate-selection-cw',
 		label: 'Turn ⟳',
-		reference: 'Turn each selected thing clockwise',
+		labelFor: () => `Turn ⟳ ${rotationStep()}°`,
+		reference: 'Turn each selected thing clockwise by the rotation step',
 		applies: on('selection'),
-		hotkey: key('KeyE', 'E'),
+		hotkey: { codes: ['KeyE'], label: 'E', once: true },
 		run: (ctx) => rotateSelection(idsOf(ctx), 1)
 	},
 	{
@@ -498,6 +555,10 @@ export const BUILTIN_VERBS: readonly VerbDef[] = [
 	},
 
 	// ---- anything on the table: last, so it never reorders a kind's own verbs ----
+	// tableplace-200: Q/E turn a card or a pile by the table's rotation step.
+	// Keys only here — a piece's pair is on its wheel instead (every piece verb
+	// is); the pair is the same verb either way.
+	...turnVerbs((ctx) => turnable(ctx) && ctx.target.kind !== 'piece', false),
 	{
 		// pin it in place (tableplace-189): the verbs marked `movesTarget` then
 		// refuse, and a drag toasts this key. The one verb a pin never refuses.
@@ -650,6 +711,7 @@ export const CLASSIC_TABLE_BASICS: readonly KeybindRow[] = [
 
 /** the hint bar's drag line, after what the release does */
 export const DRAG_MODIFIERS: readonly KeybindRow[] = [
+	{ action: 'Turn', key: 'Q / E' },
 	{ action: 'Free placement', key: 'hold Alt' },
 	{ action: 'Put back', key: 'Esc' }
 ];
@@ -718,7 +780,12 @@ export function keybindReference(
 	const verbs = sources
 		.flat()
 		.filter((def) => def.hotkey)
-		.map((def) => ({ action: def.reference ?? def.label, key: def.hotkey!.label }));
+		.map((def) => ({ action: def.reference ?? def.label, key: def.hotkey!.label }))
+		// one verb defined per kind (Q/E on a piece and on a card) is one row
+		.filter(
+			(row, i, rows) =>
+				rows.findIndex((other) => other.action === row.action && other.key === row.key) === i
+		);
 	return [...POINTER_BEFORE, ...verbs, ...POINTER_AFTER];
 }
 

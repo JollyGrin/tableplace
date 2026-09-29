@@ -62,6 +62,12 @@ export type Hotkey = {
 	mod?: boolean;
 	/** how the Keybinds folder, menus and (later) the wheel print it */
 	label: string;
+	/**
+	 * fire once per press, ignoring the keyboard's auto-repeat — for a verb
+	 * whose every run is a synced patch (Q/E), where a held key would stream
+	 * past the relay's message budget
+	 */
+	once?: boolean;
 	/** a key that carries a number (the digits' draw count) */
 	arg?: (code: string) => number;
 };

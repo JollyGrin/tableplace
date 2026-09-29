@@ -5,10 +5,12 @@
 	import { isSelectClick, selectedIds, toggleSelected } from './store/selection';
 	import SelectionRing from './SelectionRing.svelte';
 	import { Spring } from 'svelte/motion';
+	import { untrack } from 'svelte';
 	import { ImageMaterial } from '@threlte/extras';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { DEG2RAD } from 'three/src/math/MathUtils.js';
 	import { degrees } from '$lib/utils/constants-rotation';
+	import { nearestTurn } from '$lib/utils/yaw';
 	import { gameStore } from './store/game/gameStore.svelte';
 	import type { GameDTO } from './store/game/types';
 	import { gameActions } from './store/game/actions';
@@ -182,10 +184,15 @@
 		emissiveIntensity = isHovered ? 0.1 : 0;
 	});
 
-	// Flip / tap rotation targets
+	// Flip / tap rotation targets. The yaw heads for the stored value's nearest
+	// equivalent, so a turn takes the shortest arc (tableplace-200) — a Q/E
+	// turn wraps the stored yaw into one turn, and a snap writes it absolute.
+	// Measured from the spring's last target, read untracked: this effect
+	// writes that target, so it must never depend on it.
 	$effect(() => {
 		driveSpring(rotation, baseRotation[0]);
-		driveSpring(rotationTap, baseRotation[2]);
+		const heading = untrack(() => rotationTap.target);
+		driveSpring(rotationTap, nearestTurn(heading, baseRotation[2]));
 	});
 
 	// px the pointer may travel between down and up and still count as a click

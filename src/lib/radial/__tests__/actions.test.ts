@@ -162,6 +162,8 @@ describe('piece wheel', () => {
 		expect(printed('piece:me:tile')).toEqual({
 			'state-next': 'X',
 			'state-prev': 'Shift + X',
+			'turn-ccw': 'Q',
+			'turn-cw': 'E',
 			lock: 'L'
 		});
 		expect(radialTitle({ kind: 'piece', id: 'piece:me:tile' })).toBe('Tile');
@@ -175,6 +177,8 @@ describe('piece wheel', () => {
 			'rotate-ccw': 'R',
 			'snap-toggle': null,
 			remove: null,
+			'turn-ccw': 'Q',
+			'turn-cw': 'E',
 			lock: 'L'
 		});
 		expect(radialTitle({ kind: 'piece', id: 'piece:me:model' })).toBe('Piece');
@@ -189,6 +193,8 @@ describe('piece wheel', () => {
 			'count-up': 'Shift+click',
 			'count-down': 'click',
 			'count-reset': null,
+			'turn-ccw': 'Q',
+			'turn-cw': 'E',
 			lock: 'L'
 		});
 		run({ kind: 'piece', id: 'piece:me:tally' }, 'count-up');

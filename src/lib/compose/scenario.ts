@@ -18,6 +18,7 @@ import { BUILTIN_PACKS, PACK_SOURCE_BUILTIN } from '../packs/builtin';
 import { composePackDeck, composePackOverlay, composePackPiece, type ShuffleFn } from './pack';
 import type { GamePackDef } from '../packs/types';
 import type { GameDTO } from '../store/game/types';
+import { validRotationStep } from '../utils/yaw';
 import type { PackPlacement, PackRef, Scenario, SeatIndex, SnapPoint } from '../scenario/file';
 
 export type { ShuffleFn };
@@ -194,7 +195,8 @@ export function composeScenario(
 		decks: {},
 		pieces: {},
 		overlays: {},
-		snapPoints: composeSnapPoints(scenario.snapPoints)
+		snapPoints: composeSnapPoints(scenario.snapPoints),
+		...composeTable(scenario)
 	};
 
 	for (const placement of scenario.placements ?? []) {
@@ -213,6 +215,17 @@ export function composeScenario(
 		}
 	}
 	return state;
+}
+
+/**
+ * The scenario's table-wide settings, as the synced `table` record — only
+ * the ones it authored, so a scenario that says nothing adds nothing. The
+ * top-level field is their home in a file; a `state.table` snapshot (the raw
+ * game state a v1 file is) is read too, and the top-level field wins.
+ */
+export function composeTable(scenario: Scenario): Pick<GameDTO, 'table'> {
+	const step = scenario.rotationStep ?? validRotationStep(scenario.state?.table?.rotationStep);
+	return step !== undefined ? { table: { rotationStep: step } } : {};
 }
 
 /**

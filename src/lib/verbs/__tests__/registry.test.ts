@@ -50,6 +50,8 @@ describe('verbs by kind', () => {
 			'group',
 			'raise',
 			'lower',
+			'turn-ccw',
+			'turn-cw',
 			'lock',
 			'focus'
 		]);
@@ -61,6 +63,8 @@ describe('verbs by kind', () => {
 			'search',
 			'ungroup',
 			'move',
+			'turn-ccw',
+			'turn-cw',
 			'lock',
 			'focus'
 		]);
@@ -107,9 +111,11 @@ describe('verbs by kind', () => {
 });
 
 describe('verbs by capability, never by game', () => {
-	// every piece can be focused and locked; what differs by capability is everything else
+	// every piece can be focused, locked and turned by the step (tableplace-200);
+	// what differs by capability is everything else
+	const EVERY_PIECE = ['focus', 'lock', 'turn-ccw', 'turn-cw'];
 	const piece = (id: string) =>
-		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => verb !== 'focus' && verb !== 'lock');
+		ids(verbsFor({ kind: 'piece', id }, me)).filter((verb) => !EVERY_PIECE.includes(verb));
 
 	it('grid-rotatable → rotate; has states → next/previous state', () => {
 		expect(piece('piece:me:m')).toEqual(['rotate-cw', 'rotate-ccw', 'snap-toggle', 'remove']);
@@ -139,9 +145,12 @@ describe('verbs by capability, never by game', () => {
 				if (verb.id !== 'focus') expect(verb.radial, verb.id).toBe(true);
 	});
 
-	it('a plain token, or a piece that is gone, has nothing', () => {
+	it('a plain token turns and nothing else; a piece that is gone has nothing', () => {
 		expect(piece('piece:me:t')).toEqual([]);
-		expect(piece('piece:me:missing')).toEqual([]);
+		expect(ids(verbsFor({ kind: 'piece', id: 'piece:me:t' }, me))).toEqual(
+			expect.arrayContaining(['turn-ccw', 'turn-cw'])
+		);
+		expect(ids(verbsFor({ kind: 'piece', id: 'piece:me:missing' }, me))).toEqual(['focus']);
 	});
 });
 
