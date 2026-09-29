@@ -4981,7 +4981,21 @@ export const SPECS: Spec[] = [
 				// ── reload: the order is synced state, not local ──────────────
 				const readyMs = Number(process.env.E2E_READY_MS ?? 60_000);
 				await page.reload({ waitUntil: 'networkidle2', timeout: readyMs });
-				await page.waitForFunction('window.__tableplace?.ready === true', { timeout: readyMs });
+				await page
+					.waitForFunction('window.__tableplace?.ready === true', { timeout: readyMs })
+					.catch(async (error) => {
+						const state = await page
+							.evaluate(() => ({
+								bridge: !!window.__tableplace,
+								ready: window.__tableplace?.ready ?? null,
+								url: location.href
+							}))
+							.catch((e) => String(e));
+						throw new Error(
+							`the page never came back ready after a reload (${error}): ` +
+								`${JSON.stringify(state)}; problems: ${JSON.stringify(table.appProblems())}`
+						);
+					});
 				await table.settle(1500);
 				page = table.page;
 				const reloaded = await eventually(
