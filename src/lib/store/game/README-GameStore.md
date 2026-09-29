@@ -17,14 +17,13 @@ The GameStore manages a state object based on the `GameDTO` interface with three
 
 ```typescript
 interface GameDTO {
-	cards: Record<string, Partial<CardDTO>>; // cardId, state
-	decks: Record<string, Partial<DeckDTO>>; // deckId, state
-	players: Record<string, Partial<PlayerDTO>>; // playerId, state
+  cards: Record<string, Partial<CardDTO>>; // cardId, state
+  decks: Record<string, Partial<DeckDTO>>; // deckId, state
+  players: Record<string, Partial<PlayerDTO>>; // playerId, state
 }
 ```
 
 This structure maintains:
-
 - Cards on the table (position, rotation, images)
 - Decks (collections of cards with position and metadata)
 - Players (with trays for held cards, seating, and other player data)
@@ -37,27 +36,26 @@ The most important function in the GameStore is `updateState`, which handles rec
 
 ```typescript
 function updateState(update: PartialWithNull<GameDTO>) {
-	const paths = findNullPaths(update);
+  const paths = findNullPaths(update);
 
-	game.update((state) => {
-		let newState = { ...state };
+  game.update((state) => {
+    let newState = { ...state };
 
-		// 1. Remove nulls
-		for (const path of paths) {
-			newState = removePathFromObject(newState, path);
-		}
+    // 1. Remove nulls
+    for (const path of paths) {
+      newState = removePathFromObject(newState, path);
+    }
 
-		// 2. Remove nulls from update object itself (so merge doesn't re-add them)
-		const cleanedUpdate = deepFilterNulls(update);
+    // 2. Remove nulls from update object itself (so merge doesn't re-add them)
+    const cleanedUpdate = deepFilterNulls(update);
 
-		// 3. Merge in the remaining values
-		return merge(newState, cleanedUpdate);
-	});
+    // 3. Merge in the remaining values
+    return merge(newState, cleanedUpdate);
+  });
 }
 ```
 
 This function:
-
 1. Finds all paths to `null` values in the update object
 2. Removes those paths from the current state
 3. Cleans the update object by removing all nulls
@@ -70,20 +68,23 @@ This function:
 Recursively finds all paths to `null` values in an object:
 
 ```typescript
-function findNullPaths(obj: Record<string, any>, currentPath: string[] = []): string[][] {
-	const nullPaths: string[][] = [];
+function findNullPaths(
+  obj: Record<string, any>,
+  currentPath: string[] = []
+): string[][] {
+  const nullPaths: string[][] = [];
 
-	for (const [key, value] of Object.entries(obj)) {
-		const newPath = [...currentPath, key];
+  for (const [key, value] of Object.entries(obj)) {
+    const newPath = [...currentPath, key];
 
-		if (value === null) {
-			nullPaths.push(newPath);
-		} else if (typeof value === 'object' && value !== null) {
-			nullPaths.push(...findNullPaths(value, newPath));
-		}
-	}
+    if (value === null) {
+      nullPaths.push(newPath);
+    } else if (typeof value === 'object' && value !== null) {
+      nullPaths.push(...findNullPaths(value, newPath));
+    }
+  }
 
-	return nullPaths;
+  return nullPaths;
 }
 ```
 
@@ -93,23 +94,23 @@ Removes a specific path from an object (used for null-based deletions):
 
 ```typescript
 function removePathFromObject(obj: any, path: string[]): any {
-	if (path.length === 0) return obj;
+  if (path.length === 0) return obj;
 
-	const [firstKey, ...restPath] = path;
+  const [firstKey, ...restPath] = path;
 
-	if (!(firstKey in obj)) return obj;
+  if (!(firstKey in obj)) return obj;
 
-	// At the final key: remove it
-	if (restPath.length === 0) {
-		const { [firstKey]: _, ...rest } = obj;
-		return rest;
-	}
+  // At the final key: remove it
+  if (restPath.length === 0) {
+    const { [firstKey]: _, ...rest } = obj;
+    return rest;
+  }
 
-	// Recurse deeper
-	return {
-		...obj,
-		[firstKey]: removePathFromObject(obj[firstKey], restPath)
-	};
+  // Recurse deeper
+  return {
+    ...obj,
+    [firstKey]: removePathFromObject(obj[firstKey], restPath)
+  };
 }
 ```
 
@@ -119,18 +120,18 @@ Recursively removes all null values from an object:
 
 ```typescript
 function deepFilterNulls<T>(obj: T): T {
-	if (obj === null || typeof obj !== 'object') return obj;
+  if (obj === null || typeof obj !== 'object') return obj;
 
-	if (Array.isArray(obj)) {
-		return obj.map(deepFilterNulls) as unknown as T;
-	}
+  if (Array.isArray(obj)) {
+    return obj.map(deepFilterNulls) as unknown as T;
+  }
 
-	const result: any = {};
-	for (const [key, value] of Object.entries(obj)) {
-		if (value === null) continue;
-		result[key] = deepFilterNulls(value);
-	}
-	return result;
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === null) continue;
+    result[key] = deepFilterNulls(value);
+  }
+  return result;
 }
 ```
 
@@ -140,12 +141,13 @@ The store uses a specialized recursive type to handle deep partial updates with 
 
 ```typescript
 type PartialWithNull<T> = {
-	[P in keyof T]?: T[P] extends object ? PartialWithNull<T[P]> | null : T[P] | null;
+  [P in keyof T]?: T[P] extends object
+    ? PartialWithNull<T[P]> | null
+    : T[P] | null;
 };
 ```
 
 This allows any property in the update to be either:
-
 - The original type
 - A partial object of that type (for nested objects)
 - `null` (for deletions)
@@ -157,9 +159,9 @@ This allows any property in the update to be either:
 ```typescript
 // Add a card to the table
 const cardState = {
-	position: [1, 2, 3] as [number, number, number],
-	rotation: [0, 0, 0] as [number, number, number],
-	faceImageUrl: 'test-image.png'
+  position: [1, 2, 3] as [number, number, number],
+  rotation: [0, 0, 0] as [number, number, number],
+  faceImageUrl: 'test-image.png'
 };
 
 gameStore.updateState({ cards: { 'card:name:index': cardState } });
@@ -170,11 +172,11 @@ gameStore.updateState({ cards: { 'card:name:index': cardState } });
 ```typescript
 // Update a card's position
 gameStore.updateState({
-	cards: {
-		'card:name:index': {
-			position: [4, 5, 6] as [number, number, number]
-		}
-	}
+  cards: {
+    'card:name:index': {
+      position: [4, 5, 6] as [number, number, number]
+    }
+  }
 });
 ```
 
@@ -183,7 +185,7 @@ gameStore.updateState({
 ```typescript
 // Remove a card from the table
 gameStore.updateState({
-	cards: { 'card:name:index': null }
+  cards: { 'card:name:index': null }
 });
 ```
 
@@ -197,8 +199,8 @@ const card = get(gameStore).cards?.['card:name:index'];
 
 // Add to tray and remove from table in one update
 gameStore.updateState({
-	players: { 'player:me': { tray: { 'card:name:index': card } } },
-	cards: { 'card:name:index': null }
+  players: { 'player:me': { tray: { 'card:name:index': card } } },
+  cards: { 'card:name:index': null }
 });
 ```
 
@@ -212,14 +214,14 @@ const trayWithCards = { mock1: mockCard, mock2: mockCard }; // 2 cards in tray
 const tableWithCards = { mock3: mockCard, mock4: mockCard }; // 2 cards on table
 
 gameStore.set({
-	players: { me: { tray: { ...trayWithCards } } },
-	cards: { ...tableWithCards }
+  players: { me: { tray: { ...trayWithCards } } },
+  cards: { ...tableWithCards }
 });
 
 // Move mock3 from table to tray
 gameStore.updateState({
-	players: { me: { tray: { mock3: mockCard } } }, // add mock3 to tray
-	cards: { mock3: null } // remove mock3 from table
+  players: { me: { tray: { mock3: mockCard } } }, // add mock3 to tray
+  cards: { mock3: null } // remove mock3 from table
 });
 
 // Result:
