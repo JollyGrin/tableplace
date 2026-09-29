@@ -139,13 +139,13 @@ describe('nearestTurn — the shortest arc a yaw spring takes', () => {
 describe('rotateEntity, per kind, through the store', () => {
 	it('card', () => {
 		gameActions.rotateEntity('card', CARD, 45);
-		expect(game().cards[CARD]!.rotation).toEqual([180, 0, 45]);
+		expect(game().cards![CARD]!.rotation).toEqual([180, 0, 45]);
 	});
 
 	it('deck', () => {
 		gameActions.rotateEntity('deck', DECK, 45);
-		expect(yawDegrees('deck', game().decks[DECK]!.rotation)).toBe(45);
-		expect(game().decks[DECK]!.rotation![1]).toBeCloseTo(2 * Math.PI - Math.PI / 4, 9);
+		expect(yawDegrees('deck', game().decks![DECK]!.rotation)).toBe(45);
+		expect(game().decks![DECK]!.rotation![1]).toBeCloseTo(2 * Math.PI - Math.PI / 4, 9);
 	});
 
 	it('piece', () => {
@@ -213,10 +213,10 @@ describe('Q and E', () => {
 	it('turn a hovered card and a hovered deck the same way', () => {
 		pointer({ card: CARD });
 		press('KeyE');
-		expect(drawn.card(game().cards[CARD]!.rotation!)).toBe(45);
+		expect(drawn.card(game().cards![CARD]!.rotation!)).toBe(45);
 		pointer({ deck: DECK });
 		press('KeyE');
-		expect(drawn.deck(game().decks[DECK]!.rotation!)).toBe(45);
+		expect(drawn.deck(game().decks![DECK]!.rotation!)).toBe(45);
 	});
 
 	it("use the scenario's step", () => {
@@ -230,7 +230,7 @@ describe('Q and E', () => {
 		gameActions.setRotationStep(15);
 		pointer({ card: CARD });
 		press('KeyT');
-		expect(game().cards[CARD]!.rotation).toEqual([180, 0, 90]);
+		expect(game().cards![CARD]!.rotation).toEqual([180, 0, 90]);
 	});
 
 	it('ignore auto-repeat: a held key is one turn, one patch', () => {
@@ -246,16 +246,16 @@ describe('Q and E', () => {
 		pointer({ dragging: PAWN, piece: PAWN, deck: DECK });
 		press('KeyE');
 		expect(game().pieces![PAWN]!.rotation).toEqual([0, 45, 0]);
-		expect(game().decks[DECK]!.rotation).toEqual([0, 0, 0]);
+		expect(game().decks![DECK]!.rotation).toEqual([0, 0, 0]);
 		// a card in hand over a deck: the card turns
 		pointer({ dragging: CARD, card: CARD, deck: DECK });
 		press('KeyQ');
-		expect(game().cards[CARD]!.rotation).toEqual([180, 0, 315]);
-		expect(game().decks[DECK]!.rotation).toEqual([0, 0, 0]);
+		expect(game().cards![CARD]!.rotation).toEqual([180, 0, 315]);
+		expect(game().decks![DECK]!.rotation).toEqual([0, 0, 0]);
 		// a pile being moved turns too
 		pointer({ dragging: DECK, deck: DECK });
 		press('KeyE');
-		expect(yawDegrees('deck', game().decks[DECK]!.rotation)).toBe(45);
+		expect(yawDegrees('deck', game().decks![DECK]!.rotation)).toBe(45);
 	});
 
 	it('refuse a pinned target', () => {
