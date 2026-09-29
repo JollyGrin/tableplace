@@ -76,6 +76,9 @@ function verbOf(change: Change, handGrew: boolean): { verb: string; rank: number
 	const [collection] = change.key;
 	const before = asEntity(change.before);
 	const after = asEntity(change.after);
+	// the same cards in a new order along the hand (tableplace-195): a line of
+	// its own, naming nothing — a hand is its holder's to read, no one else's
+	if (collection === 'players') return handReordered(before, after) ? REORDER : null;
 	const kind = COLLECTION_KIND[collection];
 	if (!kind) return null;
 
@@ -112,6 +115,19 @@ function verbOf(change: Change, handGrew: boolean): { verb: string; rank: number
 	if (differs(before, after, 'position')) return { verb: 'move', rank: 9 };
 	if (kind === 'deck' && differs(before, after, 'cards')) return { verb: 'move', rank: 9 };
 	return null;
+}
+
+const REORDER = { verb: 'reorder', rank: 8 };
+
+/** same cards in the hand, different `handOrder` keys */
+function handReordered(before: Entity | undefined, after: Entity | undefined): boolean {
+	const from = asEntity(before?.tray);
+	const to = asEntity(after?.tray);
+	if (!from || !to) return false;
+	const held = (tray: Entity) => Object.keys(tray).filter((id) => !!tray[id]);
+	const ids = held(to);
+	if (JSON.stringify(held(from).sort()) !== JSON.stringify([...ids].sort())) return false;
+	return ids.some((id) => from[id]?.handOrder !== to[id]?.handOrder);
 }
 
 function trayCount(player: unknown): number {
@@ -203,6 +219,7 @@ export const VERB_TEXT: Readonly<Record<string, string>> = {
 	draw: 'drew from {}',
 	'draw-table': 'drew from {}',
 	take: 'took {} into their hand',
+	reorder: 'reordered their hand',
 	play: 'played',
 	shuffle: 'shuffled',
 	search: 'searched',

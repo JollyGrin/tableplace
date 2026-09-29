@@ -51,6 +51,18 @@ export type TestBridge = {
 	 */
 	locateInHand: (id: string) => ScreenPoint | null;
 	/**
+	 * Every card of MY hand as it draws right now, left to right on screen:
+	 * its id and its drawn box in CSS pixels (tableplace-195) — what a spec
+	 * reads the fan's order and its fit inside the viewport off.
+	 */
+	handCards: () => {
+		id: string;
+		left: number;
+		right: number;
+		top: number;
+		bottom: number;
+	}[];
+	/**
 	 * The zoomed preview as it is on screen right now, or null while closed.
 	 * `face` is the unresolved ref the preview chose, `url` what it resolves
 	 * to, and `shown` the image the preview mesh's texture actually holds —
@@ -399,6 +411,37 @@ export function installTestBridge(handles: SceneHandles): void {
 			const camera = tray?.camera();
 			const centre = scene && camera ? renderedCentre(scene, id) : null;
 			return centre ? project([centre.x, centre.y, centre.z], camera) : null;
+		},
+		handCards: () => {
+			const tray = huds.get('tray');
+			const scene = tray?.scene();
+			const camera = tray?.camera();
+			const me = gameActions.getMyId();
+			const ids = Object.keys((me && get(gameStore)?.players?.[me]?.tray) ?? {});
+			if (!scene || !camera) return [];
+			return ids
+				.flatMap((id) => {
+					const object = scene.getObjectByName(id);
+					if (!object) return [];
+					const box = bodyBox(object);
+					if (box.isEmpty()) return [];
+					const corners = [box.min, box.max].flatMap((a) =>
+						[box.min, box.max].map((b) => project([a.x, b.y, box.min.z], camera))
+					);
+					if (corners.some((c) => !c)) return [];
+					const xs = corners.map((c) => c!.x);
+					const ys = corners.map((c) => c!.y);
+					return [
+						{
+							id,
+							left: Math.min(...xs),
+							right: Math.max(...xs),
+							top: Math.min(...ys),
+							bottom: Math.max(...ys)
+						}
+					];
+				})
+				.sort((a, b) => a.left + a.right - (b.left + b.right));
 		},
 		preview: () => {
 			const target = get(previewStore);

@@ -38,6 +38,7 @@ import {
 } from './file';
 import { resolvePacks } from './resolve-packs';
 import { validRotationStep } from '$lib/utils/yaw';
+import { validHandPlayFace } from '$lib/utils/hand';
 
 const STORAGE_KEY = 'scenarios:v1';
 
@@ -239,13 +240,15 @@ export function saveScenario(name: string): Scenario {
 	const snapPoints = collectSnapPoints(s);
 	// the table's settings have one home in the file too: top-level, not `state`
 	const rotationStep = validRotationStep(s?.table?.rotationStep);
+	const handPlayFace = validHandPlayFace(s?.table?.handPlayFace);
 	const scenario: Scenario = {
 		name,
 		createdAt: Date.now(),
 		state,
 		...(placements.length ? { packs: [...refs.values()], placements } : {}),
 		...(snapPoints.length ? { snapPoints } : {}),
-		...(rotationStep !== undefined ? { rotationStep } : {})
+		...(rotationStep !== undefined ? { rotationStep } : {}),
+		...(handPlayFace !== undefined ? { handPlayFace } : {})
 	};
 	const all = readAll();
 	all[name] = scenario;
@@ -290,7 +293,7 @@ function clearUpdate(): Record<string, Record<string, unknown>> {
 		snapPoints: {},
 		players: {},
 		// the last scenario's settings go with its content
-		table: { rotationStep: null }
+		table: { rotationStep: null, handPlayFace: null }
 	};
 	for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 		for (const key of Object.keys(current?.[collection] ?? {})) update[collection][key] = null;

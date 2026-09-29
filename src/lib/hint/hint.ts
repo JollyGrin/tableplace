@@ -18,7 +18,7 @@ import {
 	verbsFor
 } from '$lib/verbs/registry';
 import type { DropKind } from '$lib/utils/transforms/drop';
-import type { GameDTO } from '$lib/store/game/types';
+import type { GameDTO, HandPlayFace } from '$lib/store/game/types';
 import type { Hotkey, Verb, VerbActor, VerbTarget } from '$lib/verbs/types';
 
 /** one "key → what it does" pair; `key` is empty for a plain statement */
@@ -46,6 +46,13 @@ export type HintInput = {
 	carrying?: number;
 	/** the classic mouse mapping is on (store/mouseMode.ts) */
 	classicMouse?: boolean;
+	/**
+	 * The carried card came out of the hand (tableplace-195): the face it
+	 * would land on now, and the table's default, which Shift inverts.
+	 */
+	handPlay?: { face: HandPlayFace; defaultFace: HandPlayFace } | null;
+	/** a hand card is being dragged along the fan */
+	reordering?: string | null;
 };
 
 type VerbsFor = (target: VerbTarget, actor: VerbActor) => Verb[];
@@ -162,7 +169,29 @@ function entityTargetFor(id: string): VerbTarget {
 }
 
 export function hintFor(input: HintInput, verbs: VerbsFor = verbsFor): Hint {
-	const { game, actor, targets, dragging, dropKind, carrying = 0 } = input;
+	const { game, actor, targets, dragging, dropKind, carrying = 0, handPlay, reordering } = input;
+
+	if (reordering) {
+		return {
+			name: entityName(game, actor, { kind: 'hand-card', id: reordering }),
+			parts: [part('', 'Release to reorder'), part('drag up', 'Play')]
+		};
+	}
+
+	if (dragging && handPlay) {
+		// what lands on the felt is the face the carried card shows right now
+		const onTable = dropKind === 'table' || dropKind === 'stack' || dropKind === 'snap';
+		const other = handPlay.defaultFace === 'down' ? 'face-up' : 'face-down';
+		return {
+			name: entityName(game, actor, entityTargetFor(dragging)),
+			parts: [
+				...(onTable ? [part('', `Release to play face-${handPlay.face}`)] : []),
+				...(dropKind && !onTable ? [part('', RELEASE_TEXT[dropKind])] : []),
+				part('hold Shift', `Play ${other}`),
+				...DRAG_MODIFIERS.map((row) => part(row.key, row.action))
+			]
+		};
+	}
 
 	if (dragging) {
 		return {
