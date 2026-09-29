@@ -4369,7 +4369,8 @@ export const SPECS: Spec[] = [
 						() =>
 							remote.page.evaluate((id) => window.__tableplace!.state()?.cards?.[id] ?? null, hand),
 						(card) => card?.placedBy === me,
-						8000
+						// a second page still compiling its modules on a loaded runner
+						20_000
 					);
 					ok(
 						synced?.placedBy === me,
