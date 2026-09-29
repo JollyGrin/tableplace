@@ -19,6 +19,7 @@
  */
 
 import * as THREE from 'three';
+import { framesAreStalling } from '$lib/utils/frame-stall.svelte';
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
 import { selectedIds } from '$lib/store/selection';
@@ -104,6 +105,19 @@ export type TestBridge = {
 	connected: () => boolean;
 	/** what an entity is actually made of — null if it never mounted at all */
 	describe: (id: string) => EntityShape | null;
+	/**
+	 * Where an entity's group actually draws right now (tableplace-203): its
+	 * world height, and how far it leans off level in degrees — the angle
+	 * between its own up axis and the world's, flips ignored. What the weight
+	 * spec measures the lean and the landing bounce with; the store never sees
+	 * either.
+	 */
+	pose: (id: string) => { y: number; leanDeg: number } | null;
+	/**
+	 * Whether the app is treating the frame loop as stalled right now (see
+	 * utils/frame-stall.svelte.ts) — when every spring snaps and weight is off.
+	 */
+	stalling: () => boolean;
 	/**
 	 * The yaw an entity is DRAWN at right now — its named group's, clockwise
 	 * seen from above, in degrees within [0, 360). What a rotation spec waits
@@ -512,6 +526,18 @@ export function installTestBridge(handles: SceneHandles): void {
 			});
 			return shape;
 		},
+		pose: (id) => {
+			const object = handles.scene()?.getObjectByName(id);
+			if (!object) return null;
+			const up = new THREE.Vector3(0, 1, 0).applyQuaternion(
+				object.getWorldQuaternion(new THREE.Quaternion())
+			);
+			return {
+				y: object.getWorldPosition(new THREE.Vector3()).y,
+				leanDeg: THREE.MathUtils.radToDeg(Math.acos(Math.min(1, Math.abs(up.y))))
+			};
+		},
+		stalling: () => framesAreStalling(),
 		yaw: (id) => {
 			const object = handles.scene()?.getObjectByName(id);
 			if (!object) return null;
