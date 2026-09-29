@@ -173,3 +173,23 @@ describe('the ? reference', () => {
 		expect(get(helpOpen)).toBe(false);
 	});
 });
+
+// tableplace-185: the camera presets are registry verbs, so both surfaces carry them
+describe('the camera presets', () => {
+	it('the idle line names the seat view, top-down and focus keys', () => {
+		const parts = keys(line([TABLE]));
+		expect(parts).toContain('C|Seat view');
+		expect(parts).toContain('P|Top-down');
+		expect(parts).toContain('Z|Focus last moved');
+	});
+
+	it('the ? reference lists P on the table and Z · double-click on every entity', () => {
+		const sections = verbReference();
+		const row = (title: string, action: string) =>
+			sections.find((s) => s.title === title)?.rows.find((r) => r.action === action)?.key;
+		expect(row('Table', 'Toggle top-down / seat view')).toBe('P');
+		expect(row('Table', 'Focus what you moved last')).toBe('Z');
+		for (const title of ['Card', 'Deck', 'Piece'])
+			expect(row(title, 'Focus hovered card, deck or piece'), title).toBe('Z · double-click');
+	});
+});
