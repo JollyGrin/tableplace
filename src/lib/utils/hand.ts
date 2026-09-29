@@ -95,6 +95,8 @@ const FAN_STEP_DEG = 4;
 const FAN_MAX_DEG = 14;
 /** how far the ends of the arc sit below its middle, per card from the middle, squared */
 const FAN_DROP = 0.012;
+/** ...and at most this far, however many cards: the arc must not climb out of the tray */
+const FAN_MAX_DROP = 0.18;
 /** space kept between the fan and the viewport's edges, HUD units */
 export const HAND_MARGIN = 0.12;
 
@@ -152,7 +154,8 @@ export function fanLayout(
 	const shift = (xs[0]! - halves[0]!.hw + xs[n - 1]! + halves[n - 1]!.hw) / 2;
 
 	// the arc drops the ends; then the whole fan sits on the bottom margin
-	const drops = landscape.map((_, i) => -FAN_DROP * (i - mid) ** 2);
+	const bend = mid > 0 ? Math.min(FAN_DROP, FAN_MAX_DROP / mid ** 2) : 0;
+	const drops = landscape.map((_, i) => -bend * (i - mid) ** 2);
 	const lowest = Math.min(...drops.map((drop, i) => drop - halves[i]!.hh));
 	const lift = -trayHeight / 2 + HAND_MARGIN - lowest;
 
@@ -178,13 +181,17 @@ export function hoverY(landscape: boolean, trayHeight: number): number {
 }
 
 /**
- * The slot a card dropped at tray-local `x` goes into, given where the
- * `count` slots of the fan sit: the number of slot centres left of it.
+ * The slot a card held at tray-local `x` goes into: the nearest slot centre
+ * of the fan it will be part of. Nearest, not "centres passed": the held
+ * card's own slot is one of them, and counting it would push the card one
+ * place further than the gap the player sees.
  */
 export function slotAt(slots: readonly Pick<FanSlot, 'x'>[], x: number): number {
-	let index = 0;
-	for (const slot of slots) if (slot.x < x) index++;
-	return Math.min(index, Math.max(0, slots.length - 1));
+	let best = 0;
+	slots.forEach((slot, i) => {
+		if (Math.abs(slot.x - x) < Math.abs(slots[best]!.x - x)) best = i;
+	});
+	return best;
 }
 
 // ---- the back a card leaves face-down with ----------------------------------

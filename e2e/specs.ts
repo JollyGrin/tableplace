@@ -4941,14 +4941,14 @@ export const SPECS: Spec[] = [
 					`the fan does not draw the stored order: ${JSON.stringify(await drawnOrder())} vs ${JSON.stringify(before)}`
 				);
 
-				// ── reorder: the first card, dragged along the fan past the third ─
+				// ── reorder: the first card, dragged along the fan onto the third ─
 				const cards = await handCards();
 				const first = cards[0]!;
 				const third = cards[2]!;
-				const fourth = cards[3]!;
 				const y = (first.top + first.bottom) / 2 + 20;
 				const from = { x: (first.left + first.right) / 2, y };
-				const to = { x: (third.right + fourth.left) / 2 + 8, y };
+				// onto the third card's slot: it takes that slot, the two before shift left
+				const to = { x: (third.left + third.right) / 2, y };
 				ok(
 					(await table.elementAt(from)).startsWith('canvas'),
 					`something covers the hand at ${JSON.stringify(from)}: ${await table.elementAt(from)}`
@@ -4970,7 +4970,7 @@ export const SPECS: Spec[] = [
 				);
 				ok(
 					JSON.stringify(after) === JSON.stringify(expected),
-					`dragging the first card past the third did not reorder the hand: ${JSON.stringify(after)}`
+					`dragging the first card onto the third's slot did not reorder the hand: ${JSON.stringify(after)}`
 				);
 				ok(
 					(await page.evaluate((id) => !!window.__tableplace!.state()?.cards?.[id], before[0]!)) ===
@@ -4979,8 +4979,9 @@ export const SPECS: Spec[] = [
 				);
 
 				// ── reload: the order is synced state, not local ──────────────
-				await page.reload({ waitUntil: 'networkidle2', timeout: 60_000 });
-				await page.waitForFunction('window.__tableplace?.ready === true', { timeout: 60_000 });
+				const readyMs = Number(process.env.E2E_READY_MS ?? 60_000);
+				await page.reload({ waitUntil: 'networkidle2', timeout: readyMs });
+				await page.waitForFunction('window.__tableplace?.ready === true', { timeout: readyMs });
 				await table.settle(1500);
 				page = table.page;
 				const reloaded = await eventually(

@@ -186,12 +186,13 @@ describe('the fan', () => {
 		expect(HAND_CARD_H).toBeGreaterThan(HAND_CARD_W);
 	});
 
-	it('a drop point picks the slot whose centre it passed', () => {
+	it('a held card takes the nearest slot', () => {
 		const slots = [{ x: -1 }, { x: 0 }, { x: 1 }];
 		expect(slotAt(slots, -5)).toBe(0);
-		expect(slotAt(slots, -0.5)).toBe(1);
-		expect(slotAt(slots, 0.5)).toBe(2);
+		expect(slotAt(slots, -0.4)).toBe(1);
+		expect(slotAt(slots, 0.6)).toBe(2);
 		expect(slotAt(slots, 5)).toBe(2);
+		expect(slotAt([], 1)).toBe(0);
 	});
 });
 
