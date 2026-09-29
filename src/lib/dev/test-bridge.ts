@@ -19,6 +19,7 @@
  */
 
 import * as THREE from 'three';
+import { soundStats } from '$lib/sound';
 import { framesAreStalling } from '$lib/utils/frame-stall.svelte';
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
@@ -118,6 +119,8 @@ export type TestBridge = {
 	 * utils/frame-stall.svelte.ts) — when every spring snaps and weight is off.
 	 */
 	stalling: () => boolean;
+	/** table sounds (tableplace-204): how many of each actually started, and whether audio is armed */
+	sounds: () => Record<string, number | boolean>;
 	/**
 	 * The yaw an entity is DRAWN at right now — its named group's, clockwise
 	 * seen from above, in degrees within [0, 360). What a rotation spec waits
@@ -538,6 +541,7 @@ export function installTestBridge(handles: SceneHandles): void {
 			};
 		},
 		stalling: () => framesAreStalling(),
+		sounds: () => soundStats(),
 		yaw: (id) => {
 			const object = handles.scene()?.getObjectByName(id);
 			if (!object) return null;

@@ -12,6 +12,8 @@
 	import HelpOverlay from '$lib/hint/HelpOverlay.svelte';
 	import DeckSearchDrawer from '$lib/deckSearch/DeckSearchDrawer.svelte';
 	import JournalPanel from '$lib/journal/JournalPanel.svelte';
+	import SoundToggle from '$lib/sound/SoundToggle.svelte';
+	import { installSound } from '$lib/sound';
 	import { startAutoClaim } from '$lib/scenario/autoClaim';
 	import Pane from './Pane.svelte';
 	import { page } from '$app/state';
@@ -52,6 +54,8 @@
 	}
 
 	onMount(() => {
+		// table sounds (tableplace-204): silent until the first gesture, and while muted
+		const removeSound = installSound();
 		// no ?lobby means someone hit /play directly — roll a name and pin it into
 		// the URL *before* connecting, so a refresh rejoins the same table and the
 		// address bar is always a copy-pasteable invite
@@ -69,6 +73,7 @@
 			connection = res ? 'connected' : 'failed';
 			if (res) autoClaimSeat(seatParam);
 		});
+		return removeSound;
 	});
 </script>
 
@@ -88,6 +93,7 @@
 <HelpOverlay />
 <DeckSearchDrawer />
 <JournalPanel />
+<SoundToggle />
 
 <!-- a pack or scenario dropped mid-game lands on the live table (and, for a
      pack, in this browser's library) — no detour through /setup -->
