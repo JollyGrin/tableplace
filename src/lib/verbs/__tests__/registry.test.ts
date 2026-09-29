@@ -62,7 +62,8 @@ describe('verbs by kind', () => {
 			'preview',
 			'reset-view',
 			'top-down',
-			'focus'
+			'focus',
+			'help'
 		]);
 	});
 
