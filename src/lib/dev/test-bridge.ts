@@ -34,6 +34,7 @@ import { preview as previewStore } from '$lib/HUDPreview/previewStore';
 import { huds } from './hud-registry';
 import { activePings, pingArrows, ping as sendPing } from '$lib/ping';
 import { remotePointersEnabled } from '$lib/pointers/settings';
+import { remoteCameraStore } from '$lib/store/remoteCameraStore.svelte';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -227,6 +228,8 @@ export type RemotePointerShape = {
 	visible: boolean;
 	opacity: number;
 	color: string | null;
+	/** ms since the store last saw this pointer move; null while it has none */
+	idleMs: number | null;
 };
 
 export type PingShape = {
@@ -666,6 +669,7 @@ export function installTestBridge(handles: SceneHandles): void {
 		ping: (x, z) => sendPing(x, z),
 		remotePointers: () => {
 			const out: RemotePointerShape[] = [];
+			const cams = get(remoteCameraStore);
 			handles.scene()?.traverse((object) => {
 				const playerId = object.userData?.remotePointer as string | undefined;
 				if (!playerId) return;
@@ -682,7 +686,8 @@ export function installTestBridge(handles: SceneHandles): void {
 					target: (object.userData.target as [number, number] | undefined) ?? null,
 					visible: object.visible,
 					opacity: (object.userData.opacity as number | undefined) ?? 0,
-					color
+					color,
+					idleMs: cams[playerId]?.c ? Date.now() - cams[playerId].pointerAt : null
 				});
 			});
 			return out;

@@ -112,6 +112,14 @@
 		});
 	}
 
+	function hide(id: string, group: THREE.Group) {
+		group.visible = false;
+		group.userData.target = null;
+		group.userData.opacity = 0;
+		// the next appearance lands where it is, not a glide from here
+		drawn.delete(id);
+	}
+
 	let lastFrame = 0;
 
 	function draw() {
@@ -124,9 +132,7 @@
 			const cam = cams[id];
 			const opacity = cam?.c ? pointerOpacity(now - cam.pointerAt) : 0;
 			if (!cam?.c || opacity <= 0) {
-				// gone: the next appearance lands where it is, not a glide from here
-				group.visible = false;
-				drawn.delete(id);
+				hide(id, group);
 				continue;
 			}
 			const [tx, tz] = cam.c;
@@ -153,10 +159,7 @@
 	$effect(() => {
 		if (showing) return;
 		lastFrame = 0;
-		for (const [id, group] of groups) {
-			group.visible = false;
-			drawn.delete(id);
-		}
+		for (const [id, group] of groups) hide(id, group);
 		invalidate();
 	});
 
@@ -171,10 +174,13 @@
 {#each pointers as { id, color } (id)}
 	<T.Group
 		oncreate={(group) => {
+			// set once here, not as a prop: `pointers` rebuilds on every sample,
+			// and a userData prop would be reassigned — wiping what draw() keeps
+			// on it — each time
+			group.userData.remotePointer = id;
+			group.visible = false;
 			groups.set(id, group);
 		}}
-		visible={false}
-		userData={{ remotePointer: id, color }}
 	>
 		<Billboard>
 			<T.Mesh geometry={arrowGeometry} renderOrder={20} raycast={noRaycast}>
