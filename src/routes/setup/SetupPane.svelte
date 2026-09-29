@@ -36,6 +36,8 @@
 	} from '$lib/scenario/scenario';
 	import { setSelectedDeck } from '$lib/store/deckSelection';
 	import { snapPointIds } from '$lib/store/game/actions/snap';
+	import { rotationStep } from '$lib/store/game/actions/rotate';
+	import { ROTATION_STEP_DEFAULT } from '$lib/utils/constants-rotation';
 	import {
 		snapEditor,
 		setSnapDefaults,
@@ -255,7 +257,8 @@
 			pieces: {},
 			overlays: {},
 			snapPoints: {},
-			players: {}
+			players: {},
+			table: { rotationStep: null }
 		};
 		for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 			for (const key of Object.keys(s?.[collection] ?? {})) update[collection][key] = null;
@@ -413,6 +416,16 @@
 		gameActions.setPieceReach(reachPieceId, next);
 	}
 
+	// the scenario's `rotationStep` (tableplace-200): what Q/E turn by
+	const tableRotationStep = $derived(rotationStep($gameStore));
+
+	function setRotationStep(value: number | undefined) {
+		const next = Math.round(value ?? ROTATION_STEP_DEFAULT);
+		// a remount re-emits the current value; only a real edit is a patch
+		if (next === tableRotationStep) return;
+		gameActions.setRotationStep(next);
+	}
+
 	function addSnapPoint() {
 		gameActions.addSnapPoint({
 			position: [0, 0],
@@ -559,6 +572,22 @@
 		ownerId={seatPlaceholderId(activeSeat)}
 		beforeSpawn={() => ensureSeatPlaceholder(activeSeat)}
 	/>
+	<Folder title="Table" expanded={false}>
+		<!-- saved as the scenario's rotationStep; every player's Q/E turns by it -->
+		<Slider
+			label="Q/E turn step"
+			value={tableRotationStep}
+			min={1}
+			max={360}
+			step={1}
+			format={(v) => `${v.toFixed(0)}°`}
+			on:change={(e) => setRotationStep(e.detail.value)}
+		/>
+		<Button
+			title="Default turn step ({ROTATION_STEP_DEFAULT}°)"
+			on:click={() => gameActions.setRotationStep(null)}
+		/>
+	</Folder>
 	<Folder title="Snap points" expanded={false}>
 		<Checkbox
 			label="place on click"

@@ -101,6 +101,12 @@ export type TestBridge = {
 	 */
 	pose: (id: string) => { y: number; leanDeg: number } | null;
 	/**
+	 * The yaw an entity is DRAWN at right now — its named group's, clockwise
+	 * seen from above, in degrees within [0, 360). What a rotation spec waits
+	 * on: the store says what was asked for, this says what the renderer shows.
+	 */
+	yaw: (id: string) => number | null;
+	/**
 	 * The entity's floating label badge (LabelBadge.svelte), or null while none
 	 * is mounted — which is itself the assertion for hover-only labels.
 	 */
@@ -481,6 +487,12 @@ export function installTestBridge(handles: SceneHandles): void {
 				y: object.getWorldPosition(new THREE.Vector3()).y,
 				leanDeg: THREE.MathUtils.radToDeg(Math.acos(Math.min(1, Math.abs(up.y))))
 			};
+		},
+		yaw: (id) => {
+			const object = handles.scene()?.getObjectByName(id);
+			if (!object) return null;
+			const degrees = -object.rotation.y / THREE.MathUtils.DEG2RAD;
+			return Math.round((((degrees % 360) + 360) % 360) * 1000) / 1000;
 		},
 		badge: (id) => {
 			const object = handles.scene()?.getObjectByName(id);

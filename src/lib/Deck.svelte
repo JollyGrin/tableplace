@@ -4,6 +4,7 @@
 	import { ImageMaterial } from '@threlte/extras';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { Spring } from 'svelte/motion';
+	import { untrack } from 'svelte';
 	import { dragStart, dragStore, isCarried, setDeckHover } from '$lib/store/dragStore.svelte';
 	import { isSelectClick, selectedIds, toggleSelected } from '$lib/store/selection';
 	import { toastLocked } from '$lib/hotkeys/lock';
@@ -23,6 +24,7 @@
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
 	import { Weight } from '$lib/utils/weight.svelte';
 	import { WEIGHT_CARRY_EPSILON } from '$lib/utils/constants-weight';
+	import { nearestTurn } from '$lib/utils/yaw';
 	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
 	import { DRAG_THRESHOLD_PX } from '$lib/utils/counter-input';
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
@@ -132,6 +134,24 @@
 		if (carried) weight.wake();
 	});
 	$effect(() => () => weight.stop());
+
+	// Yaw, in the deck's own radians, sprung through the shortest arc
+	// (tableplace-200): a Q/E turn wraps the stored yaw into one turn, so the
+	// spring heads for the equivalent nearest where it was already going (read
+	// untracked — this effect writes that target).
+	const yawSpring = new Spring(
+		untrack(() => rotation[1] ?? 0),
+		{
+			stiffness: 0.15,
+			damping: 0.8,
+			precision: 0.0002
+		}
+	);
+	$effect(() => {
+		const stored = deck.rotation?.[1] ?? 0;
+		const heading = untrack(() => yawSpring.target);
+		driveSpring(yawSpring, nearestTurn(heading, stored, Math.PI * 2));
+	});
 
 	// Shuffle wiggle: a decaying yaw twitch, kicked whenever `shuffledAt`
 	// changes — the reorder patch alone is invisible from the back, so this is
@@ -292,7 +312,7 @@
 >
 	<T.Group
 		name={id}
-		rotation={[rotation[0], rotation[1] + wiggle.current, rotation[2]]}
+		rotation={[rotation[0], yawSpring.current + wiggle.current, rotation[2]]}
 		onpointerdown={handlePointerDown}
 		onclick={handleClick}
 		onpointerenter={() => setDeckHover(id)}

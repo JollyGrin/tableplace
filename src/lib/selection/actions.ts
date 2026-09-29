@@ -15,11 +15,11 @@
 
 import { get } from 'svelte/store';
 import toast from 'svelte-french-toast';
-import { DEG2RAD } from 'three/src/math/MathUtils.js';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { clearSelection, collectionOf } from '$lib/store/selection';
-import { SNAP_GRID_YAW_STEP_DEFAULT } from '$lib/utils/constants-snap';
+import { rotationStep } from '$lib/store/game/actions/rotate';
+import { turnYaw } from '$lib/utils/yaw';
 import type { GameDTO } from '$lib/store/game/types';
 
 type Vec3 = [number, number, number];
@@ -68,14 +68,14 @@ export function flipPatch(
 }
 
 /**
- * Q/E: turn every selected entity a step in place — `direction` 1 is
- * clockwise seen from above (E), -1 anticlockwise (Q). A card turns a quarter
- * (a tap), a deck a quarter, a piece that turns by the grid step (a model)
- * by that step. Each turns about its own centre; the group's layout stays.
+ * Q/E: turn every selected entity by the table's rotation step in place —
+ * `direction` 1 is clockwise seen from above (E), -1 anticlockwise (Q). Every
+ * card, deck and piece turns by the same step (tableplace-200), each about its
+ * own centre; the group's layout stays.
  *
- * The units and signs are each kind's own: a card's yaw is `rotation[2]` in
- * degrees drawn as -z, a piece's `rotation[1]` in degrees drawn as -y, a
- * deck's `rotation[1]` in radians drawn as +y.
+ * The units and signs are each kind's own — a card's yaw is `rotation[2]` in
+ * degrees, a piece's `rotation[1]` in degrees, a deck's `rotation[1]` in
+ * radians with the opposite sign — and `turnYaw` is the one place that knows.
  */
 export function rotatePatch(
 	state: Partial<GameDTO> | undefined | null,
@@ -83,21 +83,12 @@ export function rotatePatch(
 	direction: 1 | -1
 ): Partial<GameDTO> | null {
 	const patch: Patch = {};
+	const step = rotationStep(state ?? undefined);
 	for (const id of ids) {
 		const entity = entityOf(state, id);
 		if (!entity || entity.locked) continue;
-		const [x = 0, y = 0, z = 0] = entity.rotation ?? [];
-		if (id.startsWith('deck:')) {
-			put(patch, id, { rotation: [x, y - direction * 90 * DEG2RAD, z] });
-		} else if (id.startsWith('piece:')) {
-			// only a piece that turns by the grid step (`isGridRotatable` in the
-			// verb registry — a model); a disc token or a dial has no facing to turn
-			if (entity.kind !== 'model') continue;
-			const next = (((y + direction * SNAP_GRID_YAW_STEP_DEFAULT) % 360) + 360) % 360;
-			put(patch, id, { rotation: [x, next, z] });
-		} else {
-			put(patch, id, { rotation: [x, y, z + direction * 90] });
-		}
+		const kind = id.startsWith('deck:') ? 'deck' : id.startsWith('piece:') ? 'piece' : 'card';
+		put(patch, id, { rotation: turnYaw(kind, entity.rotation, direction * step) });
 	}
 	return nonEmpty(patch);
 }

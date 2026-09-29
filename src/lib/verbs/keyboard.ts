@@ -3,8 +3,9 @@
  * resolve what is under the pointer into targets, most specific first, and run
  * the first verb whose hotkey matches.
  *
- * The target order is the routing the routes used to hand-write: a hovered
- * deck takes a key before anything else (F flips the whole deck, not the card),
+ * The target order is the routing the routes used to hand-write, behind one
+ * rule added with Q/E (tableplace-200): the thing being carried is asked
+ * first. Otherwise a hovered deck takes a key before anything else (F flips the whole deck, not the card),
  * then a hovered piece (T/R turn a model rather than tapping a card), then the
  * hovered card or hand card, then the table (C, Space). A key a target has no
  * verb for falls through to the next one — G on a deck still groups the
@@ -46,11 +47,15 @@ export function targetsUnder(
 	selected: readonly string[] = []
 ): VerbTarget[] {
 	const targets: VerbTarget[] = [];
-	if (isDeckHovered) targets.push({ kind: 'deck', id: isDeckHovered });
-	if (piece) targets.push({ kind: 'piece', id: piece });
-	// a card you are carrying still takes F/T/R — the hovered one wins if both
-	const cardId = isHovered || isDragging;
-	if (cardId) targets.push({ kind: 'card', id: cardId, dragging: !!isDragging });
+	// the thing in your hand comes first, whatever it is carried over: Q/E turn
+	// what you hold, F flips it (tableplace-200). Until then a carried deck or
+	// piece reached no verb at all — its id was offered as a card.
+	if (isDragging) targets.push(heldTarget(isDragging));
+	if (isDeckHovered && isDeckHovered !== isDragging)
+		targets.push({ kind: 'deck', id: isDeckHovered });
+	if (piece && piece !== isDragging) targets.push({ kind: 'piece', id: piece });
+	if (isHovered && isHovered !== isDragging)
+		targets.push({ kind: 'card', id: isHovered, dragging: !!isDragging });
 	// a card in your hand: no verbs yet, but a key over it must still reach the
 	// table's (Space previews it — see HUDPreview/preview.ts)
 	if (handCard) targets.push({ kind: 'hand-card', id: handCard });
@@ -65,6 +70,13 @@ export function targetsUnder(
 	}
 	targets.push({ kind: 'table' });
 	return targets;
+}
+
+/** the dragged id as a target of its own kind (ids are `kind:owner:slug`) */
+function heldTarget(id: string): VerbTarget {
+	if (id.startsWith('deck:')) return { kind: 'deck', id };
+	if (id.startsWith('piece:')) return { kind: 'piece', id };
+	return { kind: 'card', id, dragging: true };
 }
 
 export function currentActor(): VerbActor {
@@ -99,6 +111,7 @@ export function handleVerbKeyDown(event: KeyboardEvent) {
 	// the search drawer is modal: the deck behind it still reads as hovered
 	if (get(searchingDeck)) return;
 	const verb = verbForKey(event);
+	if (event.repeat && verb?.hotkey?.once) return;
 	verb?.run(verb.hotkey?.arg?.(event.code));
 }
 
