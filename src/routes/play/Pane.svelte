@@ -21,6 +21,7 @@
 	import { gameActions } from '$lib/store/game/actions';
 	import { keybindReference } from '$lib/verbs/registry';
 	import { hintBarEnabled } from '$lib/hint/hintUi';
+	import { weightEnabled } from '$lib/utils/weight.svelte';
 	import { classicMouse } from '$lib/store/mouseMode';
 	import { connectionStore } from '$lib/store/connectionStore.svelte';
 	import {
@@ -206,6 +207,9 @@
 		/>
 		<!-- the bottom-left line naming what the pointer can do; on by default -->
 		<Checkbox label="Hint bar" bind:value={$hintBarEnabled} />
+		<!-- lean, landing bounce and flip hop (tableplace-203); always off under
+		     prefers-reduced-motion, whatever this says -->
+		<Checkbox label="Weight" bind:value={$weightEnabled} />
 		<!-- tableplace-202 moved orbit to right-drag so left-drag on the felt can
 		     box-select; this puts the old mapping back, for one release -->
 		<Checkbox label="Classic mouse" bind:value={$classicMouse} />

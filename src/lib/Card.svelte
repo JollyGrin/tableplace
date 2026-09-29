@@ -29,6 +29,8 @@
 	import { pickCard, pickedCard } from './store/cardPick';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
+	import { Weight, flipHopFor, weightOn } from '$lib/utils/weight.svelte';
+	import { WEIGHT_CARRY_EPSILON } from '$lib/utils/constants-weight';
 	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
 	import { toastLocked } from '$lib/hotkeys/lock';
@@ -171,9 +173,31 @@
 		else driveSpring(planar, { x: x + fanX, z: z + fanZ });
 	});
 
+	// Weight (tableplace-203): a lean against the travel while carried — here
+	// or, read off the store's carry height, by another player — one small
+	// bounce on landing, and a hop through a flip. Render-only; see
+	// utils/weight.svelte.ts.
+	const carried = $derived(
+		isDragging ||
+			Math.abs((cardState?.position?.[1] ?? CARD_REST_Y) - CARD_DRAG_Y) < WEIGHT_CARRY_EPSILON
+	);
+	const weight = new Weight('card', () => ({
+		x: planar.current.x,
+		z: planar.current.z,
+		y: height.current,
+		rest: height.target,
+		carried
+	}));
+	$effect(() => {
+		if (carried) weight.wake();
+	});
+	$effect(() => () => weight.stop());
+	// on top of the flip's clearance lift above, which is geometry, not feel
+	const flipHop = $derived(weightOn() ? flipHopFor(rotation.current, rotation.target) : 0);
+
 	// Create derived values for each component
 	const posX = $derived(planar.current.x);
-	const posY = $derived(height.current);
+	const posY = $derived(height.current + weight.lift + flipHop);
 	const posZ = $derived(planar.current.z);
 
 	// Combine components into position array
@@ -295,61 +319,42 @@
 <!-- the store id, mirrored onto the object3D: what makes an entity findable in
      the scene graph — by devtools, and by the headless harness, which has to
      know where a thing actually draws in order to click it -->
-<T.Group
-	name={id}
-	{position}
-	rotation.z={rotation.current * DEG2RAD}
-	rotation.y={(rotationTap.current + orientationYaw) * -DEG2RAD}
-	onpointerdown={handleDragStart}
-	onpointerleave={handlePointerLeave}
-	onpointerenter={handlePointerEnter}
-	onclick={handleClick}
->
-	<!-- card body: visible paper edge between the two faces (unlit so side faces
+<!-- the lean rides on its own group, in the world frame, so it tips the card
+     against its travel whatever its tap or flip -->
+<T.Group {position} rotation.x={weight.tiltX} rotation.z={weight.tiltZ}>
+	<T.Group
+		name={id}
+		rotation.z={rotation.current * DEG2RAD}
+		rotation.y={(rotationTap.current + orientationYaw) * -DEG2RAD}
+		onpointerdown={handleDragStart}
+		onpointerleave={handlePointerLeave}
+		onpointerenter={handlePointerEnter}
+		onclick={handleClick}
+	>
+		<!-- card body: visible paper edge between the two faces (unlit so side faces
 	     never go black). Rounded to match the face's corner radius — a square box
 	     pokes white nubs past the ImageMaterial's alpha-cutout arc. The geometry
 	     is shared across all cards: dispose={false} keeps one card's unmount from
 	     destroying it for everyone. -->
-	<T.Mesh castShadow>
-		<T is={cardBodyGeometry} attach="geometry" dispose={false} />
-		<T.MeshBasicMaterial color="#d9d6c9" />
-	</T.Mesh>
-	<!-- key the MESH, not the material: threlte 8.5 material swaps on a live
+		<T.Mesh castShadow>
+			<T is={cardBodyGeometry} attach="geometry" dispose={false} />
+			<T.MeshBasicMaterial color="#d9d6c9" />
+		</T.Mesh>
+		<!-- key the MESH, not the material: threlte 8.5 material swaps on a live
 	     mesh detach without reattaching (same bug as the felt table), leaving
 	     the default white material. Mesh recreation attaches cleanly. -->
-	{#key faceImageUrl}
-		<T.Mesh
-			castShadow
-			receiveShadow
-			bind:ref={card}
-			visible={!isFacedown}
-			rotation.x={-Math.PI / 2}
-			position.y={CARD_THICKNESS / 2}
-		>
-			<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
-			<ImageMaterial
-				url={faceImageUrl ?? ''}
-				side={0}
-				radius={0.1}
-				monochromeColor={'#fff'}
-				monochromeStrength={emissiveIntensity}
-			/>
-		</T.Mesh>
-	{/key}
-
-	{#if backImageUrl}
-		<!-- rotation.z compensates the width-axis flip so directional backs read upright -->
-		{#key backImageUrl}
+		{#key faceImageUrl}
 			<T.Mesh
 				castShadow
 				receiveShadow
-				rotation.x={-DEG2RAD * 270}
-				rotation.z={Math.PI}
-				position.y={-CARD_THICKNESS / 2}
+				bind:ref={card}
+				visible={!isFacedown}
+				rotation.x={-Math.PI / 2}
+				position.y={CARD_THICKNESS / 2}
 			>
 				<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
 				<ImageMaterial
-					url={backImageUrl}
+					url={faceImageUrl ?? ''}
 					side={0}
 					radius={0.1}
 					monochromeColor={'#fff'}
@@ -357,12 +362,34 @@
 				/>
 			</T.Mesh>
 		{/key}
-	{:else}
-		<T.Mesh rotation.x={Math.PI / 2} position.y={-CARD_THICKNESS / 2}>
-			<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
-			<T.MeshBasicMaterial color="white" />
-		</T.Mesh>
-	{/if}
+
+		{#if backImageUrl}
+			<!-- rotation.z compensates the width-axis flip so directional backs read upright -->
+			{#key backImageUrl}
+				<T.Mesh
+					castShadow
+					receiveShadow
+					rotation.x={-DEG2RAD * 270}
+					rotation.z={Math.PI}
+					position.y={-CARD_THICKNESS / 2}
+				>
+					<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
+					<ImageMaterial
+						url={backImageUrl}
+						side={0}
+						radius={0.1}
+						monochromeColor={'#fff'}
+						monochromeStrength={emissiveIntensity}
+					/>
+				</T.Mesh>
+			{/key}
+		{:else}
+			<T.Mesh rotation.x={Math.PI / 2} position.y={-CARD_THICKNESS / 2}>
+				<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
+				<T.MeshBasicMaterial color="white" />
+			</T.Mesh>
+		{/if}
+	</T.Group>
 </T.Group>
 
 {#if isHovered && cardState?.locked}
