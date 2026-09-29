@@ -1611,13 +1611,12 @@ export const SPECS: Spec[] = [
 		/**
 		 * tableplace-156: every floating label is the same LabelBadge, and the
 		 * restyle must not have changed WHEN one shows or how it reacts. Pinned
-		 * here with a real pointer: a counter's value, a bag's count and a deck's
-		 * card count wear their badges with no hover anywhere; a plain piece's
-		 * name badge mounts under the pointer and unmounts when it leaves; and a
-		 * real click on the counter kicks the value-change pulse (the badge's
-		 * scale springs toward 1.6, then settles back to rest).
+		 * here with a real pointer: a bag's count and a deck's card count wear
+		 * their badges with no hover anywhere; a plain piece's name badge mounts
+		 * under the pointer and unmounts when it leaves. A counter wears none —
+		 * since tableplace-191 its dial face prints the value (see the dial spec).
 		 */
-		name: 'badges: hover-only labels, always-on counts, and the value pulse',
+		name: 'badges: hover-only labels and always-on counts',
 		run: (context) =>
 			withTable(context, 'badges', async (table) => {
 				const deck = await table.seedDeck();
@@ -1637,7 +1636,6 @@ export const SPECS: Spec[] = [
 
 				// always-on: the pointer has not been near any of these
 				for (const [id, label] of [
-					[counter, 'the counter'],
 					[bag, 'the bag'],
 					[deck, 'the deck']
 				] as const) {
@@ -1646,6 +1644,7 @@ export const SPECS: Spec[] = [
 
 				// hover-only: the plain token wears its name only under the pointer
 				ok(!(await badge(token)), 'the plain token mounted a badge with no pointer near it');
+				ok(!(await badge(counter)), 'the counter still wears a floating pill over its dial');
 				const over = await table.locate(token);
 				ok(over, 'the token never mounted — nothing to hover');
 				await table.page.mouse.move(over!.x, over!.y);
@@ -1664,51 +1663,117 @@ export const SPECS: Spec[] = [
 				);
 				ok(!unhovered, 'the token badge stayed mounted after the pointer left');
 
-				// the pulse: a real click deals 1 damage (counter-input's plain-click
-				// branch; shift-click is the heal) and the badge scale kicks toward
-				// 1.6 before springing back to rest. The kick is watched FIRST — it
-				// is instant on the value change, so waiting on the value and then
-				// looking for the kick could miss a fast pulse entirely.
-				const at = await table.locate(counter);
-				ok(at, 'the counter never mounted — nothing to click');
-				await table.page.mouse.click(at!.x, at!.y);
-				const kicked = await eventually(
-					() => badge(counter),
-					(b) => !!b && b.scale > 1.15,
-					5000
-				);
-				ok(
-					!!kicked && kicked.scale > 1.15,
-					`the value change never kicked the badge pulse: ${JSON.stringify(kicked)}`
-				);
-				const value = await eventually(
-					() =>
-						table.page.evaluate(
-							(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
-							counter
-						),
-					(v) => v === 4
-				);
-				ok(value === 4, `the click did not damage the counter to 4: ${JSON.stringify(value)}`);
-				const rested = await eventually(
-					() => badge(counter),
-					(b) => !!b && Math.abs(b.scale - 1) < 0.05
-				);
-				ok(
-					!!rested && Math.abs(rested.scale - 1) < 0.05,
-					`the pulse never settled back to rest: ${JSON.stringify(rested)}`
-				);
-
 				// badges must not have cost the table its raycast
 				await assertDraggable(table, counter, 'the counter (wearing its badge)');
 				await assertDraggable(table, deck, 'deck (with badges on the table)');
 				assertClean(table, 'at the end of the badge suite');
 
-				// the train's visual evidence: counter, bag and deck badges always-on,
+				// the train's visual evidence: bag and deck badges always-on,
 				// and the token hovered so its name badge is in the frame too
 				const pose = await table.locate(token);
 				if (pose) await table.page.mouse.move(pose.x, pose.y);
 				await table.snap('badges');
+			})
+	},
+	{
+		/**
+		 * tableplace-191: a counter reads as a dial. Its top face prints name,
+		 * value and `of max`, with the rim arc for value/max — drawn onto a
+		 * canvas that is redrawn only when one of those changes. A real click
+		 * (counter-input's plain-click −1) must change the PRINTED value, pulse
+		 * the face once, and cost exactly one redraw; a counter owned by another
+		 * seat prints square to that seat.
+		 */
+		name: 'counter dial: click changes the printed value, pulses once, faces its seat',
+		run: (context) =>
+			withTable(context, 'dial', async (table) => {
+				const deck = await table.seedDeck();
+				const counter = await table.spawn('counter', {
+					name: 'Health',
+					maxValue: 17,
+					value: 5,
+					radius: 1,
+					position: ON_FELT(0)
+				});
+				const plain = await table.spawn('counter', {
+					name: 'Score',
+					value: 3,
+					radius: 1,
+					position: ON_FELT(1),
+					ownerId: 'seat1'
+				});
+				await table.settle(1500);
+				assertClean(table, 'with two counter dials on the table');
+
+				const dial = (id: string) =>
+					table.page.evaluate((entityId) => window.__tableplace!.dial(entityId), id);
+
+				const first = await dial(counter);
+				ok(first, 'the counter drew no dial face');
+				ok(
+					first!.name === 'Health' && first!.value === 5 && first!.maxValue === 17,
+					`the dial printed the wrong thing: ${JSON.stringify(first)}`
+				);
+				ok(Math.abs(first!.facing) < 0.01, `seat 0's dial does not face seat 0: ${first!.facing}`);
+				const other = await dial(plain);
+				ok(
+					other && other.value === 3 && other.maxValue === null,
+					`the max-less dial printed the wrong thing: ${JSON.stringify(other)}`
+				);
+				ok(
+					Math.abs(Math.abs(other!.facing) - Math.PI) < 0.01,
+					`seat 1's dial does not face seat 1: ${other!.facing}`
+				);
+
+				// frames alone never redraw the canvas
+				await table.settle(800);
+				const idle = await dial(counter);
+				ok(
+					idle!.redraws === first!.redraws,
+					`the dial redrew with nothing changed: ${first!.redraws} → ${idle!.redraws}`
+				);
+
+				// the pulse is instant on the value change, so watch for the kick
+				// first — waiting on the value, then looking, could miss it
+				const at = await table.locate(counter);
+				ok(at, 'the counter never mounted — nothing to click');
+				await table.page.mouse.click(at!.x, at!.y);
+				const kicked = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.scale > 1.05,
+					5000
+				);
+				ok(
+					!!kicked && kicked.scale > 1.05,
+					`the value change never pulsed the dial: ${JSON.stringify(kicked)}`
+				);
+				const printed = await eventually(
+					() => dial(counter),
+					(d) => !!d && d.value === 4 && Math.abs(d.scale - 1) < 0.02
+				);
+				ok(
+					printed?.value === 4,
+					`the click did not change the printed value to 4: ${JSON.stringify(printed)}`
+				);
+				ok(
+					printed!.redraws === first!.redraws + 1,
+					`one value change cost ${printed!.redraws - first!.redraws} redraws`
+				);
+				ok(
+					Math.abs(printed!.scale - 1) < 0.02,
+					`the pulse never settled: ${JSON.stringify(printed)}`
+				);
+				const stored = await table.page.evaluate(
+					(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
+					counter
+				);
+				ok(stored === 4, `the store disagrees with the dial: ${JSON.stringify(stored)}`);
+
+				// the face must not have cost the table its raycast
+				await assertDraggable(table, counter, 'the counter dial');
+				await assertDraggable(table, deck, 'deck (with counter dials on the table)');
+				assertClean(table, 'at the end of the dial suite');
+				await table.snap('dial');
 			})
 	},
 	{
