@@ -4894,12 +4894,19 @@ export const SPECS: Spec[] = [
 				// ── the pin syncs, both ways ────────────────────────────────────
 				// the second client only watches: every real-mouse step runs while
 				// the table is the one foreground page, so a backgrounded tab's
-				// throttled frames can't pass for a refused drag
-				const remote = await openTable(context.browser, context.servers, lobby);
+				// throttled frames can't pass for a refused drag.
+				// A second PLAYER, in their own context (tableplace-257): a page on
+				// the same browser shares `myPlayerId`, and the relay never echoes a
+				// patch to its sender's id — that tab gets the lock from its join
+				// sync and then no patch at all, so it could never see the unlock
+				const peerContext = await context.browser.createBrowserContext();
+				let remote: Table | null = null;
 				try {
+					remote = await openTable(peerContext, context.servers, lobby);
+					const peer = remote;
 					ok(
 						await eventually(
-							() => lockedOn(remote),
+							() => lockedOn(peer),
 							(on) => on,
 							8000
 						),
@@ -4930,15 +4937,16 @@ export const SPECS: Spec[] = [
 					);
 					ok(
 						!(await eventually(
-							() => lockedOn(remote),
+							() => lockedOn(peer),
 							(on) => !on,
 							8000
 						)),
 						'the second client never saw the unlock'
 					);
-					assertClean(remote, 'on the second client after lock and unlock');
+					assertClean(peer, 'on the second client after lock and unlock');
 				} finally {
-					await remote.close();
+					await remote?.close();
+					await peerContext.close();
 				}
 
 				// ── unpinned, it drags like any other piece ─────────────────────
