@@ -161,10 +161,11 @@ The literal prefix `model:` followed by `<kit>/<name>`, resolved through the fir
 - **`id`** — stable identity for the pack, e.g. `ember-duel`. See §8 on collisions.
 - **`name`** — human-readable title.
 - **`scope`** — `"table"` or `"player"`. `table` is the shared game loaded once per lobby by the host (board, communal decks). `player` is what one participant brings and is spawned per seat — a deck-builder export is a player pack. When in doubt for a card game, use `player`.
-- **`decks[]`** — `slot` (stable id within the pack), `name`, `back` (a face ref), optional `isFaceUp`, and `cards[]`.
-  - **`cards[]`** — `code` (stable id within the deck), optional `name`, `face` (a face ref), and optional `orientation` — {{CARD_ORIENTATIONS}}. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
-- **`pieces[]`** _(optional)_ — `kind` ({{PIECE_KINDS}}), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `maxValue` (counters), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
-- **`overlays[]`** _(optional)_ — board/map images: `imageUrl` (a face ref), `ratio` (image width ÷ height), `scale` (world size along the long axis).
+- **`decks[]`** — `slot` (stable id within the pack), `name`, `back` (a face ref), optional `isFaceUp`, optional `locked` (see below), and `cards[]`.
+  - **`cards[]`** — `code` (stable id within the deck), optional `name` (carried onto the spawned card and shown as the caption of the zoomed hover preview, only while the card is face up), `face` (a face ref), and optional `orientation` — {{CARD_ORIENTATIONS}}. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
+- **`pieces[]`** _(optional)_ — `kind` ({{PIECE_KINDS}}), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `shape` (tokens only: {{TOKEN_SHAPES}} — a square token is a flat tile whose half-width is `radius`, with `imageUrl` covering its whole top face uncropped, corners included; an image that is not 1:1 makes it a rectangle of that aspect, `2 × radius` wide; the rim and base keep `color`; it is picked and dropped by its own bounds, not a circle's), optional `maxValue` and `minValue` (counters: it spawns full at `maxValue` — `COUNTER_MAX_DEFAULT` when omitted — and its value clamps to `[minValue, maxValue]`; `minValue` defaults to 0, may be negative, and must not be above `maxValue` — a dial that reads 3–17 is `"minValue": 3, "maxValue": 17`, and its rim arc is empty at 3 and full at 17), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), optional `reach` (a whole number ≥ 0: how many snap-point links the piece usually travels — advisory reach rings, §7.2), optional `locked` (see below), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
+- **`overlays[]`** _(optional)_ — board/map images: `imageUrl` (a face ref), `ratio` (image width ÷ height), `scale` (world size along the long axis), optional `locked`.
+- **`locked`** _(optional, default `false`, on `decks[]`, `pieces[]` and `overlays[]`)_ — spawn pinned in place: it can't be dragged, flipped, turned or grouped until a player presses `L` on it. What it does in place still works (a locked deck deals, a locked counter counts, a locked die rolls). Use it for boards, tracks and reference cards that should not get knocked around. Tabletop Simulator's `Locked` maps onto it one to one.
 - **`source`** _(optional)_ — provenance stamp written by converters; the only value is `"tts"`. Omit it in hand-authored packs.
 
 Decks spawn in declaration order. A facedown deck is shuffled when spawned directly onto a table; a scenario placement controls this explicitly (§7).
@@ -189,11 +190,11 @@ A piece can carry several faces and be flipped between them in play — a double
 
 **`states[0]` is the base face.** The array is the piece's _complete_ ordered set of faces, not extra ones added to `imageUrl`. A piece with `states` renders `states[n].face` and starts at `n = 0` unless a scenario placement's `state` says otherwise (§7.1). Write `imageUrl` equal to `states[0].face`: it is the fallback for anything that ignores states.
 
-`face` is a face ref (§5) — schemes may be mixed inside one piece. `name` is optional and labels the state on hover and in its picker menu. Only `token` and `counter` pieces render an image, so states on a `pawn` change its label, not its shape.
+`face` is a face ref (§5) — schemes may be mixed inside one piece. `name` is optional and labels the state on hover. Only `token` and `counter` pieces render an image, so states on a `pawn` change its label, not its shape.
 
 A piece may also carry **`state`**: the index it _spawns_ showing, for when that is not the base face. Omit it unless you mean it; a scenario placement's `state` (§7.1) overrides it.
 
-Players cycle a piece with `X` (`Shift+X` backwards) or pick a state from its right-click menu; the current index is synced game state, so it survives a scenario save/load.
+Players cycle a piece with `X` (`Shift+X` backwards), or from the same verbs on its right-click radial menu; the current index is synced game state, so it survives a scenario save/load.
 
 ### 6.3 Bags — a hidden blind-draw pool
 
@@ -215,7 +216,7 @@ A piece of `kind: "bag"` is a container: a pouch holding a pool nobody can look 
 }
 ```
 
-- **`contents`** — what the bag holds, in insertion order. Each entry is either a **piece item** — `kind` {{BAG_PIECE_ITEM_KINDS}}, plus `name` and the optional `color` / `imageUrl` / `radius` / `maxValue`; there is no `position`, because the draw decides where it lands — or a **card item**: `kind: "card"` plus `code`, optional `name`, `face` (a face ref, §5), optional `back` and optional `orientation` (§6.1).
+- **`contents`** — what the bag holds, in insertion order. Each entry is either a **piece item** — `kind` {{BAG_PIECE_ITEM_KINDS}}, plus `name` and the optional `color` / `imageUrl` / `radius` / `shape` / `maxValue` / `minValue`; there is no `position`, because the draw decides where it lands — or a **card item**: `kind: "card"` plus `code`, optional `name`, `face` (a face ref, §5), optional `back` and optional `orientation` (§6.1).
 - **`drawMode`** — {{BAG_DRAW_MODES}}.
 - **`infinite`** — `true` makes each draw **clone** the item rather than remove it, so the bag never empties. Its badge reads `∞`.
 - `code` must be **unique within the bag**, like a deck's card codes: the drawn card's table id is built from it.
@@ -255,9 +256,16 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
   - **`order`** _(decks)_ — the card sequence as pack card `code`s, top of the deck first. **Order is preserved by default**, so a rigged opening or a fixed encounter deck reloads exactly as authored. It is a list of ids, never card bodies. Unknown codes are skipped with a warning.
   - **`shuffleOnLoad`** _(decks, default `false`)_ — shuffle on load instead of restoring `order`. Per placement, so one scenario can hold a stacked encounter deck and a shuffled draw deck side by side.
   - **`state`** _(pieces)_ — which of the pack piece's `states` (§6.2) it starts on, as an index (default `0`). This is one piece's face; the scenario's top-level `state` field below is something else entirely.
-  - **`isFaceUp`** _(decks)_, **`value`** _(counter pieces)_, **`scale`** _(overlays)_ — override the pack's defaults.
+  - **`isFaceUp`** _(decks)_, **`value`** _(counter pieces)_, **`scale`** _(overlays)_ — override the pack's defaults. A counter `value` must be inside the pack piece's `[minValue, maxValue]`; one outside it is refused with a message naming both bounds.
+  - **`locked`** _(any kind)_ — place it pinned (`true`), or unpin content the pack marks locked (`false`). Omit to keep the pack's default.
 - **`snapPoints[]`** _(optional)_ — placement guides on the felt (§7.2 below). Independent of `placements`: they steer what players drop, not what the scenario spawns.
+- **`rotationStep`** _(optional, degrees, above 0 and at most 360)_ — how far `Q` and `E` turn a card, deck or piece on this table. Omit for the default, 45°. A hex board wants `60`; a table where anything goes wants `15`. `T` and `R` on a card stay 90° taps whatever this says. A snap point's own `rotation` still decides the yaw of whatever lands on it.
+- **`handPlayFace`** _(optional, `"down"` or `"up"`)_ — which face a card dragged out of a player's hand lands on. Omit for the default, `"down"`. Set `"up"` for a game whose cards are played face up. Whatever this says, holding Shift at release plays the other face.
+- **`coach`** _(optional, boolean)_ — `false` hides the first-run "things to try" strip on this table, for players who already know it. Omit to show it (each player can still dismiss it for their own browser). It only ever hides a hint; it changes no rule of play.
 - **`state`** — a partial snapshot for everything _not_ pack-derived: hand-placed cards, ad-hoc pieces. Applied on top of the placements, so it can also override them. This is the part of the format most likely to change; keep as little in it as you can.
+  - A card in `state.cards` may carry **`placedBy`** — the player who laid it face-down out of their hand. Only that player's zoomed preview shows its face ("Only you see this"); everyone else sees the back. It is a display rule, not secrecy: the face is in the file and on the wire for anyone to read. In a scenario it is only meaningful as a seat placeholder (`seat0`–`seat3`), which passes to whoever claims that seat. Flipping the card face up, taking it into a hand or putting it on a pile clears it.
+  - Never write **`heldBy`**. On a live table it names the player whose pointer is carrying a card, deck or piece; a file has no pointer, so save and export strip it and import drops it.
+  - A card in a hand (`state.players[id].tray`) may carry **`handOrder`** — a number; the hand shows its cards lowest first, left to right, and cards without one after the rest. Leave it out unless the order matters.
 
 Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`–`seat3`, and entity ids follow `kind:owner:slug` — `deck:seat0:main`, `card:seat0:main-AS`, `piece:seat0:hp-0`. Overlays are table-scoped and keyed `overlay:<packId>:<index>`. When a real player claims a seat, every id containing that placeholder is renamed to them. Never put a real player id in a file.
 
@@ -283,6 +291,24 @@ Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`�
   - **`yawStep`** _(optional)_ — degrees; the landing's yaw rounds to the nearest multiple, measured from the grid's `rotation`. Default 90.
 
 Pieces can opt out per piece: a pack piece (or `state` piece) with `snap: false` ignores points and grids entirely — see §6.1.
+
+**Links, tags and reach — an optional board graph.** Many boards move pieces along connected spaces. Three optional fields describe that, and one on pieces uses it:
+
+```json
+"snapPoints": [
+	{ "position": [-4, 0], "links": ["snap:1"], "tags": ["north"] },
+	{ "position": [0, 0], "links": ["snap:2"] },
+	{ "position": [4, 0], "outLinks": ["snap:3"] },
+	{ "position": [8, 0] }
+]
+```
+
+- **`links`** _(optional)_ — ids of the snap points this one connects to. A point's id is **`snap:<its index in the array>`** — `snap:0` is the first entry. Links are **undirected**: written on either end they join both, so you need not repeat them. A link to an index that doesn't exist is ignored.
+- **`outLinks`** _(optional)_ — **one-way** links, written with the same ids: the points this one _leads to_. The edge leaves the point it is written on, and the target does not reach back through it — use it for a directed route (a one-way path, a slide, a door that only opens from one side). Above, `snap:2` leads to `snap:3` but `snap:3` leads nowhere. Write a one-way link only on its starting point; a pair that is also joined by `links` is simply two-way. A target that doesn't exist is ignored.
+- **`tags`** _(optional)_ — free-form string labels (regions, sides, anything a scenario wants to group points by). The table never reads them.
+- A piece's **`reach`** _(optional, §6.1 and `state.pieces`)_ — a whole number: how many links the piece usually travels. Lift a piece with `reach` off a linked snap point and the points within `reach` links (breadth-first, including the one it left; `links` walked both ways, `outLinks` only the way they point) glow brighter than the rest; points with something already on them are left out of that bright set but still count as passable.
+
+All four are **advisory only**. Nothing is ever blocked — a drop still lands on whichever point catches it, so house rules keep working. A scenario without links behaves exactly as it did before they existed.
 
 Snap points are **table-scoped, not seat-relative**: unlike a pack piece's `[x, z]`, they are never mirrored for the far side of the table. Author both ends explicitly — one at `[0, 2.5]` facing `0`, one at `[0, -2.5]` facing `180`.
 

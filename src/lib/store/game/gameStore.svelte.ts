@@ -1,6 +1,7 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { GameDTO } from './types';
 import { merge } from '../transform-helpers';
+import { noteLocalMoves } from '../lastMoved';
 
 const initGameState = {
 	players: {},
@@ -9,10 +10,7 @@ const initGameState = {
 };
 const game = writable<Partial<GameDTO>>(initGameState);
 
-function findNullPaths(
-	obj: Record<string, any>,
-	currentPath: string[] = []
-): string[][] {
+function findNullPaths(obj: Record<string, any>, currentPath: string[] = []): string[][] {
 	const nullPaths: string[][] = [];
 
 	for (const [key, value] of Object.entries(obj)) {
@@ -68,9 +66,7 @@ function deepFilterNulls<T>(obj: T): T {
  * the original type, a partial object of that type (for nested objects), or null.
  * */
 type PartialWithNull<T> = {
-	[P in keyof T]?: T[P] extends object
-		? PartialWithNull<T[P]> | null
-		: T[P] | null;
+	[P in keyof T]?: T[P] extends object ? PartialWithNull<T[P]> | null : T[P] | null;
 };
 
 function updateState(update: PartialWithNull<GameDTO>) {
@@ -92,10 +88,52 @@ function updateState(update: PartialWithNull<GameDTO>) {
 	});
 }
 
+type LocalPatchObserver = (update: unknown, before: Partial<GameDTO>) => void;
+let localPatchObserver: LocalPatchObserver | null = null;
+
+/**
+ * Watch every patch this client makes, with the state as it was just before
+ * it lands — the action journal (tableplace-201) reads its undo snapshots
+ * here. One observer; installing another replaces it, `null` removes it.
+ */
+export function observeLocalPatches(observer: LocalPatchObserver | null) {
+	localPatchObserver = observer;
+}
+
+type PatchObserver = (
+	update: unknown,
+	before: Partial<GameDTO>,
+	origin: 'local' | 'remote'
+) => void;
+let patchObserver: PatchObserver | null = null;
+
+/**
+ * Watch every patch, mine and a peer's, with which it was (table sounds,
+ * tableplace-204). Separate from `observeLocalPatches` so neither replaces the
+ * other. One observer; `null` removes it.
+ */
+export function observePatches(observer: PatchObserver | null) {
+	patchObserver = observer;
+}
+
+/** a patch this client made (as opposed to one relayed from a peer) */
+function updateLocalState(update: PartialWithNull<GameDTO>) {
+	noteLocalMoves(update);
+	localPatchObserver?.(update, get(game));
+	patchObserver?.(update, get(game), 'local');
+	updateState(update);
+}
+
+/** a patch relayed from a peer (or the join sync): applied without rebroadcasting */
+function updateRemoteState(update: PartialWithNull<GameDTO>) {
+	patchObserver?.(update, get(game), 'remote');
+	updateState(update);
+}
+
 export const gameStore = {
 	...game,
 	// NOTE: wrapped in storeIntegration.ts to broadcast messages
-	updateState,
+	updateState: updateLocalState,
 	// NOTE: silent used in websocket/index.ts to sync received messages without rebroadcasting
-	updateStateSilently: updateState
+	updateStateSilently: updateRemoteState
 };

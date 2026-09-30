@@ -202,6 +202,177 @@ describe('snap points through save → export → import → load', () => {
 		expect(get(gameStore).pieces?.[id]?.snap).toBeUndefined();
 	});
 
+	it('draws, removes and tags links between points (tableplace-190)', () => {
+		const [a, b, c] = [
+			[0, 0],
+			[3, 0],
+			[6, 0]
+		].map((p) => gameActions.addSnapPoint({ position: p as [number, number] }));
+		expect(gameActions.toggleSnapLink(a!, b!)).toBe(true);
+		expect(gameActions.toggleSnapLink(b!, c!)).toBe(true);
+		// written on both ends
+		expect(snapPointsInStore()[a!]?.links).toEqual([b]);
+		expect(snapPointsInStore()[b!]?.links).toEqual([a, c]);
+		// toggling from the other end removes it from both; an empty list is deleted
+		expect(gameActions.toggleSnapLink(b!, a!)).toBe(false);
+		expect(snapPointsInStore()[a!]?.links).toBeUndefined();
+		expect(snapPointsInStore()[b!]?.links).toEqual([c]);
+		// a removed point takes its links with it
+		gameActions.removeSnapPoint(c!);
+		expect(snapPointsInStore()[b!]?.links).toBeUndefined();
+
+		gameActions.setSnapTags(a!, [' north ', '', 'north', 'edge']);
+		expect(snapPointsInStore()[a!]?.tags).toEqual(['north', 'edge']);
+		gameActions.setSnapTags(a!, []);
+		expect(snapPointsInStore()[a!]?.tags).toBeUndefined();
+	});
+
+	it('round-trips links, tags and reach, renumbering links to the exported order', async () => {
+		ensureSeatPlaceholder(0);
+		const runner = gameActions.addPiece('token', { ownerId: seatPlaceholderId(0), name: 'Runner' });
+		gameActions.setPieceReach(runner, 2);
+		const [a, gone, b, c] = [
+			[0, 0],
+			[1, 1],
+			[3, 0],
+			[6, 0]
+		].map((p) => gameActions.addSnapPoint({ position: p as [number, number] }));
+		gameActions.toggleSnapLink(a!, b!);
+		gameActions.toggleSnapLink(b!, c!);
+		gameActions.setSnapTags(c!, ['exit']);
+		// snap:1 goes, so snap:2/snap:3 export as indices 1/2 — links must follow
+		gameActions.removeSnapPoint(gone!);
+
+		const exported = serializeScenarioFile(saveScenario('linked'));
+		const file = JSON.parse(exported);
+		expect(file.snapPoints.map((p: { links?: string[] }) => p.links)).toEqual([
+			['snap:1'],
+			['snap:0', 'snap:2'],
+			['snap:1']
+		]);
+		expect(file.snapPoints[2].tags).toEqual(['exit']);
+
+		emptyTable();
+		await applyScenario(importScenarioFromText(exported));
+		expect(snapPointsInStore()['snap:1']).toMatchObject({
+			position: [3, 0],
+			links: ['snap:0', 'snap:2']
+		});
+		expect(snapPointsInStore()['snap:2']?.tags).toEqual(['exit']);
+		expect(get(gameStore).pieces?.[runner]?.reach).toBe(2);
+
+		gameActions.setPieceReach(runner, 0);
+		expect(get(gameStore).pieces?.[runner]?.reach).toBeUndefined();
+	});
+
+	it('draws, turns round and removes one-way links (tableplace-255)', () => {
+		const [a, b, c] = [
+			[0, 0],
+			[3, 0],
+			[6, 0]
+		].map((p) => gameActions.addSnapPoint({ position: p as [number, number] }));
+		// one-way: written on the end it leaves, and nowhere else
+		expect(gameActions.toggleSnapLink(a!, b!, true)).toBe(true);
+		expect(snapPointsInStore()[a!]?.outLinks).toEqual([b]);
+		expect(snapPointsInStore()[b!]?.outLinks).toBeUndefined();
+		expect(snapPointsInStore()[a!]?.links).toBeUndefined();
+		expect(snapPointsInStore()[b!]?.links).toBeUndefined();
+		// drawn the other way, it turns round rather than doubling up
+		expect(gameActions.toggleSnapLink(b!, a!, true)).toBe(true);
+		expect(snapPointsInStore()[a!]?.outLinks).toBeUndefined();
+		expect(snapPointsInStore()[b!]?.outLinks).toEqual([a]);
+		// the same edge again removes it
+		expect(gameActions.toggleSnapLink(b!, a!, true)).toBe(false);
+		expect(snapPointsInStore()[b!]?.outLinks).toBeUndefined();
+
+		// a one-way link replaces a two-way one, and the reverse
+		gameActions.toggleSnapLink(a!, b!);
+		expect(gameActions.toggleSnapLink(a!, b!, true)).toBe(true);
+		expect(snapPointsInStore()[a!]).toMatchObject({ outLinks: [b] });
+		expect(snapPointsInStore()[a!]?.links).toBeUndefined();
+		expect(snapPointsInStore()[b!]?.links).toBeUndefined();
+		// a two-way toggle on a pair joined one-way clears it
+		expect(gameActions.toggleSnapLink(b!, a!)).toBe(false);
+		expect(snapPointsInStore()[a!]?.outLinks).toBeUndefined();
+
+		// a removed point takes the one-way links into it with it
+		gameActions.toggleSnapLink(a!, c!, true);
+		gameActions.toggleSnapLink(a!, b!, true);
+		gameActions.toggleSnapLink(b!, c!);
+		gameActions.removeSnapPoint(c!);
+		expect(snapPointsInStore()[a!]?.outLinks).toEqual([b]);
+		expect(snapPointsInStore()[b!]?.links).toBeUndefined();
+		// and "clear links" clears both kinds
+		gameActions.addSnapPoint({ position: [9, 0], links: [b!], outLinks: [a!] });
+		gameActions.clearSnapLinks();
+		for (const point of Object.values(snapPointsInStore())) {
+			expect(point?.links).toBeUndefined();
+			expect(point?.outLinks).toBeUndefined();
+		}
+	});
+
+	it('round-trips outLinks, renumbered with the points, dropping edges to cut points', async () => {
+		const [a, gone, b, c] = [
+			[0, 0],
+			[1, 1],
+			[3, 0],
+			[6, 0]
+		].map((p) => gameActions.addSnapPoint({ position: p as [number, number] }));
+		gameActions.toggleSnapLink(a!, b!, true);
+		gameActions.toggleSnapLink(b!, c!);
+		gameActions.toggleSnapLink(c!, a!, true);
+		// edges to and from the point about to go; a stale id and a self link
+		// written past the editor must not survive the export either
+		gameActions.updateSnapPoint(c!, { outLinks: [a!, gone!, c!, 'snap:42'] });
+		gameActions.updateSnapPoint(gone!, { outLinks: [a!] });
+		// snap:1 is cut from the export without the editor's clean-up: no position
+		gameStore.updateState({
+			snapPoints: { [gone!]: { position: null } }
+		} as unknown as Parameters<typeof gameStore.updateState>[0]);
+
+		const exported = serializeScenarioFile(saveScenario('one-way'));
+		const file = JSON.parse(exported);
+		// snap:2/snap:3 export as indices 1/2 — outLinks follow, like links
+		expect(file.snapPoints).toHaveLength(3);
+		expect(
+			file.snapPoints.map((p: { links?: string[]; outLinks?: string[] }) => [p.links, p.outLinks])
+		).toEqual([
+			[undefined, ['snap:1']],
+			[['snap:2'], undefined],
+			[['snap:1'], ['snap:0']]
+		]);
+
+		emptyTable();
+		await applyScenario(importScenarioFromText(exported));
+		expect(snapPointsInStore()['snap:0']).toMatchObject({ position: [0, 0], outLinks: ['snap:1'] });
+		expect(snapPointsInStore()['snap:1']?.outLinks).toBeUndefined();
+		expect(snapPointsInStore()['snap:2']).toMatchObject({
+			position: [6, 0],
+			links: ['snap:1'],
+			outLinks: ['snap:0']
+		});
+		// and a second export of the loaded table is the same file
+		expect(JSON.parse(serializeScenarioFile(saveScenario('one-way'))).snapPoints).toEqual(
+			file.snapPoints
+		);
+	});
+
+	it('refuses links or tags that are not string arrays', () => {
+		const file = (snapPoint: Record<string, unknown>) =>
+			JSON.stringify({ tbps: 1, name: 'bad', createdAt: 1, state: {}, snapPoints: [snapPoint] });
+		expect(() => importScenarioFromText(file({ position: [0, 0], links: 'snap:1' }))).toThrow(
+			/links/
+		);
+		expect(() => importScenarioFromText(file({ position: [0, 0], outLinks: [1] }))).toThrow(
+			/outLinks/
+		);
+		expect(() => importScenarioFromText(file({ position: [0, 0], tags: [1] }))).toThrow(/tags/);
+		// a link to an index that doesn't exist is fine — it's ignored at lift time
+		expect(() =>
+			importScenarioFromText(file({ position: [0, 0], links: ['snap:9'] }))
+		).not.toThrow();
+	});
+
 	it('a landscape card landed on a grid keeps its orientation and still taps on the 90° lattice', () => {
 		// tableplace-132 composition: `orientation` is a render-only quarter
 		// turn and the synced rotation[2] stays orientation-relative. The grid

@@ -15,6 +15,12 @@
 
 import type { GameDTO } from '../store/game/types';
 import { assertReadableSpecVersion, SCENARIO_SPEC_VERSION } from '../formats/spec-version';
+import { validRotationStep } from '../utils/yaw';
+import { validHandPlayFace } from '../utils/hand';
+import { validCoach } from '../coach/table';
+import { withoutHolds } from '../utils/hold';
+import { counterRange, counterValueRefusal } from '../primitives/counter-range';
+import { TOKEN_SHAPES } from '../primitives/token-shape';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */
@@ -62,7 +68,11 @@ export type PackPlacement = {
 	 * so one scenario can hold a fixed encounter deck and a shuffled draw deck.
 	 */
 	shuffleOnLoad?: boolean;
-	/** counter pieces only */
+	/**
+	 * counter pieces only — the count it starts on. Must sit inside the pack
+	 * piece's `[minValue, maxValue]`; a value outside it is refused when the
+	 * placement meets its pack (the file alone does not know the range).
+	 */
 	value?: number;
 	/**
 	 * piece placements only — which of the pack piece's `states` it starts on
@@ -72,6 +82,13 @@ export type PackPlacement = {
 	state?: number;
 	/** overlays only */
 	scale?: number;
+	/**
+	 * Place it pinned (tableplace-189): it can't be dragged, flipped, turned or
+	 * grouped until someone presses `L` on it. Any kind — how a layout lays a
+	 * board down locked. `false` unpins content the pack itself marks locked;
+	 * omitted keeps the pack's own default.
+	 */
+	locked?: boolean;
 };
 
 /**
@@ -120,6 +137,23 @@ export type SnapPoint = {
 	rows?: number;
 	/** grid only — degrees a landing's yaw rounds to, from the grid's own yaw (default 90) */
 	yawStep?: number;
+	/**
+	 * Connected snap points, by id — an optional board graph. A point's id is
+	 * `snap:<its index in this array>` (`snap:0` is the first), the same id it
+	 * gets in state. Undirected: a link written on either end joins both. A
+	 * link to an index that doesn't exist is ignored. Only read to light the
+	 * points a lifted piece with `reach` can get to — nothing is ever blocked.
+	 */
+	links?: string[];
+	/**
+	 * One-way links: ids (`snap:<index>`, as in `links`) of the points this one
+	 * leads to. The edge leaves this point only — the target doesn't reach back
+	 * through it — so a directed route is written on its starting end. A pair
+	 * that is also joined by `links` is two-way. Advisory, like `links`.
+	 */
+	outLinks?: string[];
+	/** free-form labels (regions, sides, anything) the table itself never reads */
+	tags?: string[];
 };
 
 export type Scenario = {
@@ -138,6 +172,30 @@ export type Scenario = {
 	 * the file version (a hand-placed table with snap points is still v1).
 	 */
 	snapPoints?: SnapPoint[];
+	/**
+	 * How far Q and E turn a card, deck or piece on this table, in degrees:
+	 * greater than 0, at most 360. Omitted means 45. T and R on a card stay 90°
+	 * taps. Seeded into the lobby's synced `state.table`, so every player turns
+	 * by the same step (tableplace-200).
+	 *
+	 * @exclusiveMinimum 0
+	 * @maximum 360
+	 */
+	rotationStep?: number;
+	/**
+	 * Which face a card dragged out of a hand lands on by default: `"down"`
+	 * (the default when omitted) or `"up"`, for games that play cards face up.
+	 * Holding Shift at release plays the other face. Seeded into the lobby's
+	 * synced `state.table`, like `rotationStep` (tableplace-195).
+	 */
+	handPlayFace?: 'down' | 'up';
+	/**
+	 * `false` hides the first-run "things to try" checklist on this table, for
+	 * players who already know it. Omitted (or `true`) shows it to anyone who
+	 * has not dismissed it in their own browser. Seeded into the lobby's synced
+	 * `state.table`, like `rotationStep` (tableplace-206).
+	 */
+	coach?: boolean;
 };
 
 /** The on-disk shape of a `.tbps.json` file. */
@@ -165,7 +223,9 @@ export function scenarioFileName(name: string): string {
 
 /** Serialize a scenario for download as `<name>.tbps.json`. */
 export function serializeScenarioFile(scenario: Scenario): string {
-	const { packs, placements, ...rest } = scenario;
+	const { packs, placements, ...fields } = scenario;
+	// a hold is a pointer on a live table: no file carries one (tableplace-199)
+	const rest = { ...fields, state: withoutHolds(fields.state ?? {}) };
 	const version = scenarioVersion(scenario);
 	const file: ScenarioFile =
 		version === 2
@@ -252,6 +312,7 @@ function parsePlacement(v: unknown, path: string): PackPlacement {
 		if (typeof v.scale !== 'number') fail(`${path}.scale must be a number`);
 		placement.scale = v.scale;
 	}
+	if (v.locked !== undefined) placement.locked = Boolean(v.locked);
 	return placement;
 }
 
@@ -307,7 +368,50 @@ function parseSnapPoint(v: unknown, path: string): SnapPoint {
 			point.yawStep = v.yawStep;
 		}
 	}
+	for (const field of ['links', 'outLinks', 'tags'] as const) {
+		const list = v[field];
+		if (list === undefined) continue;
+		if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) {
+			fail(`${path}.${field} must be an array of strings`);
+		}
+		if (list.length) point[field] = [...(list as string[])];
+	}
 	return point;
+}
+
+/**
+ * A snapshot counter carries its own range, so the file can be held to it:
+ * a `value` outside `[minValue, maxValue]` is refused here, naming both
+ * bounds. (A placement's `value` is checked where its pack piece is known —
+ * `composePackPiece`.) Only whole counters are checked: a partial override
+ * that names no `kind` inherits its range from the placement it lays over.
+ */
+function assertCounterValues(state: Partial<GameDTO>) {
+	for (const [id, piece] of Object.entries(state.pieces ?? {})) {
+		if (piece?.kind !== 'counter' || typeof piece.value !== 'number') continue;
+		const refusal = counterValueRefusal(piece.value, counterRange(piece));
+		if (refusal) fail(`state.pieces[${JSON.stringify(id)}].value ${refusal}`);
+	}
+}
+
+/**
+ * A snapshot piece's `shape` is one of the token shapes or absent — a typo
+ * would otherwise load as a silent disc.
+ */
+function assertTokenShapes(state: Partial<GameDTO>) {
+	const known: readonly unknown[] = TOKEN_SHAPES;
+	const check = (shape: unknown, path: string) => {
+		if (shape !== undefined && !known.includes(shape)) {
+			fail(`${path}.shape must be one of ${TOKEN_SHAPES.join(', ')}`);
+		}
+	};
+	for (const [id, piece] of Object.entries(state.pieces ?? {})) {
+		const path = `state.pieces[${JSON.stringify(id)}]`;
+		check(piece?.shape, path);
+		(piece?.contents ?? []).forEach((item, i) => {
+			if (item?.kind !== 'card') check(item?.shape, `${path}.contents[${i}]`);
+		});
+	}
 }
 
 /**
@@ -346,8 +450,11 @@ export function parseScenarioFile(text: string): Scenario {
 	const scenario: Scenario = {
 		name: obj.name,
 		createdAt: typeof obj.createdAt === 'number' ? obj.createdAt : Date.now(),
-		state: (obj.state ?? {}) as Partial<GameDTO>
+		// a stray hold (tableplace-199) is live-table state, never a file's
+		state: withoutHolds((obj.state ?? {}) as Partial<GameDTO>)
 	};
+	assertCounterValues(scenario.state);
+	assertTokenShapes(scenario.state);
 	if (obj.packs !== undefined) {
 		if (!Array.isArray(obj.packs)) throw new Error('`packs` must be an array');
 		scenario.packs = obj.packs.map((p, i) => parsePackRef(p, `packs[${i}]`));
@@ -361,6 +468,31 @@ export function parseScenarioFile(text: string): Scenario {
 	if (obj.snapPoints !== undefined) {
 		if (!Array.isArray(obj.snapPoints)) throw new Error('`snapPoints` must be an array');
 		scenario.snapPoints = obj.snapPoints.map((p, i) => parseSnapPoint(p, `snapPoints[${i}]`));
+	}
+	if (obj.rotationStep !== undefined) {
+		const step = validRotationStep(obj.rotationStep);
+		if (step === undefined) {
+			throw new Error(
+				`\`rotationStep\` must be a number of degrees above 0 and at most 360, got ${JSON.stringify(obj.rotationStep)}`
+			);
+		}
+		scenario.rotationStep = step;
+	}
+	if (obj.handPlayFace !== undefined) {
+		const face = validHandPlayFace(obj.handPlayFace);
+		if (face === undefined) {
+			throw new Error(
+				`\`handPlayFace\` must be "down" or "up", got ${JSON.stringify(obj.handPlayFace)}`
+			);
+		}
+		scenario.handPlayFace = face;
+	}
+	if (obj.coach !== undefined) {
+		const coach = validCoach(obj.coach);
+		if (coach === undefined) {
+			throw new Error(`\`coach\` must be true or false, got ${JSON.stringify(obj.coach)}`);
+		}
+		scenario.coach = coach;
 	}
 	return scenario;
 }

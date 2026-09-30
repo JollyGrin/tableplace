@@ -20,6 +20,7 @@ import {
 	composePlayers,
 	composeScenario,
 	composeSnapPoints,
+	composeTable,
 	isSeatPlaceholder,
 	placedCount,
 	seatPlaceholderId
@@ -36,6 +37,10 @@ import {
 	type SnapPoint
 } from './file';
 import { resolvePacks } from './resolve-packs';
+import { validRotationStep } from '$lib/utils/yaw';
+import { validHandPlayFace } from '$lib/utils/hand';
+import { validCoach } from '$lib/coach/table';
+import { withoutHolds } from '$lib/utils/hold';
 
 const STORAGE_KEY = 'scenarios:v1';
 
@@ -117,6 +122,8 @@ function toPlacement(
 	};
 	if (entity.position) placement.position = entity.position as [number, number, number];
 	if (entity.rotation) placement.rotation = entity.rotation as [number, number, number];
+	// pinned is authoring intent for any kind (a board laid down locked)
+	if (entity.locked) placement.locked = true;
 
 	if (kind === 'deck') {
 		const deck = entity as unknown as Partial<DeckDTO>;
@@ -141,31 +148,45 @@ function toPlacement(
 }
 
 /**
- * Snap points live in the store keyed by id, but a file has no use for those
- * ids: they are table-scoped, nothing references them, and a stable array reads
- * far better in a hand-edited scenario. Sorted by id so an export is
- * deterministic, and dropped from `state` — the top-level `snapPoints` field is
- * their only home in the file.
+ * Snap points live in the store keyed by id, but a file keeps them as a stable
+ * array, which reads far better in a hand-edited scenario. Sorted by id so an
+ * export is deterministic, and dropped from `state` — the top-level
+ * `snapPoints` field is their only home in the file.
+ *
+ * The one thing that references a point is another point's `links` (and its
+ * one-way `outLinks`), and a file names a point by its index (`snap:<n>`,
+ * what `composeSnapPoints` gives it back on load). So both lists are
+ * renumbered to the exported order, and a link whose target isn't exported is
+ * dropped — left as it was, a deleted point's old id could alias whichever
+ * point takes its index.
  */
 function collectSnapPoints(s: Partial<GameDTO> | undefined | null): SnapPoint[] {
-	return snapPointIds(s ?? undefined)
-		.map((id) => s?.snapPoints?.[id])
-		.flatMap((point) => {
-			const position = point?.position;
-			if (!position) return [];
-			const snap: SnapPoint = { position: [position[0], position[1]] };
-			if (point?.y !== undefined) snap.y = point.y;
-			if (point?.rotation !== undefined) snap.rotation = point.rotation;
-			if (point?.radius !== undefined) snap.radius = point.radius;
-			if (point?.kind === 'grid') {
-				snap.kind = 'grid';
-				if (point.pitch !== undefined) snap.pitch = point.pitch;
-				if (point.cols !== undefined) snap.cols = point.cols;
-				if (point.rows !== undefined) snap.rows = point.rows;
-				if (point.yawStep !== undefined) snap.yawStep = point.yawStep;
-			}
-			return [snap];
-		});
+	const kept = snapPointIds(s ?? undefined).filter((id) => s?.snapPoints?.[id]?.position);
+	const renumbered = new Map(kept.map((id, index) => [id, `snap:${index}`]));
+	return kept.map((id) => {
+		const point = s!.snapPoints![id]!;
+		const position = point.position!;
+		const snap: SnapPoint = { position: [position[0], position[1]] };
+		if (point.y !== undefined) snap.y = point.y;
+		if (point.rotation !== undefined) snap.rotation = point.rotation;
+		if (point.radius !== undefined) snap.radius = point.radius;
+		if (point.kind === 'grid') {
+			snap.kind = 'grid';
+			if (point.pitch !== undefined) snap.pitch = point.pitch;
+			if (point.cols !== undefined) snap.cols = point.cols;
+			if (point.rows !== undefined) snap.rows = point.rows;
+			if (point.yawStep !== undefined) snap.yawStep = point.yawStep;
+		}
+		for (const field of ['links', 'outLinks'] as const) {
+			const links = (point[field] ?? []).flatMap((link) => {
+				const target = renumbered.get(link);
+				return target && target !== renumbered.get(id) ? [target] : [];
+			});
+			if (links.length) snap[field] = [...new Set(links)];
+		}
+		if (point.tags?.length) snap.tags = [...point.tags];
+		return snap;
+	});
 }
 
 /**
@@ -180,7 +201,9 @@ function collectSnapPoints(s: Partial<GameDTO> | undefined | null): SnapPoint[] 
  * `state` snapshot, exactly as v1 did.
  */
 export function saveScenario(name: string): Scenario {
-	const s = get(gameStore);
+	// what is in someone's hand right now is saved where it is, but not as held
+	// — a hold is a pointer on a live table, never a scenario's (tableplace-199)
+	const s = withoutHolds(get(gameStore) ?? {});
 	const players: GameDTO['players'] = {};
 	for (const [id, player] of Object.entries(s?.players ?? {})) {
 		if (isSeatPlaceholder(id)) players[id] = player as GameDTO['players'][string];
@@ -189,7 +212,7 @@ export function saveScenario(name: string): Scenario {
 	const placements: PackPlacement[] = [];
 	const refs = new Map<string, PackRef>();
 	const state: Partial<GameDTO> = {
-		cards: s?.cards ?? {},
+		cards: portableCards(s?.cards),
 		decks: {},
 		pieces: {},
 		overlays: {},
@@ -222,17 +245,42 @@ export function saveScenario(name: string): Scenario {
 	}
 
 	const snapPoints = collectSnapPoints(s);
+	// the table's settings have one home in the file too: top-level, not `state`
+	const rotationStep = validRotationStep(s?.table?.rotationStep);
+	const handPlayFace = validHandPlayFace(s?.table?.handPlayFace);
+	// only the opt-out is worth a key: a table that says nothing coaches
+	const coach = validCoach(s?.table?.coach) === false ? false : undefined;
 	const scenario: Scenario = {
 		name,
 		createdAt: Date.now(),
 		state,
 		...(placements.length ? { packs: [...refs.values()], placements } : {}),
-		...(snapPoints.length ? { snapPoints } : {})
+		...(snapPoints.length ? { snapPoints } : {}),
+		...(rotationStep !== undefined ? { rotationStep } : {}),
+		...(handPlayFace !== undefined ? { handPlayFace } : {}),
+		...(coach !== undefined ? { coach } : {})
 	};
 	const all = readAll();
 	all[name] = scenario;
 	writeAll(all);
 	return scenario;
+}
+
+/**
+ * A peek mark (`placedBy`, tableplace-193) is kept only when it names a seat
+ * placeholder — a real player's id means nothing in the next lobby, the same
+ * reason real players themselves are not saved.
+ */
+function portableCards(cards: GameDTO['cards'] | undefined): GameDTO['cards'] {
+	const out: GameDTO['cards'] = {};
+	for (const [id, card] of Object.entries(cards ?? {})) {
+		out[id] = card;
+		if (card?.placedBy && !isSeatPlaceholder(card.placedBy)) {
+			out[id] = { ...card };
+			delete out[id].placedBy;
+		}
+	}
+	return out;
 }
 
 /** Placeholder players hold a seat's tray + seat index until a real player claims them. */
@@ -253,7 +301,9 @@ function clearUpdate(): Record<string, Record<string, unknown>> {
 		pieces: {},
 		overlays: {},
 		snapPoints: {},
-		players: {}
+		players: {},
+		// the last scenario's settings go with its content
+		table: { rotationStep: null, handPlayFace: null, coach: null }
 	};
 	for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 		for (const key of Object.keys(current?.[collection] ?? {})) update[collection][key] = null;
@@ -289,6 +339,7 @@ function applyComposed(
 	for (const collection of ['cards', 'pieces', 'overlays', 'snapPoints', 'players'] as const) {
 		Object.assign(update[collection], composed[collection] ?? {});
 	}
+	if (composed.table) Object.assign((update.table ??= {}), composed.table);
 	gameStore.updateState(update as StateUpdate);
 	for (const [key, value] of Object.entries(composed.decks ?? {})) {
 		gameStore.updateState({ decks: { [key]: value } } as StateUpdate);
@@ -332,6 +383,7 @@ export async function applyScenario(scenario: Scenario): Promise<ApplyReport> {
 	Object.assign(update.players, composePlayers(scenario));
 	// snap points are pure data — they ride with the clear, no pack to resolve
 	Object.assign(update.snapPoints, composeSnapPoints(scenario.snapPoints));
+	Object.assign(update.table, composeTable(scenario).table);
 	gameStore.updateState(update as StateUpdate);
 
 	const { packs, failed } = await resolvePacks(scenario.packs ?? []);
@@ -395,6 +447,13 @@ export function claimSeat(seat: SeatIndex): boolean {
 			update[collection][renameOwner(key, placeholder, myId)] = value;
 			update[collection][key] = null;
 		}
+	}
+	// a card the seat laid face-down is mine to peek at now (tableplace-193),
+	// wherever it lies and whoever's id it carries
+	for (const [key, card] of Object.entries(s?.cards ?? {})) {
+		if (card?.placedBy !== placeholder) continue;
+		const target = key.includes(`:${placeholder}:`) ? renameOwner(key, placeholder, myId) : key;
+		update.cards[target] = { ...(update.cards[target] as object), placedBy: myId };
 	}
 	update.players[placeholder] = null;
 	update.players[myId] = { seat, tray: ph?.tray ?? {} };

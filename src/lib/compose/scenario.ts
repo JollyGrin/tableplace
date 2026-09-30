@@ -18,6 +18,10 @@ import { BUILTIN_PACKS, PACK_SOURCE_BUILTIN } from '../packs/builtin';
 import { composePackDeck, composePackOverlay, composePackPiece, type ShuffleFn } from './pack';
 import type { GamePackDef } from '../packs/types';
 import type { GameDTO } from '../store/game/types';
+import { validRotationStep } from '../utils/yaw';
+import { validHandPlayFace } from '../utils/hand';
+import { validCoach } from '../coach/table';
+import { withoutHolds } from '../utils/hold';
 import type { PackPlacement, PackRef, Scenario, SeatIndex, SnapPoint } from '../scenario/file';
 
 export type { ShuffleFn };
@@ -111,7 +115,8 @@ function place(
 			source,
 			position: placement.position,
 			rotation: placement.rotation,
-			scale: placement.scale
+			scale: placement.scale,
+			locked: placement.locked
 		});
 		if (composed) (state.overlays ??= {})[composed.id] = composed.overlay;
 		return;
@@ -140,7 +145,8 @@ function place(
 			order: placement.order,
 			shuffle: placement.shuffleOnLoad === true,
 			shuffleOnLoad: placement.shuffleOnLoad,
-			shuffleWith
+			shuffleWith,
+			locked: placement.locked
 		});
 		(state.decks ??= {})[composed.id] = composed.deck;
 		return;
@@ -160,7 +166,8 @@ function place(
 		position: placement.position,
 		rotation: placement.rotation,
 		value: placement.value,
-		state: placement.state
+		state: placement.state,
+		locked: placement.locked
 	});
 	if (composed) (state.pieces ??= {})[composed.id] = composed.piece;
 }
@@ -191,7 +198,8 @@ export function composeScenario(
 		decks: {},
 		pieces: {},
 		overlays: {},
-		snapPoints: composeSnapPoints(scenario.snapPoints)
+		snapPoints: composeSnapPoints(scenario.snapPoints),
+		...composeTable(scenario)
 	};
 
 	for (const placement of scenario.placements ?? []) {
@@ -209,7 +217,26 @@ export function composeScenario(
 			target[id] = target[id] ? mergeOver(target[id], entity) : entity;
 		}
 	}
-	return state;
+	// nothing a scenario lays down is in anybody's hand (tableplace-199)
+	return withoutHolds(state);
+}
+
+/**
+ * The scenario's table-wide settings, as the synced `table` record — only
+ * the ones it authored, so a scenario that says nothing adds nothing. The
+ * top-level field is their home in a file; a `state.table` snapshot (the raw
+ * game state a v1 file is) is read too, and the top-level field wins.
+ */
+export function composeTable(scenario: Scenario): Pick<GameDTO, 'table'> {
+	const step = scenario.rotationStep ?? validRotationStep(scenario.state?.table?.rotationStep);
+	const face = scenario.handPlayFace ?? validHandPlayFace(scenario.state?.table?.handPlayFace);
+	const coach = scenario.coach ?? validCoach(scenario.state?.table?.coach);
+	const table = {
+		...(step !== undefined ? { rotationStep: step } : {}),
+		...(face !== undefined ? { handPlayFace: face } : {}),
+		...(coach !== undefined ? { coach } : {})
+	};
+	return Object.keys(table).length ? { table } : {};
 }
 
 /**

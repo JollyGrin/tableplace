@@ -152,3 +152,83 @@ func containsSub(s, sub string) bool {
 	}
 	return false
 }
+
+// The action journal (tableplace-201) rides the same ephemeral tier: a
+// `journal` line is relayed to peers and forgotten — never merged into the
+// state a joiner's sync is built from.
+func TestJournalMessageIsRelayedButNeverMerged(t *testing.T) {
+	g, out := NewGame()
+	alice := g.ConnectPlayer("alice")
+	drain(out)
+
+	g.mu.Lock()
+	before, _ := json.Marshal(g.Data)
+	updatesBefore := g.Updates
+	g.mu.Unlock()
+
+	g.HandleMessage(alice, Message{
+		Type:      "journal",
+		PlayerID:  "alice",
+		Timestamp: time.Now().UnixMilli(),
+		Value:     json.RawMessage(`{"id":"alice:1","actor":"alice","verb":"move","targets":[{"kind":"piece","id":"piece:alice:a","name":"A"}],"at":1}`),
+	})
+
+	broadcast, relayed := nextOfType(t, out, "journal")
+	if broadcast.Exclude != "alice" || len(broadcast.To) != 0 {
+		t.Fatalf("journal line should go to everyone but the sender, got to=%v exclude=%q", broadcast.To, broadcast.Exclude)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(relayed.Value, &value); err != nil || value["verb"] != "move" {
+		t.Fatalf("relayed journal line lost its payload: %s (%v)", relayed.Value, err)
+	}
+
+	g.mu.Lock()
+	after, _ := json.Marshal(g.Data)
+	updatesAfter := g.Updates
+	g.mu.Unlock()
+	if string(before) != string(after) || updatesAfter != updatesBefore {
+		t.Fatalf("journal line touched game state:\n before %s\n after  %s", before, after)
+	}
+}
+
+// A ping (tableplace-198) is the same ephemeral tier: relayed to everyone but
+// the sender with its point intact, and never merged into the state a joiner's
+// sync is built from.
+func TestPingMessageIsRelayedButNeverMerged(t *testing.T) {
+	g, out := NewGame()
+	alice := g.ConnectPlayer("alice")
+	g.ConnectPlayer("bob")
+	drain(out)
+
+	g.mu.Lock()
+	before, _ := json.Marshal(g.Data)
+	updatesBefore := g.Updates
+	g.mu.Unlock()
+
+	g.HandleMessage(alice, Message{
+		Type:      "ping",
+		PlayerID:  "alice",
+		Timestamp: time.Now().UnixMilli(),
+		Value:     json.RawMessage(`{"x":3.5,"z":-2}`),
+	})
+
+	broadcast, relayed := nextOfType(t, out, "ping")
+	if broadcast.Exclude != "alice" || len(broadcast.To) != 0 {
+		t.Fatalf("ping should go to everyone but the sender, got to=%v exclude=%q", broadcast.To, broadcast.Exclude)
+	}
+	var value map[string]float64
+	if err := json.Unmarshal(relayed.Value, &value); err != nil || value["x"] != 3.5 || value["z"] != -2 {
+		t.Fatalf("relayed ping lost its point: %s (%v)", relayed.Value, err)
+	}
+	if relayed.PlayerID != "alice" {
+		t.Fatalf("relayed ping lost its sender: %q", relayed.PlayerID)
+	}
+
+	g.mu.Lock()
+	after, _ := json.Marshal(g.Data)
+	updatesAfter := g.Updates
+	g.mu.Unlock()
+	if string(before) != string(after) || updatesAfter != updatesBefore {
+		t.Fatalf("ping touched game state:\n before %s\n after  %s", before, after)
+	}
+}

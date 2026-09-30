@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { T } from '@threlte/core';
+	import { T, useThrelte } from '@threlte/core';
 	import * as THREE from 'three';
 	import { onDestroy } from 'svelte';
 	import { Grid } from '@threlte/extras';
@@ -14,7 +14,19 @@
 	import { DRAG_THRESHOLD_PX } from './utils/counter-input';
 	import { armRadialPress } from '$lib/radial/gesture';
 	import type { IntersectionEvent } from '@threlte/extras';
-	import { TABLE_TOP_Y } from './utils/constants-table';
+	import {
+		ROOM_COLOR,
+		TABLE_HALF_X,
+		TABLE_HALF_Z,
+		TABLE_RIM_DROP,
+		TABLE_RIM_RISE,
+		TABLE_RIM_WIDTH,
+		TABLE_TOP_Y
+	} from './utils/constants-table';
+	import { beginBoxSelect } from '$lib/selection/boxSelect';
+	import { clearSelection } from '$lib/store/selection';
+	import { classicMouse } from '$lib/store/mouseMode';
+	import { noteFeltPress } from '$lib/ping';
 
 	let { mesh = $bindable() }: { mesh?: THREE.Mesh } = $props();
 
@@ -41,10 +53,32 @@
 	 */
 	let pressedFelt: { x: number; y: number } | null = null;
 
+	const { camera, dom } = useThrelte();
+	const projected = new THREE.Vector3();
+
+	/** world → client pixels with the live camera, for the selection box */
+	function project([x, y, z]: [number, number, number]) {
+		const rect = dom.getBoundingClientRect();
+		projected.set(x, y, z).project(camera.current);
+		if (projected.z > 1) return null; // behind the camera
+		return {
+			x: rect.left + ((projected.x + 1) / 2) * rect.width,
+			y: rect.top + ((1 - projected.y) / 2) * rect.height
+		};
+	}
+
 	function handlePointerDown(event: IntersectionEvent<PointerEvent>) {
-		pressedFelt = get(dragStore).isDragging
-			? null
-			: { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY };
+		const carrying = !!get(dragStore).isDragging;
+		pressedFelt = carrying ? null : { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY };
+		/**
+		 * Left-drag on bare felt draws a selection box (tableplace-202) — the
+		 * orbit that used to own it is on the right button now. A press reaches
+		 * the felt only when nothing on the table claimed it first. Not while a
+		 * pile is being carried (grab.ts): that press is the one placing it. The
+		 * classic mapping keeps the left button for orbit.
+		 */
+		if (event.nativeEvent.button === 0 && !carrying && !get(classicMouse))
+			beginBoxSelect(event.nativeEvent, project);
 		/**
 		 * Bare felt gets a wheel too (v1: reset view) — but ONLY on the right
 		 * button, never on a left long-press.
@@ -57,10 +91,12 @@
 		 * puts a wheel in the middle of what the hand is doing: the left button
 		 * on felt already means orbit, and the gesture it interrupts is a drag.
 		 * Right-press-hold and right-click are unambiguous, so the table keeps
-		 * those and nothing else. Pieces, which own their own right-click, are
+		 * those and nothing else. Pieces, which open their own wheel, are
 		 * vetoed in the gesture.
 		 */
 		if (event.nativeEvent.button !== 2) return;
+		// the wheel's Ping wedge pings where it was opened (tableplace-198)
+		noteFeltPress(event.point.x, event.point.z);
 		armRadialPress({
 			target: { kind: 'table' },
 			event: event.nativeEvent,
@@ -73,62 +109,76 @@
 	function handleClick(event: IntersectionEvent<MouseEvent>) {
 		const pressed = pressedFelt;
 		pressedFelt = null;
-		const { placing, rotation, radius } = get(snapEditor);
-		if (!placing || !pressed || !get(tableFeatures).snapEditing) return;
+		if (!pressed) return;
 		const travel = Math.hypot(
 			event.nativeEvent.clientX - pressed.x,
 			event.nativeEvent.clientY - pressed.y
 		);
-		if (travel >= DRAG_THRESHOLD_PX) return; // that was a camera orbit
+		if (travel >= DRAG_THRESHOLD_PX) return; // that was a camera orbit, or a box
+		// on the classic mapping there is no box to do this: a plain click on
+		// the felt lets go of the selection (the box's own release does it
+		// otherwise — see selection/boxSelect)
+		if (get(classicMouse) && !event.nativeEvent.shiftKey) clearSelection();
+		const { placing, rotation, radius } = get(snapEditor);
+		if (!placing || !get(tableFeatures).snapEditing) return;
 		event.stopPropagation();
 		gameActions.addSnapPoint({ position: [event.point.x, event.point.z], rotation, radius });
 	}
 
-	// Create procedural felt texture. Built synchronously: this component only
+	// Procedural felt, built once. Built synchronously: this component only
 	// mounts client-side (inside <Canvas>, behind isConnected), so the material
 	// is born with its map — no null→texture swap, no shader-recompile timing.
+	//
+	// Three layers, all drawn so the tile wraps seamlessly (the map repeats
+	// 4×2 across the felt): a soft low-frequency mottle so the cloth isn't one
+	// flat tone, a fine twill weave, and loose fibres. The base is a deep,
+	// saturated baize — the lights and ACES lift it, and a lighter base read
+	// as washed-out sage.
 	function createFeltTexture(): THREE.CanvasTexture {
-		// Create canvas for procedural texture
+		const SIZE = 512;
 		const canvas = document.createElement('canvas');
-		canvas.width = 512;
-		canvas.height = 512;
+		canvas.width = canvas.height = SIZE;
 		const ctx = canvas.getContext('2d')!;
 
-		// Fill base color (darker)
-		ctx.fillStyle = '#2a503d';
-		ctx.fillRect(0, 0, 512, 512);
+		ctx.fillStyle = '#1b5236';
+		ctx.fillRect(0, 0, SIZE, SIZE);
 
-		// Add cross-hatch pattern
-		ctx.strokeStyle = '#35654d';
-		ctx.lineWidth = 1;
-
-		// Horizontal lines
-		for (let y = 0; y < 512; y += 4) {
-			ctx.beginPath();
-			ctx.moveTo(0, y);
-			ctx.lineTo(512, y);
-			ctx.stroke();
+		// mottle: each blob is drawn at its wrapped offsets too, so no seam
+		for (let i = 0; i < 70; i++) {
+			const x = Math.random() * SIZE;
+			const y = Math.random() * SIZE;
+			const r = 30 + Math.random() * 80;
+			const light = Math.random() < 0.5;
+			for (const dx of [-SIZE, 0, SIZE]) {
+				for (const dy of [-SIZE, 0, SIZE]) {
+					const blob = ctx.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
+					blob.addColorStop(0, light ? 'rgba(52, 118, 78, 0.1)' : 'rgba(8, 36, 22, 0.12)');
+					blob.addColorStop(1, 'rgba(0, 0, 0, 0)');
+					ctx.fillStyle = blob;
+					ctx.fillRect(x + dx - r, y + dy - r, r * 2, r * 2);
+				}
+			}
 		}
 
-		// Vertical lines
-		for (let x = 0; x < 512; x += 4) {
-			ctx.beginPath();
-			ctx.moveTo(x, 0);
-			ctx.lineTo(x, 512);
-			ctx.stroke();
+		// twill: a 4px diagonal rib, lit on one side, shaded on the other
+		for (let y = 0; y < SIZE; y += 2) {
+			for (let x = 0; x < SIZE; x += 2) {
+				const rib = ((x + y) / 2) % 4;
+				if (rib === 0) ctx.fillStyle = 'rgba(70, 140, 96, 0.16)';
+				else if (rib === 2) ctx.fillStyle = 'rgba(0, 20, 10, 0.18)';
+				else continue;
+				ctx.fillRect(x, y, 2, 2);
+			}
 		}
 
-		// Add noise pattern for felt texture
-		for (let i = 0; i < 100000; i++) {
-			const x = Math.random() * 512;
-			const y = Math.random() * 512;
-			const brightness = Math.random() < 0.5 ? 0.7 : 1.0;
-			ctx.fillStyle = `rgba(53, 101, 77, ${brightness})`;
-			ctx.fillRect(x, y, 2, 2);
+		// fibres
+		for (let i = 0; i < 40000; i++) {
+			ctx.fillStyle = Math.random() < 0.5 ? 'rgba(80, 150, 104, 0.18)' : 'rgba(4, 24, 14, 0.22)';
+			ctx.fillRect(Math.random() * SIZE, Math.random() * SIZE, 1.5, 1.5);
 		}
 
-		// Create texture from canvas
 		const texture = new THREE.CanvasTexture(canvas);
+		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
 		texture.repeat.set(4, 2);
 		return texture;
@@ -158,9 +208,91 @@
 
 	const wordmarkTexture = createWordmarkTexture();
 
+	// Wood grain for the rim, built once: streaks running along the texture's
+	// u axis, which every rail below lays along its own length.
+	function createWoodTexture(): THREE.CanvasTexture {
+		const canvas = document.createElement('canvas');
+		canvas.width = 512;
+		canvas.height = 64;
+		const ctx = canvas.getContext('2d')!;
+
+		ctx.fillStyle = '#5a3620';
+		ctx.fillRect(0, 0, 512, 64);
+		for (let i = 0; i < 90; i++) {
+			const y = Math.random() * 64;
+			const wobble = 1 + Math.random() * 3;
+			const phase = Math.random() * Math.PI * 2;
+			ctx.strokeStyle = Math.random() < 0.6 ? 'rgba(38, 20, 10, 0.35)' : 'rgba(128, 84, 50, 0.3)';
+			ctx.lineWidth = 0.5 + Math.random() * 1.5;
+			ctx.beginPath();
+			// whole periods across the width, so the grain wraps without a seam
+			for (let x = 0; x <= 512; x += 8) {
+				const at = y + Math.sin((x / 512) * Math.PI * 2 * 2 + phase) * wobble;
+				if (x === 0) ctx.moveTo(x, at);
+				else ctx.lineTo(x, at);
+			}
+			ctx.stroke();
+		}
+
+		const texture = new THREE.CanvasTexture(canvas);
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+		texture.repeat.set(3, 1);
+		return texture;
+	}
+
+	const woodTexture = createWoodTexture();
+	const woodMaterial = new THREE.MeshStandardMaterial({
+		map: woodTexture,
+		roughness: 0.55,
+		metalness: 0
+	});
+
+	/**
+	 * The rim: four rails wholly outside the felt. The long rails run the full
+	 * length and cover the corners; the short ones are the same geometry turned
+	 * a quarter, so the grain follows every rail. Not raycast (only the felt
+	 * mesh is — see compute() in TableScene), no pointer handlers.
+	 */
+	const RIM_HEIGHT = TABLE_RIM_RISE + TABLE_RIM_DROP;
+	const RIM_Y = TABLE_TOP_Y + (TABLE_RIM_RISE - TABLE_RIM_DROP) / 2;
+	const rails: { position: [number, number, number]; length: number; yaw: number }[] = [
+		{
+			position: [0, RIM_Y, -TABLE_HALF_Z - TABLE_RIM_WIDTH / 2],
+			length: 2 * (TABLE_HALF_X + TABLE_RIM_WIDTH),
+			yaw: 0
+		},
+		{
+			position: [0, RIM_Y, TABLE_HALF_Z + TABLE_RIM_WIDTH / 2],
+			length: 2 * (TABLE_HALF_X + TABLE_RIM_WIDTH),
+			yaw: 0
+		},
+		{
+			position: [-TABLE_HALF_X - TABLE_RIM_WIDTH / 2, RIM_Y, 0],
+			length: 2 * TABLE_HALF_Z,
+			yaw: Math.PI / 2
+		},
+		{
+			position: [TABLE_HALF_X + TABLE_RIM_WIDTH / 2, RIM_Y, 0],
+			length: 2 * TABLE_HALF_Z,
+			yaw: Math.PI / 2
+		}
+	];
+
+	// The room: a flat clear colour, so it costs no draw at all — a gradient
+	// texture background is a full-screen pass every frame, which the CI
+	// runner's frame-gap canary punishes (#164). Restored on unmount so a
+	// canvas that outlives the table falls back to the page behind it.
+	const { scene } = useThrelte();
+	const previousBackground = scene.background;
+	scene.background = new THREE.Color(ROOM_COLOR);
+
 	onDestroy(() => {
+		scene.background = previousBackground;
 		feltTexture.dispose();
 		wordmarkTexture.dispose();
+		woodTexture.dispose();
+		woodMaterial.dispose();
 	});
 </script>
 
@@ -168,19 +300,20 @@
 	<OverlayCustom id={overlayId} />
 {/each}
 
-<!-- fadeOrigin pinned to table center (default follows the camera, which kept
-     the grid strong ~100 units out). Radial fade: solid over the felt, gone
-     ~20 units past the long edge. -->
+<!-- The grid is ambience printed on the cloth, not a debug plane: sized to
+     the felt (never past the rim), a few shades darker than the baize, and
+     fading from the centre so the edges stay quiet. A hair above the felt's
+     top face, so it never z-fights it. -->
 <Grid
 	position.y={TABLE_TOP_Y}
-	cellColor="#fff"
-	sectionColor="#fff"
+	gridSize={[TABLE_HALF_X * 2, TABLE_HALF_Z * 2]}
+	cellColor="#0b2616"
+	sectionColor="#0b2616"
 	sectionThickness={0}
-	cellThickness={0.5}
+	cellThickness={0.6}
 	fadeOrigin={[0, TABLE_TOP_Y, 0]}
-	fadeDistance={50}
-	fadeStrength={0.5}
-	infiniteGrid
+	fadeDistance={45}
+	fadeStrength={1}
 />
 <T.Group position={[0, 0, 0]}>
 	<T.Mesh
@@ -202,6 +335,11 @@
 			side={THREE.DoubleSide}
 		/>
 	</T.Mesh>
+	{#each rails as rail, i (i)}
+		<T.Mesh position={rail.position} rotation.y={rail.yaw} material={woodMaterial} receiveShadow>
+			<T.BoxGeometry args={[rail.length, RIM_HEIGHT, TABLE_RIM_WIDTH]} />
+		</T.Mesh>
+	{/each}
 	<!-- printed felt wordmark: not a raycast target (compute() in TableScene
 	     only intersects the table mesh above), no pointer handlers, so it
 	     can never intercept a drag/drop. -->

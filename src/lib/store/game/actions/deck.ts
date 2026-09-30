@@ -14,6 +14,7 @@ import {
 } from '$lib/utils/constants-cards';
 import { TABLE_TOP_Y } from '$lib/utils/constants-table';
 import { clampToTable } from '$lib/utils/transforms/drop';
+import { nextHandOrder } from '$lib/utils/hand';
 import { degrees } from '$lib/utils/constants-rotation';
 import type { CardInDeck, GameDTO } from '../types';
 
@@ -94,24 +95,37 @@ function groupStackIntoDeck(cardId?: string) {
 	const cards = get(gameStore)?.cards;
 	const group = collectStackGroup(cards, anchorId);
 	if (!group) return console.error('No stack found to group');
+	// a pinned card is never swallowed — not even one lying under the anchor
+	if (group.ids.some((memberId) => cards?.[memberId]?.locked)) return;
 
+	return groupIntoDeck(group.ids, group.topId, group.position);
+}
+
+/**
+ * Loose cards → one deck, in ONE patch that also deletes the cards, so remote
+ * clients never see them twice. `ids` run bottom → top; the pile lands at
+ * `at`'s XZ. Shared by `G` on a pile and `G` on a selection.
+ */
+function groupIntoDeck(ids: string[], topId: string, at: readonly number[]) {
+	const cards = get(gameStore)?.cards;
 	// the top card decides the pile's facing: a face-up top becomes a face-up
 	// deck (discard-pile style), which also flips the ordering convention —
 	// face-up decks draw from the front, facedown ones from the back
-	const top = cards?.[group.topId];
+	const top = cards?.[topId];
 	const isFaceUp = (top?.rotation?.[0] ?? 0) !== 180;
-	const ordered = orderForDeck(group.ids, isFaceUp);
+	const ordered = orderForDeck(ids, isFaceUp);
 	const deckCards = ordered.map((memberId) => {
 		const card = cards?.[memberId];
 		return {
 			id: memberId,
 			faceImageUrl: card?.faceImageUrl ?? '',
 			backImageUrl: card?.backImageUrl,
+			...(card?.name ? { name: card.name } : {}),
 			...(card?.orientation ? { orientation: card.orientation } : {})
 		};
 	});
 
-	const [baseX, , baseZ] = group.position;
+	const [baseX = 0, , baseZ = 0] = at;
 	const built = buildDeck({
 		isFaceUp,
 		deckBackImageUrl: top?.backImageUrl,
@@ -125,12 +139,31 @@ function groupStackIntoDeck(cardId?: string) {
 	if (!built) return;
 
 	const removals: Record<string, null> = {};
-	for (const memberId of group.ids) removals[memberId] = null;
+	for (const memberId of ids) removals[memberId] = null;
 	gameStore.updateState({
 		decks: { [built.deckId]: built.deck },
 		cards: removals
 	});
 	return built.deckId;
+}
+
+/**
+ * `G` on a selection (tableplace-202): every selected loose card into one
+ * deck, wherever they lie. They stack in the order they lie — lowest first,
+ * then selection order — and the pile lands where the top one was. Pinned
+ * cards and ids that are not loose cards are left out. Returns the deck id,
+ * or undefined when there was no card to group.
+ */
+function groupCardsIntoDeck(ids: readonly string[]) {
+	const cards = get(gameStore)?.cards;
+	const members = ids
+		.filter((id) => cards?.[id] && !cards[id]?.locked)
+		.map((id, order) => ({ id, order, y: cards?.[id]?.position?.[1] ?? 0 }))
+		.sort((a, b) => a.y - b.y || a.order - b.order)
+		.map(({ id }) => id);
+	if (!members.length) return;
+	const topId = members[members.length - 1];
+	return groupIntoDeck(members, topId, cards?.[topId]?.position ?? [0, 0, 0]);
 }
 
 /**
@@ -142,7 +175,38 @@ export const UNGROUP_MAX_CARDS = 40;
 
 export type UngroupResult =
 	| { ok: true; deckId: string; cardIds: string[] }
-	| { ok: false; reason: 'no-deck' | 'not-mine' | 'empty' | 'too-many'; count?: number };
+	| {
+			ok: false;
+			reason: 'no-deck' | 'not-mine' | 'locked' | 'empty' | 'too-many';
+			count?: number;
+	  };
+
+export type UngroupRefusal = Extract<UngroupResult, { ok: false }>;
+
+/** Decks belong to the player their id names: `deck:<playerId>:<slot>`. */
+export function isDeckOwnedBy(deckId: string, playerId: string | null | undefined): boolean {
+	return !!playerId && deckId.startsWith(`deck:${playerId}:`);
+}
+
+/**
+ * Why `playerId` may not spread `deckId` right now, or null when they may.
+ * Pure over the store, so the verb registry can grey the verb out before
+ * anyone presses it and `ungroupDeck` refuses with the very same rule.
+ */
+export function ungroupRefusal(
+	deckId: string | null | undefined,
+	playerId: string | null | undefined
+): UngroupRefusal | null {
+	if (!deckId) return { ok: false, reason: 'no-deck' };
+	const deck = get(gameStore)?.decks?.[deckId];
+	if (!deck) return { ok: false, reason: 'no-deck' };
+	if (!isDeckOwnedBy(deckId, playerId)) return { ok: false, reason: 'not-mine' };
+	if (deck.locked) return { ok: false, reason: 'locked' };
+	const count = deck.cards?.length ?? 0;
+	if (count === 0) return { ok: false, reason: 'empty' };
+	if (count > UNGROUP_MAX_CARDS) return { ok: false, reason: 'too-many', count };
+	return null;
+}
 
 /**
  * Reuse the card's own id when nothing on the table holds it — a deck built
@@ -169,16 +233,10 @@ function allocateCardId(preferred: string, fallback: string, taken: Set<string>)
  */
 function ungroupDeck(deckId?: string): UngroupResult {
 	const id = deckId ?? get(dragStore).isDeckHovered;
-	if (!id) return { ok: false, reason: 'no-deck' };
-
-	const deck = get(gameStore)?.decks?.[id];
-	if (!deck) return { ok: false, reason: 'no-deck' };
-	if (!getMyDecks().some(([key]) => key === id)) return { ok: false, reason: 'not-mine' };
-
+	const refusal = ungroupRefusal(id, gameActions.getMe()?.id);
+	const deck = id ? get(gameStore)?.decks?.[id] : undefined;
+	if (refusal || !id || !deck) return refusal ?? { ok: false, reason: 'no-deck' };
 	const deckCards = deck.cards ?? [];
-	if (deckCards.length === 0) return { ok: false, reason: 'empty' };
-	if (deckCards.length > UNGROUP_MAX_CARDS)
-		return { ok: false, reason: 'too-many', count: deckCards.length };
 
 	const isFaceUp = deck.isFaceUp ?? false;
 	// orderForDeck is its own inverse: fed the deck's array it hands back the
@@ -204,6 +262,7 @@ function ungroupDeck(deckId?: string): UngroupResult {
 			...(card.backImageUrl || deck.deckBackImageUrl
 				? { backImageUrl: card.backImageUrl ?? (deck.deckBackImageUrl as string) }
 				: {}),
+			...(card.name ? { name: card.name } : {}),
 			...(card.orientation ? { orientation: card.orientation } : {}),
 			position: [x, CARD_REST_Y + index * CARD_THICKNESS, z],
 			// a face-up deck spreads to face-up cards; 180 on x is facedown
@@ -274,6 +333,7 @@ function drawFromTop(id: string, count = 1): CardInDeck[] {
 			...(card.backImageUrl || deck.deckBackImageUrl
 				? { backImageUrl: card.backImageUrl ?? (deck.deckBackImageUrl as string) }
 				: {}),
+			...(card.name ? { name: card.name } : {}),
 			...(card.orientation ? { orientation: card.orientation } : {}),
 			position: [x, CARD_REST_Y + index * CARD_THICKNESS, z],
 			// a face-up deck deals face-up cards; 180 on x is facedown
@@ -283,6 +343,158 @@ function drawFromTop(id: string, count = 1): CardInDeck[] {
 
 	gameStore.updateState({ decks: { [id]: { cards: remaining } }, cards });
 	return drawn;
+}
+
+export type DrawToHandResult =
+	| { ok: true; deckId: string; cardIds: string[] }
+	| { ok: false; reason: 'no-deck' | 'not-yours' | 'empty' | 'no-player' };
+
+/**
+ * Whose hand may a deck deal into? Deck ids encode their owner
+ * (`deck:<owner>:<slot>`). Your own decks deal to you; a deck whose owner is
+ * not a player in the lobby — a shared pile, an unclaimed seat — is
+ * table-scoped and deals to whoever draws. Another player's deck does not.
+ */
+function canDrawToHand(
+	deckId: string,
+	playerId: string | null | undefined = gameActions.getMyId()
+) {
+	if (!playerId) return false;
+	const owner = deckId.split(':')[1];
+	if (owner === playerId) return true;
+	return !get(gameStore)?.players?.[owner ?? ''];
+}
+
+/**
+ * Draw `count` cards off the top of the deck into the drawer's hand (a deck
+ * click, number keys 1-9) — the tray, not the felt. Same top-of-deck
+ * convention as drawFromTop; the drawn cards append to the hand in draw order.
+ *
+ * Deck shrink and hand growth are ONE patch whatever the count, so `5` costs
+ * one message against the relay's rate limit, and remote clients never see a
+ * card in both places. Nothing here carries a position, so it goes out
+ * immediately rather than through the drag throttle.
+ */
+function drawToHand(id: string, count = 1): DrawToHandResult {
+	const deck = get(gameStore)?.decks?.[id];
+	if (!deck) return { ok: false, reason: 'no-deck' };
+	const playerId = gameActions.getMyId();
+	const player = playerId ? get(gameStore)?.players?.[playerId] : undefined;
+	if (!playerId || !player) return { ok: false, reason: 'no-player' };
+	if (!canDrawToHand(id, playerId)) return { ok: false, reason: 'not-yours' };
+	const available = deck.cards ?? [];
+	if (available.length === 0) return { ok: false, reason: 'empty' };
+
+	const isFaceUp = deck.isFaceUp ?? false;
+	const remaining = [...available];
+	// a card id can already be live on the table or in the hand (the same pack
+	// slot spawned twice) — the hand is keyed by id, so a clash would overwrite
+	const taken = new Set([
+		...Object.keys(get(gameStore)?.cards ?? {}),
+		...Object.keys(player.tray ?? {})
+	]);
+	const tray: Record<string, Partial<GameDTO['cards'][string]>> = {};
+	const cardIds: string[] = [];
+	// drawn cards join the right-hand end of the fan, in draw order
+	const firstOrder = nextHandOrder(player.tray);
+	for (let i = 0; i < Math.min(count, available.length); i++) {
+		const card = isFaceUp ? remaining.shift() : remaining.pop();
+		if (!card) break;
+		const { id: deckCardId, ...body } = card;
+		const cardId = allocateCardId(deckCardId, `${id}:draw-${i}`, taken);
+		taken.add(cardId);
+		cardIds.push(cardId);
+		tray[cardId] = {
+			...body,
+			handOrder: firstOrder + i,
+			faceImageUrl: body.faceImageUrl ?? '',
+			...(body.backImageUrl || deck.deckBackImageUrl
+				? { backImageUrl: body.backImageUrl ?? (deck.deckBackImageUrl as string) }
+				: {})
+		};
+	}
+
+	gameStore.updateState({
+		decks: { [id]: { cards: remaining } },
+		players: { [playerId]: { tray } }
+	} as Partial<GameDTO>);
+	return { ok: true, deckId: id, cardIds };
+}
+
+export type TakeFromDeckResult =
+	| { ok: true; deckId: string; cardId: string }
+	| { ok: false; reason: 'no-deck' | 'not-yours' | 'no-card' | 'no-player' };
+
+/**
+ * Take one named card out of a deck, wherever it sits in the pile — deck
+ * search (tableplace-196). `to: 'hand'` puts it in your hand like a draw;
+ * `to: 'table'` lays it face-up on the felt in front of the deck, where
+ * drawFromTop would land a draw.
+ *
+ * The card is picked by its deck-card id, so a remote reorder between opening
+ * the search and clicking can't hand you a different card. Same ownership as
+ * drawToHand — your own decks and table-scoped ones — and the same single
+ * patch, deck shrink and destination together.
+ */
+function takeFromDeck(
+	id: string,
+	deckCardId: string,
+	to: 'hand' | 'table' = 'hand'
+): TakeFromDeckResult {
+	const deck = get(gameStore)?.decks?.[id];
+	if (!deck) return { ok: false, reason: 'no-deck' };
+	const playerId = gameActions.getMyId();
+	const player = playerId ? get(gameStore)?.players?.[playerId] : undefined;
+	if (!playerId || !player) return { ok: false, reason: 'no-player' };
+	if (!canDrawToHand(id, playerId)) return { ok: false, reason: 'not-yours' };
+	const available = deck.cards ?? [];
+	const index = available.findIndex((card) => card.id === deckCardId);
+	if (index < 0) return { ok: false, reason: 'no-card' };
+
+	const remaining = [...available];
+	const [card] = remaining.splice(index, 1);
+	const { id: takenId, ...body } = card!;
+	const taken = new Set([
+		...Object.keys(get(gameStore)?.cards ?? {}),
+		...Object.keys(player.tray ?? {})
+	]);
+	const cardId = allocateCardId(takenId, `${id}:search-0`, taken);
+	const faces = {
+		...body,
+		faceImageUrl: body.faceImageUrl ?? '',
+		...(body.backImageUrl || deck.deckBackImageUrl
+			? { backImageUrl: body.backImageUrl ?? (deck.deckBackImageUrl as string) }
+			: {})
+	};
+
+	if (to === 'hand') {
+		gameStore.updateState({
+			decks: { [id]: { cards: remaining } },
+			players: {
+				[playerId]: { tray: { [cardId]: { ...faces, handOrder: nextHandOrder(player.tray) } } }
+			}
+		} as Partial<GameDTO>);
+		return { ok: true, deckId: id, cardId };
+	}
+
+	const seatYaw = degrees[gameActions.getMySeat()] ?? 0;
+	const [deckX = 0, , deckZ = 0] = deck.position ?? [];
+	const [x, z] = clampToTable(
+		deckX + Math.sin(seatYaw) * DRAW_LANDING_DISTANCE,
+		deckZ + Math.cos(seatYaw) * DRAW_LANDING_DISTANCE
+	);
+	gameStore.updateState({
+		decks: { [id]: { cards: remaining } },
+		cards: {
+			[cardId]: {
+				...faces,
+				position: [x, CARD_REST_Y, z],
+				// face-up whatever the pile: you picked it by its face
+				rotation: [0, 0, -seatYaw / DEG2RAD]
+			}
+		}
+	});
+	return { ok: true, deckId: id, cardId };
 }
 
 /**
@@ -321,6 +533,7 @@ function drawIntoDrag(id: string, at?: [number, number]): string | null {
 				...(card.backImageUrl || deck.deckBackImageUrl
 					? { backImageUrl: card.backImageUrl ?? (deck.deckBackImageUrl as string) }
 					: {}),
+				...(card.name ? { name: card.name } : {}),
 				...(card.orientation ? { orientation: card.orientation } : {}),
 				position: [x, CARD_DRAG_Y, z],
 				// a face-up deck deals face-up cards; 180 on x is facedown — same
@@ -344,7 +557,7 @@ function flipDeck(deckId?: string) {
 	const id = deckId ?? get(dragStore).isDeckHovered;
 	if (!id) return;
 	const deck = get(gameStore)?.decks?.[id];
-	if (!deck) return;
+	if (!deck || deck.locked) return;
 	gameStore.updateState({ decks: { [id]: { isFaceUp: !(deck.isFaceUp ?? false) } } });
 	return id;
 }
@@ -355,6 +568,8 @@ function placeOnTopOfDeck(deckId: string, cardId: string) {
 	if (!_card) return console.error('Card not found');
 
 	const { position, rotation, ...card } = { ..._card, id: cardId };
+	delete card.placedBy; // a pile has no placer: nobody's peek goes into it
+	delete card.heldBy; // and no hand is on a card once it is in the pile
 	card.id = cardId;
 	if (!card.faceImageUrl) return console.error('No card faceImageUrl found');
 
@@ -405,8 +620,12 @@ export function shuffleDeck(deckId: string) {
 export const deckActions = {
 	addDeck,
 	groupStackIntoDeck,
+	groupCardsIntoDeck,
 	ungroupDeck,
 	drawFromTop,
+	drawToHand,
+	canDrawToHand,
+	takeFromDeck,
 	drawIntoDrag,
 	flipDeck,
 	getDeckLength,

@@ -7,6 +7,12 @@ export type CardDTO = {
 	faceImageUrl: string;
 	backImageUrl?: string;
 	/**
+	 * Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the
+	 * zoomed preview's caption, and only while the card is face up to the
+	 * viewer — a face-down card never reveals it. Absent = no caption.
+	 */
+	name?: string;
+	/**
 	 * Default resting orientation (pack `PackCardDef.orientation`). Landscape
 	 * cards render turned 90° in every renderer, while `rotation` stays
 	 * orientation-relative — `tapCard` is additive on `rotation[2]` and the
@@ -16,9 +22,51 @@ export type CardDTO = {
 	 * which strips `rotation`. Absent = 'portrait'.
 	 */
 	orientation?: 'portrait' | 'landscape';
+	/**
+	 * Pinned in place (tableplace-189, TTS `Locked`): it can't be dragged,
+	 * flipped, turned or grouped, only previewed — and `L` unpins it. Absent
+	 * means unlocked.
+	 */
+	locked?: boolean;
+	/**
+	 * Player id of whoever laid this card face-down out of their hand
+	 * (tableplace-193). For that player alone the zoomed preview shows the face
+	 * — a peek. A display rule only: the face is in synced state for everyone,
+	 * this just decides what the UI draws. Cleared when the card is flipped
+	 * face up or goes into a hand; a pile never carries it. Absent = nobody
+	 * may peek.
+	 */
+	placedBy?: string;
+	/**
+	 * Where this card sits in its holder's hand, left to right (tableplace-195):
+	 * a sort key, lowest first, so a reorder is one patch of numbers and the
+	 * order survives a reload (the relay does not keep object key order).
+	 * Only meaningful inside `players[id].tray`; a card leaving the hand drops
+	 * it. Absent sorts after every numbered card.
+	 */
+	handOrder?: number;
+	/**
+	 * Player id of whoever is carrying this card right now (tableplace-199).
+	 * Written in the same patch as the first carried position and cleared
+	 * (`null`) by the patch that lands it, so it costs no message of its own.
+	 * Everyone else draws the holder's colour around it and refuses a second
+	 * grab. A hold by a player whose `connected` is false reads as released.
+	 * Live-table state only: never saved into a scenario, stripped on load.
+	 * Absent = nobody holds it.
+	 */
+	heldBy?: string;
 };
 
-export type CardInDeck = Omit<CardDTO, 'position' | 'rotation'> & { id: string };
+/**
+ * a card in a pile has no place of its own to be pinned to, and nobody's peek
+ * survives the shuffle into one
+ */
+export type CardInDeck = Omit<
+	CardDTO,
+	'position' | 'rotation' | 'locked' | 'placedBy' | 'handOrder' | 'heldBy'
+> & {
+	id: string;
+};
 
 /**
  * Provenance stamped on pack-spawned entities so a scenario export (tbps v2)
@@ -60,6 +108,14 @@ export type DeckDTO = {
 	 * back, the changed timestamp is what remote clients turn into the wiggle.
 	 */
 	shuffledAt?: number;
+	/**
+	 * Pinned in place (tableplace-189): the pile can't be moved, flipped or
+	 * ungrouped. Cards still come off its top — a locked draw pile is still a
+	 * draw pile.
+	 */
+	locked?: boolean;
+	/** player id of whoever is carrying the pile right now — see `CardDTO.heldBy` */
+	heldBy?: string;
 };
 
 interface SeatState {
@@ -95,6 +151,12 @@ export type PieceKind = 'token' | 'pawn' | 'counter' | 'die' | 'bag' | 'model';
 /** Face count of a die piece — the shapes the primitive library can build. */
 export type DieSides = 4 | 6 | 8 | 10 | 12 | 20;
 
+/**
+ * A token's outline (tableplace-254): the default round `disc`, or a `square`
+ * tile that shows its image uncropped, corners included.
+ */
+export type TokenShape = 'disc' | 'square';
+
 /** Order a bag hands its contents out in (TTS analog: the container's Order). */
 export type BagDrawMode = 'random' | 'lifo' | 'fifo';
 
@@ -105,7 +167,11 @@ export type BagPieceItem = {
 	color?: string;
 	imageUrl?: string;
 	radius?: number;
+	/** tokens only: `'square'` draws a tile instead of a disc (default `'disc'`) */
+	shape?: TokenShape;
 	maxValue?: number;
+	/** counters only: the lowest value it can show (default 0) */
+	minValue?: number;
 };
 
 /** A card waiting inside a bag; `code` becomes part of the drawn card's id. */
@@ -148,6 +214,12 @@ export type PieceDTO = {
 	/** world radius of the piece footprint */
 	radius?: number;
 	/**
+	 * Tokens only (tableplace-254): `'square'` draws a flat tile whose
+	 * half-width is `radius` — a rectangle of the image's aspect when that is
+	 * not 1:1 — with the image uncropped on top. Absent = `'disc'`.
+	 */
+	shape?: TokenShape;
+	/**
 	 * `kind: 'model'` only — a `model:<kit>/<name>` catalog ref (tableplace-135),
 	 * resolved through the static manifest exactly the way face refs resolve
 	 * through their schemes: the tiny ref string is all that syncs, never
@@ -157,6 +229,8 @@ export type PieceDTO = {
 	/** counter state — also the up-face of a die (1…sides) */
 	value?: number;
 	maxValue?: number;
+	/** counters only: the lowest `value` it can show (default 0) */
+	minValue?: number;
 	/** dice only: how many faces the die has */
 	sides?: DieSides;
 	/**
@@ -186,6 +260,21 @@ export type PieceDTO = {
 	 * unaffected). A big room section snaps to the grid; a loose prop doesn't.
 	 */
 	snap?: boolean;
+	/**
+	 * How many snap-point links this piece usually travels (tableplace-190).
+	 * Advisory only: lifted from a linked snap point, the points within `reach`
+	 * links glow brighter than the rest. Nothing is ever blocked. Absent means
+	 * no reach rings.
+	 */
+	reach?: number;
+	/**
+	 * Pinned in place (tableplace-189): it can't be dragged or turned. What it
+	 * does in place still works — a locked counter counts, a locked die rolls,
+	 * a locked bag hands things out. Absent means unlocked.
+	 */
+	locked?: boolean;
+	/** player id of whoever is carrying the piece right now — see `CardDTO.heldBy` */
+	heldBy?: string;
 	packOrigin?: PackOrigin;
 };
 
@@ -199,6 +288,12 @@ export type OverlayDTO = {
 	 * */
 	ratio: number;
 	scale: number;
+	/**
+	 * Pinned in place (tableplace-189). Overlays can't be picked up in play
+	 * today, so this records authoring intent a board keeps across exports
+	 * and imports (TTS `Locked`).
+	 */
+	locked?: boolean;
 	packOrigin?: PackOrigin;
 };
 
@@ -252,7 +347,53 @@ export type SnapPointDTO = {
 	 * modular-kit case).
 	 */
 	yawStep?: number;
+	/**
+	 * Ids of the snap points this one connects to — an optional board graph
+	 * (tableplace-190). A link is undirected: authored on either end, it joins
+	 * both. A target that doesn't exist is ignored. Inert unless a lifted piece
+	 * carries `reach`.
+	 */
+	links?: string[];
+	/**
+	 * One-way links (tableplace-255): ids of the points this one leads to. The
+	 * edge leaves this point only — the target doesn't reach back through it.
+	 * For directed routes; everything else about `links` holds (a missing
+	 * target is ignored, inert without `reach`). A pair that is also in
+	 * `links` is simply two-way.
+	 */
+	outLinks?: string[];
+	/** free-form labels a scenario can group points by; the table reads none of them */
+	tags?: string[];
 };
+
+/**
+ * Table-wide settings a scenario lays down (tableplace-200). Synced like any
+ * entity, so a player who joins after the scenario was seeded turns things by
+ * the same step as everyone else.
+ */
+export type TableSettingsDTO = {
+	/**
+	 * How far Q and E turn a card, deck or piece, in degrees — any value in
+	 * (0, 360]. Absent means `ROTATION_STEP_DEFAULT` (45). T and R on a card
+	 * stay 90° taps whatever this says.
+	 */
+	rotationStep?: number;
+	/**
+	 * How a card dragged out of a hand lands when no modifier is held
+	 * (tableplace-195): `'down'` (absent) or `'up'`. Holding Shift at release
+	 * plays the other face.
+	 */
+	handPlayFace?: HandPlayFace;
+	/**
+	 * `false` hides the first-run "things to try" strip on this table
+	 * (tableplace-206) — for a table whose players already know it. Absent
+	 * (or `true`) shows it to anyone who has not dismissed it in their browser.
+	 */
+	coach?: boolean;
+};
+
+/** which face a card played out of a hand lands on */
+export type HandPlayFace = 'down' | 'up';
 
 // index signatures (not Record<…>) so the generated JSON Schema keeps the
 // entity value shapes — typescript-json-schema drops Record value types
@@ -266,4 +407,6 @@ export interface GameDTO {
 	pieces?: { [pieceId: string]: Partial<PieceDTO> | null };
 	/** authored placement guides, keyed `snap:<n>`. null = remove */
 	snapPoints?: { [snapId: string]: Partial<SnapPointDTO> | null };
+	/** table-wide settings (`rotationStep`, `handPlayFace`, `coach`); a field set to null is removed */
+	table?: TableSettingsDTO;
 }

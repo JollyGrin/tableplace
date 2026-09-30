@@ -1,6 +1,6 @@
 /**
  * The open radial menu, if any — render-only client state, exactly like
- * `pieceUi`'s `pieceMenu`. Nothing here is ever patched into `GameDTO`.
+ * `pieceUi`'s `hoveredPiece`. Nothing here is ever patched into `GameDTO`.
  *
  * It lives outside the scene because the wheel is DOM: it renders next to the
  * `<Canvas>` so its text stays legible at any camera angle and the pointer

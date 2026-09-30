@@ -62,7 +62,7 @@
 		DIE_SIDES_DEFAULT,
 		PIECE_RADIUS
 	} from '$lib/utils/constants-pieces';
-	import type { DieSides } from '$lib/store/game/types';
+	import type { DieSides, TokenShape } from '$lib/store/game/types';
 	import {
 		withEditorDefaults,
 		cleanForExport,
@@ -287,6 +287,7 @@
 			name: `Deck ${pack.decks.length + 1}`,
 			back: CARD_BACK_DEFAULT,
 			isFaceUp: false,
+			locked: false,
 			cards: []
 		});
 		selectDeckAfterEdit(pack.decks.length - 1);
@@ -359,6 +360,7 @@
 	);
 	let newPieceKind: PackPieceKind = $state('token');
 
+	const shapeOptions: Record<string, TokenShape> = { Disc: 'disc', Square: 'square' };
 	const drawModeOptions: Record<string, PackBagDrawMode> = {
 		'Random — blind draw': 'random',
 		'LIFO — last in, first out': 'lifo',
@@ -382,7 +384,9 @@
 			imageUrl: '',
 			model: '',
 			radius: PIECE_RADIUS[newPieceKind],
+			shape: 'disc',
 			maxValue: COUNTER_MAX_DEFAULT,
+			minValue: 0,
 			states: [],
 			state: 0,
 			sides: DIE_SIDES_DEFAULT,
@@ -390,6 +394,8 @@
 			drawMode: 'random',
 			infinite: false,
 			snap: true,
+			reach: 0,
+			locked: false,
 			position: [0, 0],
 			rotation: 0
 		});
@@ -469,7 +475,7 @@
 
 	function addOverlay() {
 		if (!pack) return;
-		pack.overlays.push({ imageUrl: '', ratio: 1, scale: 12 });
+		pack.overlays.push({ imageUrl: '', ratio: 1, scale: 12, locked: false });
 		overlayCursor = pack.overlays.length - 1;
 	}
 
@@ -968,6 +974,8 @@
 					<Text label="Slot" bind:value={deck.slot} />
 					<Text label="Name" bind:value={deck.name} />
 					<Checkbox label="Face up" bind:value={deck.isFaceUp} />
+					<!-- spawns pinned: can't be moved, flipped or ungrouped until L -->
+					<Checkbox label="Locked" bind:value={deck.locked} />
 					<!-- keyed on the cursor: a fresh editor for whichever deck is selected -->
 					{#key deckIndex}
 						<FaceRef title="Deck back" value={deck.back} onchange={(ref) => (deck.back = ref)} />
@@ -1118,11 +1126,25 @@
 							{/if}
 						</Folder>
 						<AutoValue label="Radius" bind:value={piece.radius} />
+						{#if piece.kind === 'token'}
+							<!-- a square keeps the corners of its art: `Radius` is then its
+							     half-width, and an image that is not 1:1 makes it a rectangle -->
+							<List label="Shape" bind:value={piece.shape} options={shapeOptions} />
+						{/if}
 						<!-- the per-piece snap opt-out (unticked = drops as if Alt were
 						     held): a room section snaps to a grid, a loose prop doesn't -->
 						<Checkbox label="Snaps to points" bind:value={piece.snap} />
+						<!-- advisory: lifted off a linked snap point, the points within
+						     this many links glow brighter. 0 = no reach rings -->
+						<Stepper label="Reach (links)" bind:value={piece.reach} min={0} step={1} />
+						<!-- spawns pinned (a board, a fixed track): can't be dragged or
+						     turned until someone presses L on it -->
+						<Checkbox label="Locked" bind:value={piece.locked} />
 						{#if piece.kind === 'counter'}
 							<AutoValue label="Max value" bind:value={piece.maxValue} />
+							<!-- the lowest value the counter can show: a dial that reads
+							     3–17 is min 3, max 17 -->
+							<AutoValue label="Min value" bind:value={piece.minValue} />
 						{/if}
 						{#if piece.kind === 'die'}
 							<List label="Sides" bind:value={piece.sides} options={sidesOptions} />
@@ -1148,8 +1170,12 @@
 									{#if bagItem.kind !== 'card'}
 										<Text label="Item image" bind:value={bagItem.imageUrl} />
 									{/if}
+									{#if bagItem.kind === 'token'}
+										<List label="Item shape" bind:value={bagItem.shape} options={shapeOptions} />
+									{/if}
 									{#if bagItem.kind === 'counter'}
 										<Stepper label="Item max" bind:value={bagItem.maxValue} step={1} />
+										<Stepper label="Item min" bind:value={bagItem.minValue} step={1} />
 									{/if}
 									{#if bagItem.kind === 'card'}
 										<!-- keyed on the cursor, like the deck's card face: a fresh
@@ -1193,6 +1219,7 @@
 						<RefThumb value={overlay.imageUrl} label="overlay image" aspect="wide" />
 						<AutoValue label="Ratio (w/h)" bind:value={overlay.ratio} />
 						<AutoValue label="Scale" bind:value={overlay.scale} />
+						<Checkbox label="Locked" bind:value={overlay.locked} />
 						<Button title="Remove overlay" on:click={removeOverlay} />
 					{/if}
 				</Folder>

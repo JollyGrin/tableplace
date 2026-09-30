@@ -8,7 +8,12 @@
  */
 
 import { writable, get } from 'svelte/store';
-import type { CameraSample, Vec3 } from '$lib/websocket/cameraStream';
+import {
+	POINTER_EPSILON,
+	type CameraSample,
+	type TablePoint,
+	type Vec3
+} from '$lib/websocket/cameraStream';
 
 /** no sample for this long → the avatar starts fading out */
 export const CAMERA_STALE_MS = 5_000;
@@ -37,12 +42,27 @@ export const CAMERA_MIN_OPACITY = 0.15;
  */
 export const CAMERA_SEQ_RESET_GAP = 32;
 
+/** a remote pointer that has not moved for this long fades out (tableplace-197) */
+export const POINTER_IDLE_MS = 3_000;
+/** how long that fade takes, full to gone */
+export const POINTER_FADE_MS = 600;
+
 export type RemoteCamera = {
 	p: Vec3;
 	t: Vec3;
 	seq: number;
 	/** local clock when the newest accepted sample arrived */
 	lastSeen: number;
+	/** the table point under their cursor; null while it is off the canvas or the felt */
+	c: TablePoint | null;
+	/**
+	 * local clock when the pointer last moved or appeared — not `lastSeen`: an
+	 * orbit with a parked pointer still sends samples, and the pointer's own
+	 * idle fade must not be held off by them unless its table point moved
+	 */
+	pointerAt: number;
+	/** where the pointer was at `pointerAt` — what the next move is measured from */
+	pointerFrom: TablePoint | null;
 };
 
 export type RemoteCameraMap = Record<string, RemoteCamera>;
@@ -55,14 +75,35 @@ function isVec3(value: unknown): value is Vec3 {
 	);
 }
 
-/** A wire payload we are willing to render. Anything else is dropped silently. */
+function isTablePoint(value: unknown): value is TablePoint {
+	return (
+		Array.isArray(value) &&
+		value.length === 2 &&
+		value.every((n) => typeof n === 'number' && isFinite(n))
+	);
+}
+
+/**
+ * A wire payload we are willing to render. Anything else is dropped silently.
+ * A malformed pointer only loses the pointer, never the pose: `c` is an
+ * optional extra and must not be able to take the camera avatar down with it.
+ */
 export function parseCameraSample(value: unknown): CameraSample | null {
 	if (!value || typeof value !== 'object') return null;
-	const { p, t, seq } = value as Partial<CameraSample>;
+	const { p, t, seq, c } = value as Partial<CameraSample>;
 	if (!isVec3(p) || !isVec3(t)) return null;
 	if (typeof seq !== 'number' || !isFinite(seq)) return null;
-	return { p, t, seq };
+	return isTablePoint(c) ? { p, t, seq, c } : { p, t, seq };
 }
+
+/**
+ * How far the pointer must get from where it last counted as moving before
+ * it counts again — the sender's own gate. Measured from that anchor, not
+ * from the previous sample, so a camera still easing under a parked cursor
+ * (OrbitControls damping, which a starved renderer stretches over seconds)
+ * cannot creep it along in steps too small to see and hold the fade off.
+ */
+const POINTER_MOVE = POINTER_EPSILON;
 
 /**
  * Last-write-wins per player (SPEC.md:181): a sample that is not newer than
@@ -83,9 +124,21 @@ export function applyCameraSample(
 	if (existing && sample.seq <= existing.seq && sample.seq > existing.seq - CAMERA_SEQ_RESET_GAP)
 		return map;
 
+	const c = sample.c ?? null;
+	const anchor = existing?.c ? existing.pointerFrom : null;
+	const moved = !!c && (!anchor || Math.hypot(c[0] - anchor[0], c[1] - anchor[1]) > POINTER_MOVE);
+
 	return {
 		...map,
-		[playerId]: { p: sample.p, t: sample.t, seq: sample.seq, lastSeen: receivedAt }
+		[playerId]: {
+			p: sample.p,
+			t: sample.t,
+			seq: sample.seq,
+			lastSeen: receivedAt,
+			c,
+			pointerAt: moved ? receivedAt : (existing?.pointerAt ?? receivedAt),
+			pointerFrom: moved ? c : (anchor ?? c)
+		}
 	};
 }
 
@@ -121,6 +174,12 @@ export function cameraOpacity(ageMs: number): number {
 	if (ageMs <= CAMERA_STALE_MS) return 1;
 	const progress = Math.min(1, (ageMs - CAMERA_STALE_MS) / CAMERA_FADE_MS);
 	return 1 - progress * (1 - CAMERA_MIN_OPACITY);
+}
+
+/** Full while the pointer moves; gone POINTER_FADE_MS after it idles POINTER_IDLE_MS. */
+export function pointerOpacity(idleMs: number): number {
+	if (idleMs <= POINTER_IDLE_MS) return 1;
+	return Math.max(0, 1 - (idleMs - POINTER_IDLE_MS) / POINTER_FADE_MS);
 }
 
 /** playerId → newest pose. Never contains our own id (index.ts filters it). */

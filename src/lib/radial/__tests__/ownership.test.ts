@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shuffleDeck = vi.fn();
 const gameActions = {
+	getMe: () => ({ id: 'me' }),
 	// nothing on this table belongs to us
 	getMyDecks: () => [] as [string, unknown][],
 	shuffleDeck,
@@ -20,6 +21,8 @@ const gameActions = {
 		reason: 'not-mine'
 	})),
 	drawFromTop: vi.fn(),
+	drawToHand: vi.fn(() => ({ ok: false, reason: 'not-yours' })),
+	canDrawToHand: () => false,
 	flipDeck: vi.fn(),
 	flipCard: vi.fn(),
 	tapCard: vi.fn(),
@@ -45,6 +48,12 @@ describe("an opponent's deck", () => {
 		fire('shuffle');
 		expect(shuffleDeck).not.toHaveBeenCalled();
 		expect(error).toHaveBeenCalledWith("That deck isn't yours to shuffle");
+	});
+
+	it('refuses the Draw to hand wedge, out loud', () => {
+		fire('draw');
+		expect(gameActions.drawToHand).toHaveBeenCalledWith('deck:someone-else:0', 1);
+		expect(error).toHaveBeenCalledWith("That deck isn't yours to draw from");
 	});
 
 	it('refuses the Ungroup wedge with the wrapper wording', () => {

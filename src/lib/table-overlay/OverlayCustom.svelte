@@ -3,6 +3,9 @@
 	import { T } from '@threlte/core';
 	import { ImageMaterial } from '@threlte/extras';
 	import { loadTextureImage } from '$lib/utils/image-cors';
+	import { snapGuideDimMaterial } from '$lib/drop/snap-guide-dim';
+	import { overlayUnderSnapPoints } from '$lib/drop/snap-guides';
+	import { SNAP_GUIDE_DIM_LIFT, SNAP_GUIDE_LAYER } from '$lib/utils/constants-snap';
 
 	const FLOOR_HEIGHT = 0.255;
 	// lift the map plane above the table Grid (also at 0.255) — coplanar surfaces
@@ -34,6 +37,23 @@
 
 	// plane is aspect-normalized (height 1); overlay.scale = world height
 	const worldScale = $derived(overlay?.scale ?? 12);
+
+	/**
+	 * Recedes while something that snaps is lifted, so the landing spots on it
+	 * read (tableplace-188). Only an overlay with a snap point on it: the plane
+	 * shares one material whose fade `drop/SnapGuides` drives, so this costs no
+	 * state and no draw while nothing is lifted. A boolean, so a drag's
+	 * per-move store updates don't remount it.
+	 */
+	const dimmable = $derived(
+		overlayUnderSnapPoints(
+			$gameStore.snapPoints,
+			overlay?.position,
+			overlay?.rotation?.[1] ?? 0,
+			ratio * worldScale,
+			worldScale
+		)
+	);
 </script>
 
 {#if resolvedUrl}
@@ -42,5 +62,16 @@
 			<T.PlaneGeometry args={[ratio, 1]} />
 			<ImageMaterial url={resolvedUrl} side={0} radius={0.02} />
 		</T.Mesh>
+		{#if dimmable}
+			<T.Mesh
+				rotation.x={-Math.PI / 2}
+				position.y={SNAP_GUIDE_DIM_LIFT}
+				scale={worldScale}
+				material={snapGuideDimMaterial}
+				oncreate={(mesh) => mesh.layers.set(SNAP_GUIDE_LAYER)}
+			>
+				<T.PlaneGeometry args={[ratio, 1]} />
+			</T.Mesh>
+		{/if}
 	</T.Group>
 {/if}

@@ -19,12 +19,22 @@
  */
 
 import * as THREE from 'three';
+import { soundStats } from '$lib/sound';
+import { framesAreStalling } from '$lib/utils/frame-stall.svelte';
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
+import { selectedIds } from '$lib/store/selection';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
-import type { GameDTO } from '$lib/store/game/types';
+import { snapGuideDimMaterial } from '$lib/drop/snap-guide-dim';
+import type { GameDTO, OverlayDTO } from '$lib/store/game/types';
+import { resolveCardImage, sheetRefCache } from '$lib/packs';
+import { preview as previewStore } from '$lib/HUDPreview/previewStore';
+import { huds } from './hud-registry';
+import { activePings, pingArrows, ping as sendPing } from '$lib/ping';
+import { remotePointersEnabled } from '$lib/pointers/settings';
+import { remoteCameraStore } from '$lib/store/remoteCameraStore.svelte';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -37,6 +47,44 @@ export type TestBridge = {
 	project: (world: [number, number, number]) => ScreenPoint | null;
 	/** where a card / deck / piece currently draws, by store id */
 	locate: (id: string) => ScreenPoint | null;
+	/**
+	 * Where a card in MY hand draws, in the same CSS pixels as `locate`. The
+	 * tray is its own HUD scene with its own orthographic camera, so the table
+	 * camera `locate` projects through can never see it.
+	 */
+	locateInHand: (id: string) => ScreenPoint | null;
+	/**
+	 * Every card of MY hand as it draws right now, left to right on screen:
+	 * its id and its drawn box in CSS pixels (tableplace-195) — what a spec
+	 * reads the fan's order and its fit inside the viewport off.
+	 */
+	handCards: () => {
+		id: string;
+		left: number;
+		right: number;
+		top: number;
+		bottom: number;
+	}[];
+	/**
+	 * The zoomed preview as it is on screen right now, or null while closed.
+	 * `face` is the unresolved ref the preview chose, `url` what it resolves
+	 * to, and `shown` the image the preview mesh's texture actually holds —
+	 * null until it has loaded. `shown === url` is "it is drawing that face".
+	 * `at` is the centre of the zoomed art on screen, for a pixel check.
+	 * `geometry` is the art mesh's geometry type — `PlaneGeometry` for a card
+	 * and for a square token's uncropped face, `CircleGeometry` for a disc —
+	 * and `bounds` its extent on screen, so a spec can sample its corners.
+	 */
+	preview: () => {
+		id: string;
+		face: string;
+		url: string;
+		caption: string;
+		shown: string | null;
+		at: ScreenPoint | null;
+		geometry: string | null;
+		bounds: { left: number; right: number; top: number; bottom: number } | null;
+	} | null;
 	/** the raycast the shared interactivity context runs, minus the dispatch */
 	hits: (screen: ScreenPoint) => string[];
 	/** what is being dragged / hovered right now — distinguishes "never lifted" from "lifted and snapped back" */
@@ -45,7 +93,10 @@ export type TestBridge = {
 		isHovered: string | null;
 		isBagHovered: string | null;
 		isDeckHovered: string | null;
+		noSnap: boolean;
 	};
+	/** the box selection, live members only, in the order they were added (tableplace-202) */
+	selected: () => string[];
 	/**
 	 * Where the table camera is right now. A pan — dragged with the right button
 	 * or held on W/A/S/D — moves the eye, so this is what a spec measures a pan
@@ -64,12 +115,64 @@ export type TestBridge = {
 	/** what an entity is actually made of — null if it never mounted at all */
 	describe: (id: string) => EntityShape | null;
 	/**
+	 * Where an entity's group actually draws right now (tableplace-203): its
+	 * world height, and how far it leans off level in degrees — the angle
+	 * between its own up axis and the world's, flips ignored. What the weight
+	 * spec measures the lean and the landing bounce with; the store never sees
+	 * either.
+	 */
+	pose: (id: string) => { y: number; leanDeg: number } | null;
+	/**
+	 * Whether the app is treating the frame loop as stalled right now (see
+	 * utils/frame-stall.svelte.ts) — when every spring snaps and weight is off.
+	 */
+	stalling: () => boolean;
+	/** table sounds (tableplace-204): how many of each actually started, and whether audio is armed */
+	sounds: () => Record<string, number | boolean>;
+	/**
+	 * The yaw an entity is DRAWN at right now — its named group's, clockwise
+	 * seen from above, in degrees within [0, 360). What a rotation spec waits
+	 * on: the store says what was asked for, this says what the renderer shows.
+	 */
+	yaw: (id: string) => number | null;
+	/**
 	 * The entity's floating label badge (LabelBadge.svelte), or null while none
-	 * is mounted — which is itself the assertion for hover-only labels. `scale`
-	 * is the live pulse spring, so a spec can watch a counter's value-change
-	 * kick (jumps toward 1.6) and settle back to 1.
+	 * is mounted — which is itself the assertion for hover-only labels.
 	 */
 	badge: (id: string) => { scale: number } | null;
+	/**
+	 * Held-by marks as they are drawn right now (tableplace-199): which entity
+	 * wears one, whose it is, and its colour. Empty when nobody else is
+	 * carrying anything — a client never draws its own.
+	 */
+	heldMarks: () => { id: string; holder: string; color: string }[];
+	/**
+	 * A counter's printed dial face (CounterDial.svelte), or null when none is
+	 * drawn: what the canvas last printed, how many times it has been drawn (a
+	 * redraw only ever follows a change to name/value/min/max), its live pulse
+	 * `scale`, and the world yaw its text faces (0 reads from seat 0).
+	 */
+	dial: (id: string) => {
+		name: string;
+		value: number;
+		maxValue: number | null;
+		minValue: number;
+		/** how full the rim arc is drawn, 0…1; null when there is no arc */
+		fraction: number | null;
+		redraws: number;
+		scale: number;
+		facing: number;
+	} | null;
+	/**
+	 * The lift-time snap guides as they are drawn right now (tableplace-188),
+	 * read off the rendered objects rather than a store: `rings`/`cells` are
+	 * the instance counts on screen (0 while hidden), `opacity` the ring
+	 * material's live fade, `target` the snap id the filled mark sits on and
+	 * `targetAt` where it sits, and `dim` the shared overlay-dim opacity.
+	 * `reach`/`reachIds` are the bright rings a piece with `reach` lights
+	 * (tableplace-190).
+	 */
+	snapGuides: () => SnapGuideShape;
 	/**
 	 * Inject artificial main-thread stalls — the long frame gaps a shared CI
 	 * runner, a slow GPU or a backgrounded window produce, made deterministic.
@@ -93,6 +196,73 @@ export type TestBridge = {
 	 * assert the injection really happened rather than trusting that it did.
 	 */
 	stall: (options: { ms: number; everyMs?: number } | null) => number;
+	/**
+	 * Every image texture the table scene draws — card and deck faces, map
+	 * overlays, piece art — with the anisotropy it filters at, and `target`,
+	 * the anisotropy new textures are built with (tableplace-155). Keyed by
+	 * image src, so a spec can find the overlay or card it placed.
+	 */
+	textures: () => { target: number; maps: { src: string; anisotropy: number }[] };
+	/**
+	 * Put a map overlay on the table. No action spawns one outside a pack, and
+	 * a spec should not need a pack to test how a board draws.
+	 */
+	addOverlay: (overlay: OverlayDTO) => string;
+	/**
+	 * Every ping this page has drawn since the bridge went up (tableplace-198),
+	 * oldest first — kept after the ripple fades, since a spec polls slower
+	 * than a ping lives. `color` is the ring material's drawn colour (null if
+	 * no ring ever mounted), `rings` the most ring meshes seen visible at once,
+	 * and `arrow` whether an edge arrow was ever put up for it.
+	 */
+	pings: () => PingShape[];
+	/** ping a table point as this player, through the same rate limit a double-click hits */
+	ping: (x: number, z: number) => boolean;
+	/**
+	 * Other players' pointers as this page draws them right now
+	 * (tableplace-197): where each cursor is (mid-glide), the table point it
+	 * is gliding to, whether it is up, its opacity and its drawn colour.
+	 */
+	remotePointers: () => RemotePointerShape[];
+	/** the Settings "Remote pointers" toggle — tweakpane cannot be driven synthetically */
+	setRemotePointers: (on: boolean) => void;
+};
+
+export type RemotePointerShape = {
+	playerId: string;
+	x: number;
+	z: number;
+	target: [number, number] | null;
+	visible: boolean;
+	opacity: number;
+	color: string | null;
+	/** ms since the store last saw this pointer move; null while it has none */
+	idleMs: number | null;
+};
+
+export type PingShape = {
+	playerId: string;
+	x: number;
+	z: number;
+	color: string | null;
+	rings: number;
+	arrow: boolean;
+};
+
+export type SnapGuideShape = {
+	/** rings drawn at the ordinary brightness — out of reach, or no reach set */
+	rings: number;
+	/** rings drawn bright: the points within the lifted piece's reach (tableplace-190) */
+	reach: number;
+	/** ids of the points in the bright set, sorted; [] while none is shown */
+	reachIds: string[];
+	cells: number;
+	opacity: number;
+	target: string | null;
+	targetAt: [number, number, number] | null;
+	dim: number;
+	/** how many draw objects the guides use — the instancing claim, checkable */
+	objects: number;
 };
 
 /**
@@ -103,7 +273,7 @@ export type TestBridge = {
 export type EntityShape = {
 	meshes: number;
 	/** one entry per material, in traversal order */
-	materials: { type: string; color: string; hasMap: boolean }[];
+	materials: { type: string; color: string; hasMap: boolean; roughness: number | null }[];
 	/**
 	 * World-space bounding-box dimensions [x, y, z] of the rendered object.
 	 * What tells a landscape card (footprint wider than deep) from a portrait
@@ -212,8 +382,10 @@ function setStall(options: { ms: number; everyMs?: number } | null): number {
 export function installTestBridge(handles: SceneHandles): void {
 	const raycaster = new THREE.Raycaster();
 
-	const project = (world: [number, number, number]): ScreenPoint | null => {
-		const camera = handles.camera();
+	const project = (
+		world: [number, number, number],
+		camera = handles.camera()
+	): ScreenPoint | null => {
 		const canvas = handles.canvas();
 		if (!camera || !canvas) return null;
 		const ndc = new THREE.Vector3(...world).project(camera);
@@ -259,6 +431,7 @@ export function installTestBridge(handles: SceneHandles): void {
 		];
 	};
 
+	watchPings(handles.scene);
 	window.__tableplace = {
 		get ready() {
 			return handles.isReady?.() ?? true;
@@ -271,12 +444,136 @@ export function installTestBridge(handles: SceneHandles): void {
 			const centre = scene ? renderedCentre(scene, id) : null;
 			return centre ? project([centre.x, centre.y, centre.z]) : null;
 		},
+		locateInHand: (id) => {
+			const tray = huds.get('tray');
+			const scene = tray?.scene();
+			const camera = tray?.camera();
+			const centre = scene && camera ? renderedCentre(scene, id) : null;
+			return centre ? project([centre.x, centre.y, centre.z], camera) : null;
+		},
+		handCards: () => {
+			const tray = huds.get('tray');
+			const scene = tray?.scene();
+			const camera = tray?.camera();
+			const me = gameActions.getMyId();
+			const ids = Object.keys((me && get(gameStore)?.players?.[me]?.tray) ?? {});
+			if (!scene || !camera) return [];
+			return ids
+				.flatMap((id) => {
+					const object = scene.getObjectByName(id);
+					if (!object) return [];
+					const box = bodyBox(object);
+					if (box.isEmpty()) return [];
+					const corners = [box.min, box.max].flatMap((a) =>
+						[box.min, box.max].map((b) => project([a.x, b.y, box.min.z], camera))
+					);
+					if (corners.some((c) => !c)) return [];
+					const xs = corners.map((c) => c!.x);
+					const ys = corners.map((c) => c!.y);
+					return [
+						{
+							id,
+							left: Math.min(...xs),
+							right: Math.max(...xs),
+							top: Math.min(...ys),
+							bottom: Math.max(...ys)
+						}
+					];
+				})
+				.sort((a, b) => a.left + a.right - (b.left + b.right));
+		},
+		preview: () => {
+			const target = get(previewStore);
+			if (!target) return null;
+			let shown: string | null = null;
+			let art: THREE.Mesh | null = null;
+			const hud = huds.get('preview');
+			const camera = hud?.camera();
+			const group = hud?.scene()?.getObjectByName('hud-preview');
+			const centre = group?.getWorldPosition(new THREE.Vector3());
+			group?.traverse((node) => {
+				const mesh = node as THREE.Mesh;
+				if (shown || !mesh.isMesh) return;
+				// ImageMaterial (cards) keeps its texture in a uniform; PieceFace
+				// (discs) is a plain MeshBasicMaterial map
+				const material = mesh.material as THREE.ShaderMaterial & THREE.MeshBasicMaterial;
+				const texture: THREE.Texture | null = material.uniforms?.map?.value ?? material.map ?? null;
+				const image = texture?.image as { src?: string } | undefined;
+				if (image?.src) {
+					shown = image.src;
+					art = mesh;
+				}
+			});
+			// Box3 only refreshes the mesh's own matrix; its HUD ancestors (the group
+			// that places the art on screen) have to be brought up to date first
+			(art as THREE.Mesh | null)?.updateWorldMatrix(true, false);
+			const box = art ? new THREE.Box3().setFromObject(art) : null;
+			const low = box && camera ? project([box.min.x, box.min.y, box.min.z], camera) : null;
+			const high = box && camera ? project([box.max.x, box.max.y, box.max.z], camera) : null;
+			return {
+				id: target.id,
+				face: target.face,
+				url: resolveCardImage(target.face, get(sheetRefCache)),
+				caption: target.caption,
+				shown,
+				at: centre && camera ? project([centre.x, centre.y, centre.z], camera) : null,
+				geometry: (art as THREE.Mesh | null)?.geometry.type ?? null,
+				bounds:
+					low && high
+						? {
+								left: Math.min(low.x, high.x),
+								right: Math.max(low.x, high.x),
+								top: Math.min(low.y, high.y),
+								bottom: Math.max(low.y, high.y)
+							}
+						: null
+			};
+		},
 		hits,
 		drag: () => {
-			const { isDragging, isHovered, isBagHovered, isDeckHovered } = get(dragStore);
-			return { isDragging, isHovered, isBagHovered, isDeckHovered };
+			const { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap } = get(dragStore);
+			return { isDragging, isHovered, isBagHovered, isDeckHovered, noSnap: !!noSnap };
 		},
+		selected: () => get(selectedIds),
 		connected: () => isWebSocketConnected(),
+		snapGuides: () => {
+			const shape: SnapGuideShape = {
+				rings: 0,
+				reach: 0,
+				reachIds: [],
+				cells: 0,
+				opacity: 0,
+				target: null,
+				targetAt: null,
+				dim: snapGuideDimMaterial.visible ? snapGuideDimMaterial.opacity : 0,
+				objects: 0
+			};
+			handles.scene()?.traverse((object) => {
+				const role = object.userData.snapGuide as
+					| 'rings'
+					| 'reach'
+					| 'cells'
+					| 'target'
+					| undefined;
+				if (!role) return;
+				shape.objects++;
+				const mesh = object as THREE.Mesh;
+				const material = mesh.material as THREE.Material;
+				const shown = mesh.visible && material.visible && material.opacity > 0;
+				if (role === 'reach') {
+					shape.reach = shown ? (mesh as THREE.InstancedMesh).count : 0;
+					shape.reachIds = shown ? [...(object.userData.snapGuideReach ?? [])] : [];
+				} else if (role === 'rings' || role === 'cells') {
+					const count = shown ? (mesh as THREE.InstancedMesh).count : 0;
+					shape[role] = count;
+					if (role === 'rings') shape.opacity = shown ? material.opacity : 0;
+				} else if (role === 'target' && shown && object.userData.snapGuideTarget) {
+					shape.target = object.userData.snapGuideTarget;
+					shape.targetAt = object.getWorldPosition(new THREE.Vector3()).toArray();
+				}
+			});
+			return shape;
+		},
 		camera: () => {
 			const camera = handles.camera();
 			if (!camera) return null;
@@ -302,11 +599,38 @@ export function installTestBridge(handles: SceneHandles): void {
 					shape.materials.push({
 						type: material.type,
 						color: standard.color ? `#${standard.color.getHexString()}` : '',
-						hasMap: !!standard.map
+						hasMap: !!standard.map,
+						roughness: standard.roughness ?? null
 					});
 				}
 			});
 			return shape;
+		},
+		pose: (id) => {
+			const object = handles.scene()?.getObjectByName(id);
+			if (!object) return null;
+			const up = new THREE.Vector3(0, 1, 0).applyQuaternion(
+				object.getWorldQuaternion(new THREE.Quaternion())
+			);
+			return {
+				y: object.getWorldPosition(new THREE.Vector3()).y,
+				leanDeg: THREE.MathUtils.radToDeg(Math.acos(Math.min(1, Math.abs(up.y))))
+			};
+		},
+		stalling: () => framesAreStalling(),
+		sounds: () => soundStats(),
+		yaw: (id) => {
+			const object = handles.scene()?.getObjectByName(id);
+			if (!object) return null;
+			const degrees = -object.rotation.y / THREE.MathUtils.DEG2RAD;
+			return Math.round((((degrees % 360) + 360) % 360) * 1000) / 1000;
+		},
+		heldMarks: () => {
+			const marks: { id: string; holder: string; color: string }[] = [];
+			handles.scene()?.traverse((node) => {
+				if (node.userData.heldMark) marks.push({ ...node.userData.heldMark });
+			});
+			return marks;
 		},
 		badge: (id) => {
 			const object = handles.scene()?.getObjectByName(id);
@@ -319,11 +643,149 @@ export function installTestBridge(handles: SceneHandles): void {
 			});
 			return group ? { scale: (group as THREE.Object3D).scale.x } : null;
 		},
-		stall: setStall
+		dial: (id) => {
+			const object = handles.scene()?.getObjectByName(id);
+			let mesh: THREE.Object3D | null = null;
+			object?.traverse((node) => {
+				if (!mesh && node.userData.dial) mesh = node;
+			});
+			const face = mesh as THREE.Object3D | null;
+			if (!face?.parent) return null;
+			// where the text's baseline points: the viewer it reads for
+			const down = new THREE.Vector3(0, 0, 1).applyQuaternion(
+				face.parent.getWorldQuaternion(new THREE.Quaternion())
+			);
+			return {
+				...(face.userData.dial as {
+					name: string;
+					value: number;
+					maxValue: number | null;
+					minValue: number;
+					fraction: number | null;
+					redraws: number;
+				}),
+				scale: face.parent.scale.x,
+				facing: Math.atan2(down.x, down.z)
+			};
+		},
+		stall: setStall,
+		textures: () => {
+			const maps = new Map<string, number>();
+			handles.scene()?.traverse((node) => {
+				const mesh = node as THREE.Mesh;
+				if (!mesh.isMesh) return;
+				for (const material of [mesh.material].flat()) {
+					// ImageMaterial keeps its texture in a uniform, like preview() reads
+					const shader = material as THREE.ShaderMaterial & THREE.MeshBasicMaterial;
+					const texture: THREE.Texture | null = shader.uniforms?.map?.value ?? shader.map ?? null;
+					const src = (texture?.image as { src?: string } | undefined)?.src;
+					if (texture && src) maps.set(src, texture.anisotropy);
+				}
+			});
+			return {
+				target: THREE.Texture.DEFAULT_ANISOTROPY,
+				maps: [...maps].map(([src, anisotropy]) => ({ src, anisotropy }))
+			};
+		},
+		addOverlay: (overlay) => {
+			gameStore.updateState({ overlays: { [overlay.id]: overlay } });
+			return overlay.id;
+		},
+		pings: () => {
+			// sample what is drawn right now before answering
+			samplePings(handles.scene());
+			return [...seenPings.values()].map((p) => ({ ...p }));
+		},
+		ping: (x, z) => sendPing(x, z),
+		remotePointers: () => {
+			const out: RemotePointerShape[] = [];
+			const cams = get(remoteCameraStore);
+			handles.scene()?.traverse((object) => {
+				const playerId = object.userData?.remotePointer as string | undefined;
+				if (!playerId) return;
+				let color: string | null = null;
+				object.traverse((child) => {
+					const material = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+					if (!color && child instanceof THREE.Mesh && material?.color)
+						color = `#${material.color.getHexString()}`;
+				});
+				out.push({
+					playerId,
+					x: object.position.x,
+					z: object.position.z,
+					target: (object.userData.target as [number, number] | undefined) ?? null,
+					visible: object.visible,
+					opacity: (object.userData.opacity as number | undefined) ?? 0,
+					color,
+					idleMs: cams[playerId]?.c ? Date.now() - cams[playerId].pointerAt : null
+				});
+			});
+			return out;
+		},
+		setRemotePointers: (on) => remotePointersEnabled.set(on)
+	};
+}
+
+/**
+ * What the ping probe has seen, by ping key. Sampled from the stores as pings
+ * arrive, and from the scene every animation frame while one is up — a ripple
+ * lives 1.2s, far shorter than a spec's poll.
+ */
+const seenPings = new Map<number, PingShape>();
+let stopPingWatch: (() => void) | null = null;
+
+function samplePings(scene: THREE.Scene | undefined) {
+	const visible = new Map<number, number>();
+	scene?.traverse((object) => {
+		const key = object.userData?.ping as number | undefined;
+		const seen = key === undefined ? undefined : seenPings.get(key);
+		if (!seen || !(object instanceof THREE.Mesh)) return;
+		const material = object.material as THREE.MeshBasicMaterial;
+		seen.color = `#${material.color.getHexString()}`;
+		if (object.visible) visible.set(key!, (visible.get(key!) ?? 0) + 1);
+	});
+	for (const [key, count] of visible) {
+		const seen = seenPings.get(key)!;
+		seen.rings = Math.max(seen.rings, count);
+	}
+}
+
+function watchPings(scene: () => THREE.Scene | undefined) {
+	stopPingWatch?.();
+	let frame = 0;
+	const tick = () => {
+		samplePings(scene());
+		frame = get(activePings).length ? requestAnimationFrame(tick) : 0;
+	};
+	const unsubPings = activePings.subscribe((pings) => {
+		for (const p of pings)
+			if (!seenPings.has(p.key))
+				seenPings.set(p.key, {
+					playerId: p.playerId,
+					x: p.x,
+					z: p.z,
+					color: null,
+					rings: 0,
+					arrow: false
+				});
+		if (pings.length && !frame) frame = requestAnimationFrame(tick);
+	});
+	const unsubArrows = pingArrows.subscribe((arrows) => {
+		for (const arrow of arrows) {
+			const seen = seenPings.get(arrow.key);
+			if (seen) seen.arrow = true;
+		}
+	});
+	stopPingWatch = () => {
+		unsubPings();
+		unsubArrows();
+		if (frame) cancelAnimationFrame(frame);
 	};
 }
 
 export function removeTestBridge(): void {
 	setStall(null);
+	stopPingWatch?.();
+	stopPingWatch = null;
 	delete window.__tableplace;
 }

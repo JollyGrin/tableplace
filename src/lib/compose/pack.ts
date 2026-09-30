@@ -7,7 +7,8 @@
  * Packs are templates: nothing here mutates the pack it was handed.
  */
 
-import { PIECE_REST_Y } from '../utils/constants-pieces';
+import { COUNTER_MAX_DEFAULT, PIECE_REST_Y } from '../utils/constants-pieces';
+import { counterRange, counterValueRefusal } from '../primitives/counter-range';
 import { composePiece, type Vec3 } from './piece';
 import type { GamePackDef, PackDeckDef, PackPieceDef } from '../packs/types';
 import type {
@@ -106,6 +107,8 @@ export type ComposeDeckOptions = CommonOptions & {
 	index?: number;
 	/** how to shuffle when `shuffle` is set; defaults to Fisher–Yates */
 	shuffleWith?: ShuffleFn;
+	/** pinned in place; overrides the pack deck's own `locked` */
+	locked?: boolean;
 };
 
 /**
@@ -134,6 +137,7 @@ export function composePackDeck(
 		id: packCardId(opts.ownerId, deck.slot, card.code),
 		faceImageUrl: card.face,
 		backImageUrl: deck.back,
+		...(card.name ? { name: card.name } : {}),
 		...(card.orientation === 'landscape' ? { orientation: card.orientation } : {})
 	}));
 	if (opts.shuffle) {
@@ -155,7 +159,8 @@ export function composePackDeck(
 			position: opts.position ?? defaults.position,
 			rotation: opts.rotation ?? defaults.rotation,
 			packOrigin: origin(pack, deck.slot, opts.source),
-			...(opts.shuffleOnLoad !== undefined ? { shuffleOnLoad: opts.shuffleOnLoad } : {})
+			...(opts.shuffleOnLoad !== undefined ? { shuffleOnLoad: opts.shuffleOnLoad } : {}),
+			...((opts.locked ?? deck.locked) ? { locked: true } : {})
 		}
 	};
 }
@@ -179,11 +184,14 @@ export type ComposePackPieceOptions = CommonOptions & {
 	state?: number;
 	/** piece ids already on the table, so a repeated name gets the next `-n` */
 	taken?: ReadonlySet<string>;
+	/** pinned in place; overrides the pack piece's own `locked` */
+	locked?: boolean;
 };
 
 /**
  * Instantiate one of a pack's pieces (by index into `pack.pieces`).
- * Returns undefined — after saying so — for an index the pack doesn't have.
+ * Returns undefined — after saying so — for an index the pack doesn't have,
+ * or for a counter `value` outside the pack piece's `[minValue, maxValue]`.
  */
 export function composePackPiece(
 	pack: GamePackDef,
@@ -194,6 +202,16 @@ export function composePackPiece(
 	if (!def) {
 		console.error(`[compose] ${pack.id} has no piece[${index}]`);
 		return undefined;
+	}
+	// a saved count is only meaningful inside the counter's own range, and this
+	// is the first place the two meet: a placement names the pack piece, the
+	// pack piece owns the bounds (tableplace-253)
+	if (def.kind === 'counter' && opts.value !== undefined) {
+		const refusal = counterValueRefusal(opts.value, counterRange(def, COUNTER_MAX_DEFAULT));
+		if (refusal) {
+			console.error(`[compose] ${pack.id} piece[${index}] '${def.name}': value ${refusal}`);
+			return undefined;
+		}
 	}
 
 	// pack piece positions are authored for seat 0; mirror for the far side
@@ -211,10 +229,14 @@ export function composePackPiece(
 		// the placement's choice wins over the pack's own default
 		state: opts.state ?? def.state,
 		radius: def.radius,
+		shape: def.shape,
 		maxValue: def.maxValue,
+		minValue: def.minValue,
 		sides: def.sides,
 		model: def.model,
 		snap: def.snap,
+		reach: def.reach,
+		locked: opts.locked ?? def.locked,
 		value: opts.value,
 		...(def.kind === 'bag'
 			? { contents: bagContents(def), drawMode: def.drawMode, infinite: def.infinite }
@@ -236,6 +258,8 @@ export type ComposeOverlayOptions = Omit<CommonOptions, 'ownerId'> & {
 	position?: Vec3;
 	rotation?: Vec3;
 	scale?: number;
+	/** pinned in place; overrides the pack overlay's own `locked` */
+	locked?: boolean;
 };
 
 /**
@@ -263,6 +287,7 @@ export function composePackOverlay(
 			scale: opts.scale ?? def.scale,
 			position: opts.position ?? [0, 0.255, 0],
 			rotation: opts.rotation ?? [0, 0, 0],
+			...((opts.locked ?? def.locked) ? { locked: true } : {}),
 			packOrigin: origin(pack, String(index), opts.source)
 		}
 	};

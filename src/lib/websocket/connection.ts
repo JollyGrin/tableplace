@@ -3,12 +3,13 @@ import toast from 'svelte-french-toast';
 
 export type WebSocketMessage = {
 	// 'connect' is outbound-only: the join handshake sent by joinLobby().
-	// Inbound traffic is 'sync' | 'update' | 'error' | 'camera' — presence
-	// arrives as an ordinary 'update' merge patch on players[id].connected,
-	// while 'camera' is the ephemeral tier (SPEC.md §4c): relayed to peers,
-	// never merged into lobby state. It flows both ways. Old clients log an
-	// unknown-type warning and carry on, so it is safe to roll out one-sided.
-	type: 'connect' | 'sync' | 'update' | 'error' | 'camera';
+	// Inbound traffic is 'sync' | 'update' | 'error' | 'camera' | 'journal' |
+	// 'ping' — presence arrives as an ordinary 'update' merge patch on
+	// players[id].connected, while 'camera', 'journal' and 'ping' are the
+	// ephemeral tier (SPEC.md §4c): relayed to peers, never merged into lobby
+	// state. All three flow both ways. Old clients log an unknown-type warning
+	// and carry on, so each is safe to roll out one-sided.
+	type: 'connect' | 'sync' | 'update' | 'error' | 'camera' | 'journal' | 'ping';
 	path?: string[];
 	value?: any;
 	playerId: string;

@@ -11,6 +11,7 @@
 		AutoValue,
 		Checkbox,
 		Slider,
+		Stepper,
 		TabGroup,
 		TabPage
 	} from 'svelte-tweakpane-ui';
@@ -35,7 +36,17 @@
 	} from '$lib/scenario/scenario';
 	import { setSelectedDeck } from '$lib/store/deckSelection';
 	import { snapPointIds } from '$lib/store/game/actions/snap';
-	import { snapEditor, setSnapDefaults, setSnapPlacing } from '$lib/store/snapEditor';
+	import { rotationStep } from '$lib/store/game/actions/rotate';
+	import { handPlayFace } from '$lib/utils/hand';
+	import { tableAllowsCoach } from '$lib/coach/table';
+	import { ROTATION_STEP_DEFAULT } from '$lib/utils/constants-rotation';
+	import {
+		snapEditor,
+		setSnapDefaults,
+		setSnapLinking,
+		setSnapLinkOneWay,
+		setSnapPlacing
+	} from '$lib/store/snapEditor';
 	import {
 		SNAP_GRID_COLS_DEFAULT,
 		SNAP_GRID_PITCH_DEFAULT,
@@ -120,6 +131,7 @@
 		scale = overlay?.scale ?? 12;
 		rot = (overlay?.rotation?.[1] ?? 0) / DEG2RAD;
 		point3d = { x: overlay?.position?.[0] ?? 0, y: overlay?.position?.[2] ?? 0 };
+		overlayLocked = overlay?.locked ?? false;
 	}
 
 	async function handleLoad() {
@@ -248,7 +260,8 @@
 			pieces: {},
 			overlays: {},
 			snapPoints: {},
-			players: {}
+			players: {},
+			table: { rotationStep: null, handPlayFace: null, coach: null }
 		};
 		for (const collection of ['cards', 'decks', 'pieces', 'overlays', 'snapPoints'] as const) {
 			for (const key of Object.keys(s?.[collection] ?? {})) update[collection][key] = null;
@@ -374,6 +387,68 @@
 		setSnapDefaults({ radius: newRadius, rotation: newRotation || undefined });
 	});
 
+	/** a comma-separated tweakpane text field ↔ a list */
+	const splitList = (text: unknown) =>
+		String(text ?? '')
+			.split(',')
+			.map((item) => item.trim())
+			.filter(Boolean);
+	const snapLabel = (snapId: string) => snapId.replace('snap:', '#');
+
+	// Reach (tableplace-190): how many snap-point links a piece usually
+	// travels. Picked from a list rather than by clicking the piece, so the
+	// scene's own drag handling stays untouched.
+	const pieceIds = $derived(
+		Object.keys($gameStore?.pieces ?? {}).filter((id) => $gameStore?.pieces?.[id])
+	);
+	let reachPiece = $state('');
+	const reachPieceId = $derived(pieceIds.includes(reachPiece) ? reachPiece : (pieceIds[0] ?? ''));
+	const reachPieceOptions = $derived(
+		pieceIds.length
+			? Object.fromEntries(
+					pieceIds.map((id) => [`${$gameStore?.pieces?.[id]?.name ?? 'piece'} (${id})`, id])
+				)
+			: { '(no pieces)': '' }
+	);
+	const reachValue = $derived($gameStore?.pieces?.[reachPieceId]?.reach ?? 0);
+
+	function setReach(value: number | undefined) {
+		const next = Math.max(0, Math.round(value ?? 0));
+		// switching the picked piece re-emits its value; only a real edit is a patch
+		if (!reachPieceId || next === reachValue) return;
+		gameActions.setPieceReach(reachPieceId, next);
+	}
+
+	// the scenario's `rotationStep` (tableplace-200): what Q/E turn by
+	const tableRotationStep = $derived(rotationStep($gameStore));
+
+	function setRotationStep(value: number | undefined) {
+		const next = Math.round(value ?? ROTATION_STEP_DEFAULT);
+		// a remount re-emits the current value; only a real edit is a patch
+		if (next === tableRotationStep) return;
+		gameActions.setRotationStep(next);
+	}
+
+	// the scenario's `handPlayFace` (tableplace-195): how a hand play lands
+	const tableHandPlayFace = $derived(handPlayFace($gameStore));
+
+	function setHandPlayFace(face: 'down' | 'up') {
+		// a remount re-emits the current value; only a real edit is a patch
+		if (face === tableHandPlayFace) return;
+		// face-down is the default: say nothing rather than 'down'
+		gameActions.setHandPlayFace(face === 'up' ? 'up' : null);
+	}
+
+	// the scenario's `coach` (tableplace-206): whether players see the checklist
+	const tableCoach = $derived(tableAllowsCoach($gameStore));
+
+	function setCoach(show: boolean) {
+		// a remount re-emits the current value; only a real edit is a patch
+		if (show === tableCoach) return;
+		// shown is the default: say nothing rather than `true`
+		gameActions.setCoach(show ? null : false);
+	}
+
 	function addSnapPoint() {
 		gameActions.addSnapPoint({
 			position: [0, 0],
@@ -413,6 +488,8 @@
 	let scale = $state($gameStore?.overlays?.table?.scale ?? 12);
 	let point3d = $state({ x: 0, y: 0 });
 	let imageUrl = $state($gameStore?.overlays?.table?.imageUrl ?? '');
+	// an overlay can't be hovered for L, so its pin is a control here
+	let overlayLocked = $state($gameStore?.overlays?.table?.locked ?? false);
 
 	$effect(() => {
 		const _imageUrl = imageUrl === '' ? undefined : imageUrl;
@@ -422,7 +499,9 @@
 					imageUrl: _imageUrl,
 					rotation: [0, rot * DEG2RAD, 0],
 					position: [point3d.x, 0.255, point3d.y],
-					scale
+					scale,
+					// null deletes the key: an unpinned board carries no flag at all
+					locked: overlayLocked ? true : null
 				}) as NonNullable<GameDTO['overlays']>[string]
 			}
 		});
@@ -516,6 +595,34 @@
 		ownerId={seatPlaceholderId(activeSeat)}
 		beforeSpawn={() => ensureSeatPlaceholder(activeSeat)}
 	/>
+	<Folder title="Table" expanded={false}>
+		<!-- saved as the scenario's rotationStep; every player's Q/E turns by it -->
+		<Slider
+			label="Q/E turn step"
+			value={tableRotationStep}
+			min={1}
+			max={360}
+			step={1}
+			format={(v) => `${v.toFixed(0)}°`}
+			on:change={(e) => setRotationStep(e.detail.value)}
+		/>
+		<Button
+			title="Default turn step ({ROTATION_STEP_DEFAULT}°)"
+			on:click={() => gameActions.setRotationStep(null)}
+		/>
+		<!-- saved as the scenario's handPlayFace; Shift at release plays the other -->
+		<Checkbox
+			label="hand plays face-up"
+			value={tableHandPlayFace === 'up'}
+			on:change={(e) => setHandPlayFace(e.detail.value ? 'up' : 'down')}
+		/>
+		<!-- saved as the scenario's coach: false hides the first-run checklist -->
+		<Checkbox
+			label="things-to-try strip"
+			value={tableCoach}
+			on:change={(e) => setCoach(!!e.detail.value)}
+		/>
+	</Folder>
 	<Folder title="Snap points" expanded={false}>
 		<Checkbox
 			label="place on click"
@@ -529,12 +636,27 @@
 			format={(v) => (v === 0 ? 'none' : `${(((v % 360) + 360) % 360).toFixed(0)}°`)}
 		/>
 		<Button title="Add at table centre" on:click={addSnapPoint} />
+		<!-- links: an optional board graph. Armed, a click on a marker picks it
+		     and a click on a second one draws or removes the link between them -->
+		<Checkbox
+			label="draw links"
+			value={!!$snapEditor.linking}
+			on:change={(e) => setSnapLinking(!!e.detail.value)}
+		/>
+		<!-- with draw links armed: the link runs one way, from the marker picked
+		     first to the one clicked next (drawn with an arrowhead) -->
+		<Checkbox
+			label="one-way"
+			value={!!$snapEditor.oneWay}
+			on:change={(e) => setSnapLinkOneWay(!!e.detail.value)}
+		/>
+		<Button title="Clear all links" on:click={() => gameActions.clearSnapLinks()} />
 		{#if snapIds.length > 0}
 			<TabGroup>
 				{#each snapIds as snapId (snapId)}
 					{@const point = $gameStore?.snapPoints?.[snapId]}
 					{@const position = point?.position ?? [0, 0]}
-					<TabPage title={snapId.replace('snap:', '#')}>
+					<TabPage title={snapLabel(snapId)}>
 						<Point
 							label="position"
 							value={[position[0], position[1]]}
@@ -634,6 +756,24 @@
 									})}
 							/>
 						{/if}
+						<Text
+							label="links"
+							value={(point?.links ?? []).map(snapLabel).join(', ') || 'none'}
+							disabled
+						/>
+						{#if point?.outLinks?.length}
+							<Text label="one-way to" value={point.outLinks.map(snapLabel).join(', ')} disabled />
+						{/if}
+						<Text
+							label="tags"
+							value={(point?.tags ?? []).join(', ')}
+							on:change={(e) => {
+								const tags = splitList(e.detail.value);
+								if (tags.join(',') !== (point?.tags ?? []).join(',')) {
+									gameActions.setSnapTags(snapId, tags);
+								}
+							}}
+						/>
 						<Button
 							title="Delete this point"
 							on:click={() => gameActions.removeSnapPoint(snapId)}
@@ -643,11 +783,22 @@
 			</TabGroup>
 		{/if}
 	</Folder>
+	<Folder title="Piece reach" expanded={false}>
+		<List label="piece" bind:value={reachPiece} options={reachPieceOptions} />
+		<Stepper
+			label="reach (links)"
+			value={reachValue}
+			min={0}
+			step={1}
+			on:change={(e) => setReach(e.detail.value)}
+		/>
+	</Folder>
 	<Folder title="Overlay (map)" expanded={false}>
 		<Text label="Image URL" bind:value={imageUrl}></Text>
 		<Point bind:value={point3d} label="Position" />
 		<AutoValue label="Scale" bind:value={scale} />
 		<Wheel label="Rotation" bind:value={rot} format={(v) => `${(Math.abs(v) % 360).toFixed(0)}°`} />
+		<Checkbox label="Locked" bind:value={overlayLocked} />
 	</Folder>
 	<Folder title="Save / Load" expanded={true}>
 		<Text label="Name" bind:value={scenarioName} />

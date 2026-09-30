@@ -6,76 +6,220 @@
 	import { onMount, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { dragStore } from '$lib/store/dragStore.svelte';
-	import { cameraBroadcastSignal, cameraResetSignal } from '$lib/store/cameraStore.svelte';
+	import { get } from 'svelte/store';
+	import {
+		cameraBroadcastSignal,
+		cameraRequest,
+		requestCameraPreset,
+		type CameraFocus,
+		type CameraRequest
+	} from '$lib/store/cameraStore.svelte';
+	import { lastMoved } from '$lib/store/lastMoved';
+	import { SEAT_ROTATION_DEG } from '$lib/hud/players';
+	import { pointerTargets } from '$lib/verbs/keyboard';
+	import { hoveredTrayCard } from '$lib/HUDTray/trayHover';
 	import { isRadialOpen } from '$lib/store/radialUi';
 	import { gameActions } from './store/game/actions';
 	import { gameStore } from './store/game/gameStore.svelte';
-	import { createCameraStream } from '$lib/websocket/cameraStream';
+	import { createCameraStream, type TablePoint } from '$lib/websocket/cameraStream';
 	import { isWebSocketConnected, sendMessage } from '$lib/websocket/connection';
 	import { isTyping } from '$lib/hotkeys/is-typing';
 	import {
+		CAMERA_EMPTY_BOUNDS,
+		CAMERA_FOCUS_MIN_DISTANCE,
+		CAMERA_FOCUS_PADDING,
 		CAMERA_FOV_DEG,
 		CAMERA_MAX_DISTANCE,
-		CAMERA_MIN_DISTANCE
+		CAMERA_MIN_DISTANCE,
+		CAMERA_SEAT_POLAR,
+		CAMERA_TOP_POLAR,
+		CAMERA_TWEEN_MS
 	} from '$lib/utils/constants-camera';
-	import { contentBounds, fitCamera, type CameraFit } from '$lib/utils/camera-fit';
+	import {
+		angleOf,
+		contentBounds,
+		fitPose,
+		seatAzimuth,
+		type CameraPose
+	} from '$lib/utils/camera-fit';
+	import { distanceOf, easeInOutCubic, interpolatePose } from '$lib/utils/camera-tween';
 	import { isPanKey, panDelta } from '$lib/utils/transforms/pan';
+	import { classicMouse } from '$lib/store/mouseMode';
+	import { ping } from '$lib/ping';
+	import { feltPointAt } from '$lib/ping/felt';
+
+	/**
+	 * The mouse mapping (tableplace-202). Left-drag on the felt belongs to the
+	 * selection box (Table.svelte), so OrbitControls gives up the left button —
+	 * -1 is "no action" to three's switch — and orbits on the right, pans on
+	 * the middle: the Tabletop Simulator convention. A right press that never
+	 * travels is still the radial wheel (radial/gesture.ts), exactly as it was
+	 * when right-drag panned. The classic mapping (left orbits, right pans) is
+	 * one Settings checkbox away for one release — see store/mouseMode.ts.
+	 */
+	const MOUSE_BUTTONS = {
+		LEFT: -1 as THREE.MOUSE,
+		MIDDLE: THREE.MOUSE.PAN,
+		RIGHT: THREE.MOUSE.ROTATE
+	};
+	const CLASSIC_MOUSE_BUTTONS = {
+		LEFT: THREE.MOUSE.ROTATE,
+		MIDDLE: THREE.MOUSE.DOLLY,
+		RIGHT: THREE.MOUSE.PAN
+	};
 
 	const isDragging = $derived($dragStore.isDragging !== null);
-
-	const y = 25;
-	const seating = [
-		[0, y, 0],
-		[0, y, -0.01],
-		[0.1, y, 0],
-		[-0.1, y, 0]
-	];
 
 	const myId = gameActions?.getMyId() ?? '';
 	const seat = $derived($gameStore?.players?.[myId]?.seat ?? 0);
 
-	const { invalidate } = useThrelte();
+	const { invalidate, dom } = useThrelte();
 
 	let camera: THREE.PerspectiveCamera | undefined = $state();
 	let controls: OrbitControlsType | undefined = $state();
 
 	/**
-	 * The seat's home pose: straight down over the table's content at the distance
-	 * that fits it at the viewport aspect. Null = the seat's default close-up (an
-	 * empty table). It feeds the camera's `position` prop too, so a seat change
-	 * that lands after the fit (players arrive in the store after the camera
-	 * mounts) re-seats onto the fitted pose instead of the default one.
+	 * How far the orbit may zoom out. Normally the felt's max, but a seat view
+	 * fitted for a narrow window can sit farther than that, and OrbitControls
+	 * clamps every `update()` to it — so it widens to whatever the last preset
+	 * needed (see CAMERA_FIT_MAX_DISTANCE).
 	 */
-	let fit = $state<CameraFit | null>(null);
-	const homePosition = $derived.by((): [number, number, number] => {
-		const [ox, , oz] = seating[seat];
-		return fit
-			? [fit.x + ox, fit.distance, fit.z + oz]
-			: (seating[seat] as [number, number, number]);
+	let reach = $state(CAMERA_MAX_DISTANCE);
+
+	/** where the camera mounts, before the seat effect below seats it properly */
+	const INITIAL = fitPose(CAMERA_EMPTY_BOUNDS, 16 / 10, {
+		azimuth: 0,
+		polar: CAMERA_SEAT_POLAR
 	});
 
-	const homeTarget = $derived<[number, number, number]>([fit?.x ?? 0, 0, fit?.z ?? 0]);
+	/**
+	 * The seat's view along `polar`: from the seat's own side of the table
+	 * (its rotation, not any layout), at the distance that fits the whole
+	 * table's content at the current aspect. An empty table frames its middle.
+	 */
+	function presetPose(polar: number): CameraPose {
+		const azimuth = seatAzimuth(SEAT_ROTATION_DEG[seat] ?? 0);
+		const bounds = contentBounds(get(gameStore)) ?? CAMERA_EMPTY_BOUNDS;
+		return fitPose(bounds, camera?.aspect ?? 16 / 10, { azimuth, polar });
+	}
+
+	function currentPose(): CameraPose | null {
+		if (!camera || !controls) return null;
+		return { position: camera.position.toArray(), target: controls.target.toArray() };
+	}
+
+	/** frames one entity, keeping whatever angle the camera is looking from */
+	function focusPose(entity: CameraFocus | null): CameraPose | null {
+		const from = currentPose();
+		if (!entity || !from) return null;
+		// the named kind first, then the others: the hover store that names a
+		// card also carries a hovered piece's id (dragStore.isHovered), so the
+		// kind is a hint and the id is what counts
+		const state = get(gameStore);
+		const named = ({ card: 'cards', deck: 'decks', piece: 'pieces' } as const)[entity.kind];
+		const collection = [named, 'cards', 'decks', 'pieces'].find(
+			(c) => state?.[c as typeof named]?.[entity.id]
+		) as typeof named | undefined;
+		const found = collection && state?.[collection]?.[entity.id];
+		const bounds = found && contentBounds({ [collection]: { [entity.id]: found } });
+		if (!bounds) return null;
+		return fitPose(bounds, camera?.aspect ?? 16 / 10, angleOf(from), {
+			minDistance: CAMERA_FOCUS_MIN_DISTANCE,
+			padding: CAMERA_FOCUS_PADDING
+		});
+	}
 
 	/**
-	 * Fit the seat's view to the content (xz box of every card, deck, piece and
-	 * overlay). The seat's tiny x/z offset is what fixes the screen's "up" (seat 1
-	 * is turned 180°), so it rides along with the target.
+	 * A preset move in flight. Played by the task below over CAMERA_TWEEN_MS,
+	 * eased; the pose it writes each frame fires OrbitControls' change event,
+	 * so it streams to peers through the same throttled cameraStream an orbit
+	 * does (≤ ~3 Hz, silent once it lands). `tweening` gates the task the way
+	 * `held` gates the pan task — see `running` below for why that matters.
 	 */
-	function frameContent() {
+	let tween: { from: CameraPose; to: CameraPose; elapsed: number } | null = null;
+	let tweening = $state(false);
+
+	const reducedMotion = () =>
+		typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	function apply(pose: CameraPose) {
 		if (!camera || !controls) return;
-		const bounds = contentBounds($gameStore);
-		fit = bounds ? fitCamera(bounds, camera.aspect, seat >= 2) : null;
-		const [x, , z] = homePosition;
-		camera.position.set(x, homePosition[1], z);
-		controls.target.set(fit?.x ?? 0, 0, fit?.z ?? 0);
+		camera.position.set(...pose.position);
+		controls.target.set(...pose.target);
 		controls.update();
 		invalidate();
 	}
 
-	// reset to the seat's fitted birds-eye view when requested (keybind C)
+	function stopTween() {
+		tween = null;
+		tweening = false;
+	}
+
+	/** move to `pose`: tweened, or a cut on request or under reduced motion */
+	function moveTo(pose: CameraPose, cut = false) {
+		const from = currentPose();
+		if (!from || !controls) return;
+		reach = Math.max(CAMERA_MAX_DISTANCE, Math.ceil(distanceOf(pose)));
+		// now, not on the prop's next flush: this frame's update() clamps to it
+		controls.maxDistance = reach;
+		if (cut || reducedMotion()) {
+			stopTween();
+			apply(pose);
+			return;
+		}
+		tween = { from, to: pose, elapsed: 0 };
+		tweening = true;
+	}
+
+	/**
+	 * A frame advances the move by at most this much. At 60 fps that is never
+	 * reached; on a hitch (a loaded machine, a software-rendered one at a few
+	 * frames a second) it turns what would be a single-frame teleport back into
+	 * a visible move — slower in wall-clock, but never a cut.
+	 */
+	const TWEEN_MAX_STEP_MS = 50;
+
+	useTask(
+		(delta) => {
+			if (!tween) return stopTween();
+			tween.elapsed += Math.min(delta * 1000, TWEEN_MAX_STEP_MS);
+			const t = Math.min(1, tween.elapsed / CAMERA_TWEEN_MS);
+			apply(interpolatePose(tween.from, tween.to, easeInOutCubic(t)));
+			if (t >= 1) stopTween();
+		},
+		{ running: () => tweening }
+	);
+
+	/** near enough straight down that P means "back to the seat" */
+	const TOP_DOWN_POLAR = 0.2;
+
+	function runPreset({ preset, focus }: CameraRequest) {
+		const from = currentPose();
+		if (!from) return;
+		if (preset === 'seat') return moveTo(presetPose(CAMERA_SEAT_POLAR));
+		if (preset === 'toggle-top') {
+			const isTop = angleOf(from).polar < TOP_DOWN_POLAR;
+			return moveTo(presetPose(isTop ? CAMERA_SEAT_POLAR : CAMERA_TOP_POLAR));
+		}
+		const pose = focusPose(focus ?? get(lastMoved));
+		if (pose) moveTo(pose);
+	}
+
+	// C / P / Z, the table wheel and double-click all land here
 	$effect(() => {
-		if ($cameraResetSignal === 0) return;
-		untrack(frameContent);
+		const request = $cameraRequest;
+		if (request.n === 0) return;
+		untrack(() => runPreset(request));
+	});
+
+	// Seat onto the seat view as soon as the camera exists, and again whenever
+	// the seat changes (players arrive in the store after the camera mounts, and
+	// /setup's "view from seat" switches seats) — a cut, not a tween: nobody has
+	// a view to keep yet.
+	$effect(() => {
+		void seat;
+		if (!camera || !controls) return;
+		untrack(() => moveTo(presetPose(CAMERA_SEAT_POLAR), true));
 	});
 
 	// Fit once on join, once the table has stopped filling in: the snapshot lands
@@ -91,15 +235,56 @@
 		if (!contentBounds($gameStore)) return;
 		const timer = setTimeout(() => {
 			joinFitted = true;
-			if (!userMoved) frameContent();
+			if (!userMoved) moveTo(presetPose(CAMERA_SEAT_POLAR), true);
 		}, JOIN_FIT_QUIET_MS);
 		return () => clearTimeout(timer);
 	});
+	// any manual orbit, pan or zoom (OrbitControls' `start` fires for each, the
+	// wheel included) marks the camera as the player's and cancels a preset move
 	$effect(() => {
 		if (!controls) return;
-		const mark = () => (userMoved = true);
+		const mark = () => {
+			userMoved = true;
+			stopTween();
+		};
 		controls.addEventListener('start', mark);
 		return () => controls?.removeEventListener('start', mark);
+	});
+
+	/**
+	 * Double-click a card, deck or piece: focus it. The hover stores already know
+	 * what is under the pointer — the same resolution the keys use.
+	 *
+	 * On threlte's wrapper `dom`, not the <canvas>: interactivity listens there
+	 * and takes pointer capture on it, so that is where the clicks land. And
+	 * `dblclick` arrives after the second release — a focus requested on the
+	 * press would be cancelled at once by the orbit `start` the press also is.
+	 *
+	 * On bare felt — nothing on the table or in the hand under the pointer — it
+	 * pings that spot for everyone instead (tableplace-198).
+	 */
+	$effect(() => {
+		const onDoubleClick = (event: MouseEvent) => {
+			const targets = pointerTargets();
+			const target = targets.find(
+				(t) => t.kind === 'card' || t.kind === 'deck' || t.kind === 'piece'
+			);
+			if (target && 'id' in target)
+				return requestCameraPreset('focus', {
+					kind: target.kind as CameraFocus['kind'],
+					id: target.id
+				});
+			// over the hand's own HUD, or a DOM pane stacked on the canvas: not the
+			// felt. The pointer capture interactivity takes retargets the click to
+			// `dom` itself, so that counts as the canvas.
+			if (targets.some((t) => t.kind === 'hand-card')) return;
+			if (event.target !== dom && !(event.target instanceof HTMLCanvasElement)) return;
+			if (!camera) return;
+			const point = feltPointAt(camera, dom.getBoundingClientRect(), event.clientX, event.clientY);
+			if (point) ping(point.x, point.z);
+		};
+		dom.addEventListener('dblclick', onDoubleClick);
+		return () => dom.removeEventListener('dblclick', onDoubleClick);
 	});
 
 	/**
@@ -138,8 +323,48 @@
 		}
 		const { x, y, z } = camera.position;
 		const { x: tx, y: ty, z: tz } = controls.target;
-		cameraStream.offer([x, y, z], [tx, ty, tz], force);
+		// the cursor stays put on screen while the view moves under it, so its
+		// table point moved too — it rides this same sample
+		cameraStream.offer([x, y, z], [tx, ty, tz], force, pointerPoint());
 	}
+
+	/**
+	 * Remote pointers (tableplace-197): the table point under our cursor rides
+	 * the camera stream above — the same message, the same ~3 Hz throttle, so
+	 * pointing while orbiting costs no more than orbiting. Like the pose it
+	 * yields to a drag (the dragged thing already shows where we are) and
+	 * catches up on release.
+	 *
+	 * On threlte's wrapper `dom`, where interactivity's pointer capture sends
+	 * everything. Leaving it — for the page, or a DOM pane stacked on the
+	 * table — takes the pointer off every peer's felt.
+	 */
+	let pointerAt: { x: number; y: number } | null = null;
+
+	function pointerPoint(): TablePoint | null {
+		if (!pointerAt || !camera) return null;
+		// over our own hand, the felt behind it is not what we are pointing at
+		if (get(hoveredTrayCard)) return null;
+		const point = feltPointAt(camera, dom.getBoundingClientRect(), pointerAt.x, pointerAt.y);
+		return point ? [point.x, point.z] : null;
+	}
+
+	$effect(() => {
+		const onMove = (event: PointerEvent) => {
+			pointerAt = { x: event.clientX, y: event.clientY };
+			if (!isDragging) cameraStream.point(pointerPoint());
+		};
+		const onLeave = () => {
+			pointerAt = null;
+			if (!isDragging) cameraStream.point(null);
+		};
+		dom.addEventListener('pointermove', onMove);
+		dom.addEventListener('pointerleave', onLeave);
+		return () => {
+			dom.removeEventListener('pointermove', onMove);
+			dom.removeEventListener('pointerleave', onLeave);
+		};
+	});
 
 	// a peer just joined and missed everything we sent before they connected
 	$effect(() => {
@@ -175,6 +400,7 @@
 			if (isTyping(event.target)) return;
 			if (isPanKey(event.code)) {
 				userMoved = true;
+				stopTween();
 				held.add(event.code);
 			}
 		};
@@ -230,13 +456,13 @@
 	);
 </script>
 
-<!-- near/far bound tightly to the orbit range (min 1 / max 62): depth precision
+<!-- near/far bound tightly to the orbit range (min 1 / max 72, a wide fit up to 150): depth precision
      is proportional to near/far ratio, and card faces are only 0.02 apart. At the
-     max distance the depth step is ~z²/(near·2²⁴) ≈ 0.0005, well under 0.02. -->
+     farthest fit the depth step is ~z²/(near·2²⁴) ≈ 0.003, still under 0.02. -->
 <T.PerspectiveCamera
 	makeDefault
 	bind:ref={camera}
-	position={homePosition}
+	position={INITIAL.position}
 	fov={CAMERA_FOV_DEG}
 	near={0.5}
 	far={200}
@@ -245,17 +471,18 @@
 	     picks a wedge would otherwise pan (right) or rotate (left) the camera
 	     underneath it. Disabling the controls outright is safe mid-gesture —
 	     three's pointerup cleanup does not check `enabled`, so the press ends
-	     cleanly and the next one behaves normally. Bindings are otherwise
-	     untouched: a right drag that never held still still pans. -->
+	     cleanly and the next one behaves normally. A right drag that never
+	     held still still orbits (pans, on the classic mapping). -->
 	<OrbitControls
 		bind:ref={controls}
 		onchange={() => broadcastPose()}
 		enabled={!$isRadialOpen}
+		mouseButtons={$classicMouse ? CLASSIC_MOUSE_BUTTONS : MOUSE_BUTTONS}
 		enableRotate={!isDragging}
 		enableDamping
 		maxPolarAngle={Math.PI / 2 - 0.1}
-		target={homeTarget}
+		target={INITIAL.target}
 		minDistance={CAMERA_MIN_DISTANCE}
-		maxDistance={CAMERA_MAX_DISTANCE}
+		maxDistance={reach}
 	/>
 </T.PerspectiveCamera>

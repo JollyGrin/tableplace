@@ -94,6 +94,7 @@ export async function importTtsFile(text: string, opts: ImportOptions = {}): Pro
 				id: `card:${playerId}:${slot}-${i}`,
 				faceImageUrl: c.faceImageUrl,
 				backImageUrl: c.backImageUrl,
+				...(c.name ? { name: c.name } : {}),
 				...(c.sideways ? { orientation: 'landscape' as const } : {})
 			}))
 			.reverse();
@@ -126,6 +127,7 @@ export async function importTtsFile(text: string, opts: ImportOptions = {}): Pro
 					rotation: [0, 0, opts.mirror ? 180 : 0],
 					faceImageUrl: c.faceImageUrl,
 					backImageUrl: c.backImageUrl,
+					...(c.name ? { name: c.name } : {}),
 					...(c.sideways ? { orientation: 'landscape' as const } : {})
 				}
 			}
@@ -153,7 +155,9 @@ export async function importTtsFile(text: string, opts: ImportOptions = {}): Pro
 					imageUrl: states?.length ? states[0].face : piece.imageUrl,
 					...(states?.length ? { states, state: piece.state ?? 0 } : {}),
 					radius: piece.radius,
+					...(piece.shape !== undefined ? { shape: piece.shape } : {}),
 					maxValue: piece.maxValue,
+					...(piece.minValue !== undefined ? { minValue: piece.minValue } : {}),
 					value: piece.maxValue,
 					position: [(piece.position[0] + offsetX) * m, PIECE_REST_Y, piece.position[1] * m],
 					rotation: [0, 0, 0]

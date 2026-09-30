@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	CAMERA_POSITION_EPSILON,
 	CAMERA_STREAM_INTERVAL_MS,
+	POINTER_EPSILON,
 	createCameraStream,
+	pointerChanged,
 	poseChanged,
 	type CameraSample,
 	type Vec3
@@ -185,5 +187,98 @@ describe('createCameraStream', () => {
 
 		advance(CAMERA_STREAM_INTERVAL_MS * 2);
 		expect(sent).toHaveLength(1);
+	});
+
+	// ── the pointer rides the same stream (tableplace-197) ──
+
+	it('sends no pointer field while there is none — the old wire shape', () => {
+		const stream = makeStream();
+		stream.offer([0, 25, 0], ORIGIN);
+		expect(sent[0]).not.toHaveProperty('c');
+	});
+
+	it('carries the pointer on the camera sample, sharing its seq', () => {
+		const stream = makeStream();
+		stream.offer([0, 25, 0], ORIGIN, false, [2, 3]);
+		expect(sent).toEqual([{ p: [0, 25, 0], t: ORIGIN, seq: 1, c: [2, 3] }]);
+	});
+
+	it('holds a pointer offered before any pose — a sample needs a pose', () => {
+		const stream = makeStream();
+		stream.point([2, 3]);
+		expect(sent).toEqual([]);
+		stream.offer([0, 25, 0], ORIGIN);
+		expect(sent).toEqual([{ p: [0, 25, 0], t: ORIGIN, seq: 1, c: [2, 3] }]);
+	});
+
+	it('a pointer move alone sends, under a still camera', () => {
+		const stream = makeStream();
+		stream.offer([0, 25, 0], ORIGIN);
+		advance(CAMERA_STREAM_INTERVAL_MS);
+		stream.point([2, 3]);
+		expect(sent).toHaveLength(2);
+		expect(sent[1]).toEqual({ p: [0, 25, 0], t: ORIGIN, seq: 2, c: [2, 3] });
+	});
+
+	it('ignores pointer jitter under the epsilon, and stays silent once parked', () => {
+		const stream = makeStream();
+		stream.offer([0, 25, 0], ORIGIN, false, [2, 3]);
+		for (let i = 0; i < 100; i++) {
+			stream.point([2 + (i % 2) * POINTER_EPSILON * 0.5, 3]);
+			advance(16);
+		}
+		expect(sent).toHaveLength(1);
+	});
+
+	it('leaving the canvas is sent, so peers hide the pointer', () => {
+		const stream = makeStream();
+		stream.offer([0, 25, 0], ORIGIN, false, [2, 3]);
+		advance(CAMERA_STREAM_INTERVAL_MS);
+		stream.point(null);
+		expect(sent).toHaveLength(2);
+		expect(sent[1]).not.toHaveProperty('c');
+	});
+
+	it('orbiting and pointing together stay within the camera budget', () => {
+		// the stream gate the ticket's budget rests on: a 60 Hz orbit and a
+		// 120 Hz pointer sweep, interleaved for 10s, must cost no more than the
+		// orbit alone — at most one send per interval, ≤ 3 msg/s
+		const stream = makeStream();
+		const durationMs = 10_000;
+		for (let t = 0; t < durationMs; t += 8) {
+			stream.point([Math.sin(t / 200) * 10, Math.cos(t / 300) * 6]);
+			if (t % 16 === 0) stream.offer([t / 100, 25, 0], ORIGIN);
+			advance(8);
+		}
+		stream.dispose();
+
+		expect(sent.length).toBeLessThanOrEqual(Math.ceil(durationMs / CAMERA_STREAM_INTERVAL_MS) + 1);
+		expect(sent.length / (durationMs / 1000)).toBeLessThanOrEqual(3);
+		for (let i = 1; i < sent.length; i++) expect(sent[i].seq).toBe(sent[i - 1].seq + 1);
+		// and the pointer really did ride along
+		expect(sent.every((s) => Array.isArray(s.c))).toBe(true);
+	});
+
+	it('the newest pointer wins the trailing sample', () => {
+		const stream = makeStream();
+		stream.offer([0, 25, 0], ORIGIN, false, [0, 0]);
+		stream.point([1, 0]);
+		stream.point([5, 0]);
+		expect(sent).toHaveLength(1);
+		advance(CAMERA_STREAM_INTERVAL_MS);
+		expect(sent[1].c).toEqual([5, 0]);
+	});
+});
+
+describe('pointerChanged', () => {
+	it('appearing and disappearing always count', () => {
+		expect(pointerChanged(null, [0, 0])).toBe(true);
+		expect(pointerChanged([0, 0], null)).toBe(true);
+		expect(pointerChanged(null, null)).toBe(false);
+	});
+
+	it('gates on the epsilon', () => {
+		expect(pointerChanged([0, 0], [POINTER_EPSILON / 2, 0])).toBe(false);
+		expect(pointerChanged([0, 0], [POINTER_EPSILON * 2, 0])).toBe(true);
 	});
 });

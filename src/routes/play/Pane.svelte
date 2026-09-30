@@ -3,6 +3,7 @@
 	import PaneProse from '$lib/tweakpane/PaneProse.svelte';
 	import {
 		Button,
+		Checkbox,
 		Pane,
 		Point,
 		Wheel,
@@ -18,7 +19,12 @@
 	import { purgeUndefinedValues } from '$lib/utils/transforms/data';
 	import type { GameDTO } from '$lib/store/game/types';
 	import { gameActions } from '$lib/store/game/actions';
-	import { UNGROUP_MAX_CARDS } from '$lib/store/game/actions/deck';
+	import { keybindReference } from '$lib/verbs/registry';
+	import { hintBarEnabled } from '$lib/hint/hintUi';
+	import { weightEnabled } from '$lib/utils/weight.svelte';
+	import { soundEnabled } from '$lib/sound';
+	import { classicMouse } from '$lib/store/mouseMode';
+	import { remotePointersEnabled } from '$lib/pointers/settings';
 	import { connectionStore } from '$lib/store/connectionStore.svelte';
 	import {
 		listScenarios,
@@ -128,31 +134,10 @@
 		);
 	}
 
-	// The reference card, as data rather than as eleven disabled `Text` blades
-	// (#115). Ordered as you meet them: look, then act on one card, then on a
-	// pile, then the drag modifiers.
-	const KEYBINDS: [action: string, key: string][] = [
-		// the wheel first: it is how you find the rest of this list without
-		// reading it (tableplace-161)
-		['Actions on card / deck / table', 'right-click'],
-		['Same wheel, no right button', 'press & hold'],
-		['Pan camera', 'W A S D'],
-		['Reset camera', 'C'],
-		['Preview hovered', 'spacebar'],
-		['Tap card', 'T'],
-		['Reverse Tap card', 'R'],
-		['Rotate hovered model ±90°', 'T / R'],
-		['Flip card', 'F'],
-		['Group stack into deck', 'G'],
-		[`Ungroup deck (max ${UNGROUP_MAX_CARDS} cards)`, 'Shift + G'],
-		// moved off bare S in tableplace-161: S is a pan key now
-		['Shuffle hovered deck', 'Shift + S'],
-		['Drop without snapping', 'hold Alt'],
-		['Cancel drag', 'Esc'],
-		['Nudge card higher', 'Arrow Up'],
-		// #113 fixed this label — it is Arrow Down, not the Shift chord it used to claim
-		['Nudge card lower', 'Arrow Down']
-	];
+	// The reference card (#115), generated from the verb registry so a binding
+	// and its label can never disagree again (#113). Ordered as you meet them:
+	// the wheel, the camera, one card, a pile, a piece, then the drag modifiers.
+	const KEYBINDS = keybindReference();
 </script>
 
 <Pane
@@ -236,6 +221,19 @@
 			label="Seat: {$gameStore?.players?.[gameActions?.getMe()?.id ?? 0]?.seat}"
 			title="Next Seat"
 		/>
+		<!-- the bottom-left line naming what the pointer can do; on by default -->
+		<Checkbox label="Hint bar" bind:value={$hintBarEnabled} />
+		<!-- lean, landing bounce and flip hop (tableplace-203); always off under
+		     prefers-reduced-motion, whatever this says -->
+		<Checkbox label="Weight" bind:value={$weightEnabled} />
+		<!-- the other players' cursors on the felt (tableplace-197); hiding them is
+		     local, ours still show for them -->
+		<Checkbox label="Remote pointers" bind:value={$remotePointersEnabled} />
+		<!-- table sounds (tableplace-204); the same switch as the speaker on the table -->
+		<Checkbox label="Sound" bind:value={$soundEnabled} />
+		<!-- tableplace-202 moved orbit to right-drag so left-drag on the felt can
+		     box-select; this puts the old mapping back, for one release -->
+		<Checkbox label="Classic mouse" bind:value={$classicMouse} />
 		<!--
 			One prose blade where eleven disabled `Text` blades used to be (#115): a
 			keybind is something you read, not a field you were locked out of, and
@@ -246,7 +244,7 @@
 			<dl
 				class="grid grid-cols-[1fr_auto] items-baseline gap-x-3 gap-y-0.5 p-1 font-sans text-[11px] leading-snug"
 			>
-				{#each KEYBINDS as [action, key] (action)}
+				{#each KEYBINDS as { action, key } (action)}
 					<dt class="text-white/50">{action}</dt>
 					<dd class="justify-self-end font-mono text-white/80">{key}</dd>
 				{/each}

@@ -4,7 +4,13 @@ import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { prewarmGameState } from '$lib/packs/prewarm-state';
 import { remoteCameraActions } from '$lib/store/remoteCameraStore.svelte';
 import { requestCameraBroadcast } from '$lib/store/cameraStore.svelte';
+import { installJournal, journal } from '$lib/journal';
+import { installPing, receivePing } from '$lib/ping';
+import { createWsMetaData } from '$lib/utils/transforms/websocket';
 import toast from 'svelte-french-toast';
+import { get } from 'svelte/store';
+import { dragStore } from '$lib/store/dragStore.svelte';
+import { releaseHoldsPatch } from '$lib/utils/hold';
 
 /**
  * Initialize websocket connection and join the given lobby
@@ -39,6 +45,13 @@ export async function initWebsocket(lobbyId: string, serverUrl?: string): Promis
 
 		// Set up event listeners for incoming messages
 		setupMessageHandlers();
+
+		// the action journal (tableplace-201): one ephemeral message per action
+		installJournal((entry) =>
+			sendMessage({ ...createWsMetaData(), type: 'journal', value: entry })
+		);
+		// pings (tableplace-198): one ephemeral message per ping, rate-limited
+		installPing((value) => sendMessage({ ...createWsMetaData(), type: 'ping', value }));
 
 		// Re-publish my player row now that the socket is open. addPlayer()
 		// above ran before connect(), so its patch was dropped (sendMessage has
@@ -102,6 +115,18 @@ function applyPresenceToCameras(value: unknown): void {
 }
 
 /**
+ * Held-by (tableplace-199): a reload mid-drag leaves this player's holds in
+ * the lobby, and a reconnect makes them binding again for everyone else. On
+ * the sync that follows a join nothing is in this client's hand, so it lets go
+ * of them — one patch, and only when there is something to let go of.
+ */
+function releaseStaleHolds(): void {
+	if (get(dragStore).isDragging) return;
+	const patch = releaseHoldsPatch(get(gameStore), gameActions.getMyId());
+	if (patch) gameStore.updateState(patch);
+}
+
+/**
  * Set up handlers for different message types
  */
 function setupMessageHandlers(): void {
@@ -110,6 +135,7 @@ function setupMessageHandlers(): void {
 			case 'sync':
 				console.log('Received sync message, updating local state', message);
 				gameStore.updateStateSilently(message.value);
+				releaseStaleHolds();
 				// resolve all sheet refs in the synced state, then force one
 				// re-render sweep so everything repaints deterministically
 				prewarmGameState(message.value, ({ total, failed }) => {
@@ -128,6 +154,19 @@ function setupMessageHandlers(): void {
 				gameStore.updateStateSilently(message.value);
 				prewarmGameState(message.value, () => gameStore.updateStateSilently({}));
 				applyPresenceToCameras(message.value);
+				// a peer touching something I did last is what refuses my undo
+				if (message.playerId) journal.remotePatch(message.value, message.playerId);
+				break;
+
+			case 'journal':
+				// Ephemeral (SPEC.md §4c), like 'camera': one line in the log,
+				// never a patch — the action's own 'update' already carried the change
+				if (message.playerId) journal.receive(message.value, message.playerId);
+				break;
+
+			case 'ping':
+				// Ephemeral too: a ripple for ~1.2s, never a patch
+				if (message.playerId) receivePing(message.value, message.playerId);
 				break;
 
 			case 'camera':

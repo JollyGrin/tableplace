@@ -20,6 +20,7 @@ import { buildPiece, slugify, type PieceState } from './piece';
 import { bagDrawOffset, PIECE_DEFAULT_RADIUS, PIECE_REST_Y } from '$lib/utils/constants-pieces';
 import { CARD_REST_Y } from '$lib/utils/constants-cards';
 import { clampToTable } from '$lib/utils/transforms/drop';
+import { tokenShape } from '$lib/primitives/token-shape';
 import type { BagDrawMode, BagItem, CardDTO, GameDTO } from '../types';
 
 type Vec3 = [number, number, number];
@@ -113,6 +114,7 @@ function drawFromBag(bagId: string): BagDraw | null {
 			[id]: {
 				faceImageUrl: item.face,
 				...(item.back ? { backImageUrl: item.back } : {}),
+				...(item.name ? { name: item.name } : {}),
 				...(item.orientation ? { orientation: item.orientation } : {}),
 				position: drawPosition(state, bag, CARD_REST_Y),
 				// facedown (180 on x, matching Card.svelte): the bag's contents were
@@ -127,7 +129,9 @@ function drawFromBag(bagId: string): BagDraw | null {
 			color: item.color,
 			imageUrl: item.imageUrl,
 			radius: item.radius,
+			shape: item.shape,
 			maxValue: item.maxValue,
+			minValue: item.minValue,
 			position: drawPosition(state, bag, PIECE_REST_Y)
 		});
 		if (!built) return null;
@@ -175,7 +179,9 @@ function returnToBag(bagId: string, entityId: string): boolean {
 			...(piece.color ? { color: piece.color } : {}),
 			...(piece.imageUrl ? { imageUrl: piece.imageUrl } : {}),
 			...(piece.radius !== undefined ? { radius: piece.radius } : {}),
-			...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {})
+			...(tokenShape(piece) === 'square' ? { shape: 'square' as const } : {}),
+			...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {}),
+			...(piece.minValue !== undefined ? { minValue: piece.minValue } : {})
 		};
 		update.pieces[entityId] = null;
 	} else {
@@ -188,6 +194,7 @@ function returnToBag(bagId: string, entityId: string): boolean {
 			code: entityId.split(':').slice(2).join(':') || 'card',
 			face: card.faceImageUrl,
 			...(card.backImageUrl ? { back: card.backImageUrl } : {}),
+			...(card.name ? { name: card.name } : {}),
 			...(card.orientation ? { orientation: card.orientation } : {})
 		};
 		update.cards = { [entityId]: null };

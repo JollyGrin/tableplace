@@ -36,6 +36,9 @@ export const PIECE_RADIUS = {
 /** Starting max for a hand-spawned health dial */
 export const COUNTER_MAX_DEFAULT = 20;
 
+/** Ceiling a live counter runs to when it carries no `maxValue` at all */
+export const COUNTER_MAX_UNSET = 99;
+
 /** Die shapes the primitive library can build, in spawn-menu order */
 export const DIE_SIDES: readonly DieSides[] = [4, 6, 8, 10, 12, 20];
 
@@ -69,3 +72,10 @@ export function bagDrawOffset(radius: number, index: number): { x: number; z: nu
 	const round = (v: number) => Math.round(v * 1000) / 1000;
 	return { x: round(Math.cos(theta) * distance), z: round(Math.sin(theta) * distance) };
 }
+
+/**
+ * Surface roughness of tokens, counters and pawns: a lacquered-chip finish
+ * that picks up the environment's highlights instead of three.js's dead-matte
+ * default of 1. Bags stay cloth-rough.
+ */
+export const PIECE_CHIP_ROUGHNESS = 0.38;

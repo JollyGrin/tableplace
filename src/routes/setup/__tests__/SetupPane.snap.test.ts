@@ -97,7 +97,10 @@ describe('SetupPane — snap points', () => {
 		await settle();
 		expect(get(snapEditor).placing).toBe(false);
 
-		const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+		// the snap folder's first checkbox (the Table folder above has its own)
+		const checkbox = [
+			...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+		].find((input) => input.closest('.tp-lblv')?.textContent?.includes('place on click'));
 		expect(checkbox).not.toBeNull();
 		await fireEvent.click(checkbox!);
 		await settle();

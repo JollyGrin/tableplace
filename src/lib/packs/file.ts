@@ -21,6 +21,9 @@ import type {
 	PackOverlayDef
 } from './types';
 import { assertReadableSpecVersion, PACK_SPEC_VERSION } from '../formats/spec-version';
+import { COUNTER_MAX_DEFAULT } from '../utils/constants-pieces';
+import { TOKEN_SHAPES } from '../primitives/token-shape';
+import type { TokenShape } from '../store/game/types';
 
 export const TBPP_VERSION = 1;
 export const PACK_SCHEMA_URL = 'https://table.place/pack.schema.json';
@@ -74,6 +77,25 @@ function num(v: unknown, path: string): number {
 	return v;
 }
 
+/**
+ * A counter's floor. It may be negative, but a floor above the ceiling leaves
+ * the counter no value it could show — and an absent `maxValue` is the default
+ * one the piece will spawn with, not "no ceiling".
+ */
+function minValue(v: unknown, maxValue: number | undefined, path: string): number {
+	const min = num(v, `${path}.minValue`);
+	const max = maxValue ?? COUNTER_MAX_DEFAULT;
+	if (min > max) {
+		fail(
+			`${path}.minValue`,
+			maxValue === undefined
+				? `must not be above the default maxValue (${max}) — set maxValue too`
+				: `must not be above maxValue (${max})`
+		);
+	}
+	return min;
+}
+
 function arr(v: unknown, path: string): unknown[] {
 	if (!Array.isArray(v)) fail(path, 'must be an array');
 	return v;
@@ -87,6 +109,12 @@ function orientation(v: unknown, path: string): CardOrientation {
 	if (!CARD_ORIENTATIONS.includes(value)) {
 		fail(path, `must be one of ${CARD_ORIENTATIONS.join(', ')}`);
 	}
+	return value;
+}
+
+function shape(v: unknown, path: string): TokenShape {
+	const value = v as TokenShape;
+	if (!TOKEN_SHAPES.includes(value)) fail(path, `must be one of ${TOKEN_SHAPES.join(', ')}`);
 	return value;
 }
 
@@ -112,6 +140,7 @@ function parseDeck(v: unknown, path: string): PackDeckDef {
 		cards: arr(v.cards, `${path}.cards`).map((c, i) => parseCard(c, `${path}.cards[${i}]`))
 	};
 	if (v.isFaceUp !== undefined) deck.isFaceUp = Boolean(v.isFaceUp);
+	if (v.locked !== undefined) deck.locked = Boolean(v.locked);
 	return deck;
 }
 
@@ -157,7 +186,9 @@ function parseBagItem(v: unknown, path: string): PackBagItemDef {
 	if (v.color !== undefined) item.color = str(v.color, `${path}.color`);
 	if (v.imageUrl !== undefined) item.imageUrl = str(v.imageUrl, `${path}.imageUrl`);
 	if (v.radius !== undefined) item.radius = num(v.radius, `${path}.radius`);
+	if (v.shape !== undefined) item.shape = shape(v.shape, `${path}.shape`);
 	if (v.maxValue !== undefined) item.maxValue = num(v.maxValue, `${path}.maxValue`);
+	if (v.minValue !== undefined) item.minValue = minValue(v.minValue, item.maxValue, path);
 	return item;
 }
 
@@ -198,7 +229,11 @@ function parsePiece(v: unknown, path: string): PackPieceDef {
 		piece.state = state;
 	}
 	if (v.radius !== undefined) piece.radius = num(v.radius, `${path}.radius`);
+	// validated wherever it appears, like the bag fields below: a typo is worth
+	// naming even on a kind that would ignore the field
+	if (v.shape !== undefined) piece.shape = shape(v.shape, `${path}.shape`);
 	if (v.maxValue !== undefined) piece.maxValue = num(v.maxValue, `${path}.maxValue`);
+	if (v.minValue !== undefined) piece.minValue = minValue(v.minValue, piece.maxValue, path);
 	if (v.sides !== undefined) {
 		const sides = num(v.sides, `${path}.sides`) as PackPieceDef['sides'];
 		if (!DIE_SIDES.includes(sides as (typeof DIE_SIDES)[number])) {
@@ -223,16 +258,24 @@ function parsePiece(v: unknown, path: string): PackPieceDef {
 	}
 	if (v.infinite !== undefined) piece.infinite = Boolean(v.infinite);
 	if (v.snap !== undefined) piece.snap = Boolean(v.snap);
+	if (v.locked !== undefined) piece.locked = Boolean(v.locked);
+	if (v.reach !== undefined) {
+		const reach = num(v.reach, `${path}.reach`);
+		if (!Number.isInteger(reach) || reach < 0) fail(`${path}.reach`, 'must be a whole number ≥ 0');
+		piece.reach = reach;
+	}
 	return piece;
 }
 
 function parseOverlay(v: unknown, path: string): PackOverlayDef {
 	if (!isRecord(v)) fail(path, 'must be an object');
-	return {
+	const overlay: PackOverlayDef = {
 		imageUrl: str(v.imageUrl, `${path}.imageUrl`),
 		ratio: num(v.ratio, `${path}.ratio`),
 		scale: num(v.scale, `${path}.scale`)
 	};
+	if (v.locked !== undefined) overlay.locked = Boolean(v.locked);
+	return overlay;
 }
 
 /**

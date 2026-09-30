@@ -21,7 +21,8 @@ import type {
 	PackOrigin,
 	PieceDTO,
 	PieceKind,
-	PieceStateDTO
+	PieceStateDTO,
+	TokenShape
 } from '../store/game/types';
 
 export type Vec3 = [number, number, number];
@@ -79,8 +80,12 @@ export type PieceProps = {
 	/** which of `states` to spawn showing (default 0) */
 	state?: number;
 	radius?: number;
+	/** tokens only; `'square'` draws a tile instead of a disc */
+	shape?: TokenShape;
 	/** counters only; the piece spawns full (`value = maxValue`) unless `value` says otherwise */
 	maxValue?: number;
+	/** counters only; the lowest value it can show (default 0) */
+	minValue?: number;
 	/** counters only; restores a saved count (scenario loads) instead of spawning full */
 	value?: number;
 	/** dice only; how many faces (defaults to a d6) */
@@ -90,6 +95,10 @@ export type PieceProps = {
 	rotation?: Vec3;
 	/** false opts this piece out of snap points/grids (default true) */
 	snap?: boolean;
+	/** how many snap-point links it usually travels — advisory reach rings */
+	reach?: number;
+	/** pinned in place (tableplace-189) */
+	locked?: boolean;
 	/** bags only; the hidden pool a draw pulls from */
 	contents?: BagItem[];
 	/** bags only; defaults to 'random' */
@@ -137,6 +146,9 @@ export function composePiece(
 	};
 	if (opts.color) piece.color = opts.color;
 	if (opts.imageUrl) piece.imageUrl = opts.imageUrl;
+	// only a square token carries it: absent already means a disc, and no other
+	// kind has an outline to choose
+	if (kind === 'token' && opts.shape === 'square') piece.shape = 'square';
 	// the ref, not the geometry: what a model piece IS travels as one string
 	if (kind === 'model' && opts.model) piece.model = opts.model;
 	// Not on a die or a bag: a die's faces are geometry and a bag's is a pouch,
@@ -150,9 +162,14 @@ export function composePiece(
 	if (opts.packOrigin) piece.packOrigin = opts.packOrigin;
 	// only the opt-out is worth carrying: absent already means "snaps"
 	if (opts.snap === false) piece.snap = false;
+	if (opts.reach !== undefined) piece.reach = opts.reach;
+	// only a pinned piece carries it: absent already means "unlocked"
+	if (opts.locked) piece.locked = true;
 	if (kind === 'counter') {
 		const maxValue = opts.maxValue ?? COUNTER_MAX_DEFAULT;
 		piece.maxValue = maxValue;
+		// only a declared floor is carried: absent already means 0
+		if (opts.minValue !== undefined) piece.minValue = opts.minValue;
 		piece.value = opts.value ?? maxValue;
 	}
 	if (kind === 'die') {

@@ -35,7 +35,8 @@ function toDeck(
 	name: string,
 	cards: ParsedCard[],
 	slotFallback: string,
-	isFaceUp?: boolean
+	isFaceUp?: boolean,
+	locked?: boolean
 ): PackDeckDef {
 	const seen = new Set<string>();
 	return {
@@ -43,6 +44,8 @@ function toDeck(
 		name,
 		back: cards[0] ? cellToRef(cards[0].back, { back: true }) : CARD_BACK_DEFAULT,
 		...(isFaceUp !== undefined ? { isFaceUp } : {}),
+		// TTS Locked → pinned in place
+		...(locked ? { locked: true } : {}),
 		cards: cards.map((card, i) => {
 			let code = slugify(card.name, `card-${i}`);
 			if (seen.has(code)) code = `${code}-${i}`;
@@ -76,7 +79,9 @@ function toBagContents(items: ParsedBagItem[]): PackBagItemDef[] {
 				...(item.color !== undefined ? { color: item.color } : {}),
 				...(item.imageUrl !== undefined ? { imageUrl: item.imageUrl } : {}),
 				...(item.radius !== undefined ? { radius: item.radius } : {}),
-				...(item.maxValue !== undefined ? { maxValue: item.maxValue } : {})
+				...(item.shape !== undefined ? { shape: item.shape } : {}),
+				...(item.maxValue !== undefined ? { maxValue: item.maxValue } : {}),
+				...(item.minValue !== undefined ? { minValue: item.minValue } : {})
 			};
 		}
 		let code = slugify(item.name, `item-${i}`);
@@ -101,7 +106,9 @@ function toBagContents(items: ParsedBagItem[]): PackBagItemDef[] {
  */
 export function ttsToPack(parsed: ParsedSavedObject, opts: TtsToPackOptions = {}): GamePackDef {
 	const name = opts.name ?? parsed.decks[0]?.name ?? 'TTS Import';
-	const decks = parsed.decks.map((deck, i) => toDeck(deck.name, deck.cards, `deck-${i}`));
+	const decks = parsed.decks.map((deck, i) =>
+		toDeck(deck.name, deck.cards, `deck-${i}`, undefined, deck.locked)
+	);
 	if (parsed.looseCards.length > 0) {
 		decks.push(toDeck('Loose Cards', parsed.looseCards, 'loose', true));
 	}
@@ -124,7 +131,9 @@ export function ttsToPack(parsed: ParsedSavedObject, opts: TtsToPackOptions = {}
 			// the state the mod was saved in — recovered from the missing 1..N key
 			...(states?.length && p.state ? { state: p.state } : {}),
 			...(p.radius !== undefined ? { radius: p.radius } : {}),
+			...(p.shape !== undefined ? { shape: p.shape } : {}),
 			...(p.maxValue !== undefined ? { maxValue: p.maxValue } : {}),
+			...(p.minValue !== undefined ? { minValue: p.minValue } : {}),
 			...(p.kind === 'bag'
 				? {
 						contents: toBagContents(p.contents ?? []),
@@ -132,6 +141,8 @@ export function ttsToPack(parsed: ParsedSavedObject, opts: TtsToPackOptions = {}
 						...(p.infinite ? { infinite: true } : {})
 					}
 				: {}),
+			// TTS Locked → pinned in place (a board, a fixed track)
+			...(p.locked ? { locked: true } : {}),
 			position: p.position
 		};
 	});

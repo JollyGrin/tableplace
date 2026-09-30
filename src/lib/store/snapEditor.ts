@@ -17,9 +17,33 @@ export interface SnapEditorState {
 	rotation?: number;
 	/** catch radius stamped on points placed by clicking */
 	radius?: number;
+	/**
+	 * armed: clicking a marker picks it, clicking a second one draws (or
+	 * removes) the link between them — markers don't move while this is on
+	 */
+	linking?: boolean;
+	/** the marker picked as the next link's first end, while linking */
+	linkFrom?: string | null;
+	/**
+	 * while linking: the link drawn is one-way, from the picked marker to the
+	 * one clicked next
+	 */
+	oneWay?: boolean;
 }
 
 export const snapEditor = writable<SnapEditorState>({ placing: false });
+
+export function setSnapLinking(linking: boolean) {
+	snapEditor.update((state) => ({ ...state, linking, linkFrom: null }));
+}
+
+export function setSnapLinkOneWay(oneWay: boolean) {
+	snapEditor.update((state) => ({ ...state, oneWay }));
+}
+
+export function setSnapLinkFrom(linkFrom: string | null) {
+	snapEditor.update((state) => ({ ...state, linkFrom }));
+}
 
 export function setSnapPlacing(placing: boolean) {
 	snapEditor.update((state) => ({ ...state, placing }));

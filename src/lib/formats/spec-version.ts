@@ -19,6 +19,28 @@
 /**
  * Bump on any change to the pack schema. See docs/packs.md § Spec versioning.
  *
+ * 1.10.0 — tokens (pieces and bag piece items) can carry `shape`: `'disc'`
+ * (the default) or `'square'`, a flat tile whose half-width is `radius` and
+ * whose image covers the top face uncropped — a rectangle of the image's
+ * aspect when that is not 1:1 (tableplace-254). The TTS importer maps a
+ * `Custom_Tile` of type Box or Rounded onto it. Additive: every earlier 1.x
+ * pack is still valid.
+ *
+ * 1.9.0 — counters (pieces and bag piece items) can carry `minValue`, the
+ * lowest value the counter can show (default 0): the value clamps to
+ * `[minValue, maxValue]` and the rim arc fills over that range
+ * (tableplace-253). The TTS importer maps a counter script's `MIN_VALUE`
+ * onto it. Additive: every earlier 1.x pack is still valid.
+ *
+ * 1.8.0 — decks, pieces and overlays can carry `locked` (spawn pinned in
+ * place: no drag, flip, turn or group until `L` unpins it; the TTS importer
+ * maps `Locked` onto it, tableplace-189). Additive: every earlier 1.x pack is
+ * still valid.
+ *
+ * 1.7.0 — pieces can carry `reach` (how many snap-point links the piece
+ * usually travels; advisory reach rings, tableplace-190). Additive: every
+ * earlier 1.x pack is still valid.
+ *
  * 1.6.0 — added the `model` piece kind with its `model:<kit>/<name>` catalog
  * ref (the fourth face-ref scheme), and optional `rotation` (yaw degrees) on
  * every piece. Additive: every earlier 1.x pack is still valid.
@@ -31,7 +53,7 @@
  * 1.3.0 — added the `bag` piece kind (`contents`/`drawMode`/`infinite`),
  * additive: every earlier 1.x pack is still valid.
  */
-export const PACK_SPEC_VERSION = '1.6.0';
+export const PACK_SPEC_VERSION = '1.10.0';
 
 /**
  * The scenario spec is deliberately 0.x: it is unstable and carries no
@@ -44,6 +66,62 @@ export const PACK_SPEC_VERSION = '1.6.0';
  * build then refuses files it could have read perfectly well. (The general
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
+ *
+ * 0.1.20 — snap points can carry `outLinks` (one-way links: ids of the points
+ * this one leads to, which don't reach back through that edge —
+ * tableplace-255), both in the top-level `snapPoints` array and in
+ * `state.snapPoints`. One optional field — additive, so PATCH.
+ *
+ * 0.1.19 — `state.pieces` (and bag piece items) can carry `shape`, a token's
+ * outline (`'disc'` | `'square'`, tableplace-254), because the schema is
+ * generated from `Partial<GameDTO>`. Any other value is refused by the parser.
+ * One optional field — additive, so PATCH.
+ *
+ * 0.1.18 — `state.pieces` (and bag piece items) can carry `minValue`, a
+ * counter's floor (tableplace-253), because the schema is generated from
+ * `Partial<GameDTO>`. A counter `value` outside `[minValue, maxValue]` is
+ * refused: in `state.pieces` by the parser, on a placement where it meets its
+ * pack piece. One optional field — additive, so PATCH.
+ *
+ * 0.1.17 — top-level `coach` (boolean): `false` hides the first-run "things
+ * to try" checklist on the table, seeded into the synced `state.table`
+ * (tableplace-206). One optional field — additive, so PATCH.
+ *
+ * 0.1.16 — `state.cards`, `state.decks` and `state.pieces` gain `heldBy`
+ * (the player carrying the entity right now, tableplace-199) because the
+ * schema is generated from `Partial<GameDTO>`. It is live-table state and
+ * never belongs in a file: save and export strip it, and a file that carries
+ * one has it stripped on import. Optional field — additive, so PATCH.
+ *
+ * 0.1.15 — top-level `handPlayFace` (`"down"` | `"up"`): the face a card
+ * dragged out of a hand lands on without Shift, seeded into the synced
+ * `state.table`; and `state` cards in a hand can carry `handOrder`, the
+ * hand's left-to-right sort key (tableplace-195). Optional fields — additive,
+ * so PATCH.
+ *
+ * 0.1.14 — top-level `rotationStep` (degrees, 0 < step ≤ 360): how far Q
+ * and E turn a card, deck or piece on the table, seeded into the synced
+ * `state.table` (tableplace-200). One optional field — additive, so PATCH.
+ *
+ * 0.1.13 — `state.cards` can carry `placedBy` (the player who laid the card
+ * face-down out of their hand, who alone previews its face — a UI rule, not
+ * secrecy, tableplace-193). A scenario keeps it only when it names a seat
+ * placeholder, and claiming that seat hands it to the claiming player.
+ * Optional field on an existing shape — additive, so PATCH.
+ *
+ * 0.1.12 — placements can carry `locked` (lay any content down pinned, or
+ * `false` to unpin what the pack pins), and `state.cards`, `state.decks`,
+ * `state.pieces` and `state.overlays` can carry `locked` (tableplace-189).
+ * Optional fields on existing shapes — additive, so PATCH.
+ *
+ * 0.1.11 — snap points can carry `links` (ids of connected points — an
+ * optional board graph) and `tags` (free-form labels), and `state.pieces` can
+ * carry `reach` (tableplace-190). Optional fields on existing shapes —
+ * additive, so PATCH.
+ *
+ * 0.1.10 — `state.cards` (deck cards and hand cards too) can carry `name`,
+ * the zoomed preview's caption (tableplace-192). One optional field —
+ * additive, so PATCH.
  *
  * 0.1.9 — `state.pieces` can be `kind: 'model'` and carry the `model:` catalog
  * ref (tableplace-135). A widened union plus one optional field — additive, so
@@ -59,7 +137,7 @@ export const PACK_SPEC_VERSION = '1.6.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.9';
+export const SCENARIO_SPEC_VERSION = '0.1.20';
 
 export type Semver = { major: number; minor: number; patch: number };
 

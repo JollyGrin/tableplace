@@ -1,11 +1,11 @@
 /**
- * Render-only UI state for pieces: which one the pointer is over, and where
- * the state menu is open. Nothing here is ever patched into `GameDTO` — it is
- * local to this client, exactly like `dragStore`'s hover fields.
+ * Render-only UI state for pieces: which one the pointer is over. Nothing here
+ * is ever patched into `GameDTO` — it is local to this client, exactly like
+ * `dragStore`'s hover fields.
  *
- * It lives outside Piece.svelte because both consumers are elsewhere: the
- * `X` hotkey (on `window`) needs to know what is hovered, and the state menu
- * is DOM, so it renders next to the Canvas rather than inside it.
+ * It lives outside Piece.svelte because its consumers are elsewhere: the piece
+ * hotkeys (on `window`) and the felt's radial veto need to know what is hovered.
+ * A piece's menu is the radial wheel (radial/gesture.ts).
  */
 
 import { writable } from 'svelte/store';
@@ -20,32 +20,4 @@ export function setPieceHover(id: string) {
 /** Only the piece that claimed the hover may release it (pointerleave order). */
 export function clearPieceHover(id: string) {
 	hoveredPiece.update((current) => (current === id ? null : current));
-}
-
-/** An open state menu: which piece, and the client coords to draw it at. */
-export type PieceMenuState = { id: string; x: number; y: number };
-
-export const pieceMenu = writable<PieceMenuState | null>(null);
-
-export function openPieceMenu(id: string, x: number, y: number) {
-	pieceMenu.set({ id, x, y });
-}
-
-export function closePieceMenu() {
-	pieceMenu.set(null);
-}
-
-/**
- * The model piece's context menu (rotate / snap / remove) — a separate store
- * from `pieceMenu` because the two menus answer different right-clicks and a
- * model must never inherit the state picker (or the counter's "+1").
- */
-export const modelMenu = writable<PieceMenuState | null>(null);
-
-export function openModelMenu(id: string, x: number, y: number) {
-	modelMenu.set({ id, x, y });
-}
-
-export function closeModelMenu() {
-	modelMenu.set(null);
 }

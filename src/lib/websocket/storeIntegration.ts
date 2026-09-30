@@ -190,5 +190,6 @@ export function wsWrapperUpdateGameState(fn: Function) {
 export function initWrappers() {
 	const originalFn = gameStore.updateState;
 	gameStore.updateState = wsWrapperUpdateGameState(originalFn);
-	gameStore.updateStateSilently = originalFn;
+	// updateStateSilently is already the bare merge: it must not note local
+	// moves (store/lastMoved.ts) or broadcast, so it is left as it is
 }

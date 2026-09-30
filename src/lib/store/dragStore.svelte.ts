@@ -2,6 +2,21 @@ import { get, writable } from 'svelte/store';
 import type { Vector3 } from 'three';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { collectStackGroup } from '$lib/utils/transforms/stacking';
+import { clearSelection, collectionOf, currentSelection } from '$lib/store/selection';
+import { CARD_DRAG_Y } from '$lib/utils/constants-cards';
+import { PIECE_DRAG_Y } from '$lib/utils/constants-pieces';
+import { clampToTable } from '$lib/utils/transforms/drop';
+import type { GameDTO } from '$lib/store/game/types';
+import { heldByOther, myHoldId } from '$lib/utils/hold';
+import { toastHeld } from '$lib/hotkeys/held';
+
+type Vec3 = [number, number, number];
+
+/**
+ * One entity carried along with the lead of a group drag (tableplace-202):
+ * where it sits relative to the lead, and where Esc puts it back.
+ */
+export type GroupMember = { id: string; offset: [number, number]; origin: Vec3 };
 
 interface DragState {
 	isDragging: string | null;
@@ -33,6 +48,14 @@ interface DragState {
 	 * drawn out of a deck or tray has no table origin to return to.
 	 */
 	origin?: [number, number, number];
+	/**
+	 * The rest of a group drag: every other selected entity, carried at its
+	 * offset from `isDragging` (the lead — the one the pointer grabbed). Empty
+	 * for an ordinary one-entity drag. A group drop lands on the table only —
+	 * decks, bags and the hand take one thing at a time — and each member
+	 * resolves its own snap (see utils/transforms/group-drop.ts).
+	 */
+	group?: GroupMember[];
 }
 
 const initialState: DragState = {
@@ -46,22 +69,112 @@ const initialState: DragState = {
 	intersectionPoint: undefined,
 	origin: undefined,
 	hoveredStack: null,
-	noSnap: false
+	noSnap: false,
+	group: []
 };
 
 const dragStore = writable<DragState>(initialState);
 
-// Start dragging a card
-function dragStart(id: string, height: number, origin?: [number, number, number]) {
+/**
+ * The followers a drag of `id` carries: the rest of the selection, when `id`
+ * is in it. Only an entity already on the table (one with an origin) leads a
+ * group — a card drawn out of a deck or the hand is never selected.
+ */
+function groupFor(id: string, origin: Vec3 | undefined): GroupMember[] {
+	if (!origin) return [];
+	const selected = currentSelection();
+	if (!selected.includes(id)) return [];
+	const state = get(gameStore);
+	const [lx = 0, , lz = 0] = origin;
+	return selected.flatMap((other) => {
+		if (other === id) return [];
+		// in someone else's hand: it stays with them, the rest still comes along
+		if (heldByOther(state, other)) return [];
+		const position = state?.[collectionOf(other)]?.[other]?.position as Vec3 | undefined;
+		if (!position) return [];
+		const [x = 0, , z = 0] = position;
+		return [{ id: other, offset: [x - lx, z - lz] as [number, number], origin: position }];
+	});
+}
+
+/**
+ * Start dragging a card — and, when it is selected, the rest of the
+ * selection. Refused (false, with a toast naming the holder) when another
+ * player is carrying `id` right now (tableplace-199).
+ */
+function dragStart(id: string, height: number, origin?: [number, number, number]): boolean {
+	const holder = heldByOther(get(gameStore), id);
+	if (holder) {
+		toastHeld(holder);
+		return false;
+	}
+	const group = groupFor(id, origin);
+	// grabbing something outside the selection lets go of the selection, the
+	// way every desktop does. Only a table entity: drawing a card off a deck
+	// or out of the hand leaves the selection alone.
+	if (origin && group.length === 0 && currentSelection().length) clearSelection();
 	dragStore.update((state) => ({
 		...state,
 		isDragging: id,
 		isHovered: id,
 		dragHeight: height,
 		origin,
+		group,
 		// the pile you just picked a card out of is no longer a pile to preview
 		hoveredStack: null
 	}));
+	return true;
+}
+
+/** every id a drag is carrying: the lead, then its group */
+function carriedIds(state: Pick<DragState, 'isDragging' | 'group'>): string[] {
+	if (!state.isDragging) return [];
+	return [state.isDragging, ...(state.group ?? []).map((member) => member.id)];
+}
+
+/** is `id` in the pointer's hand right now — as the lead or as part of its group? */
+function isCarried(state: Pick<DragState, 'isDragging' | 'group'>, id: string): boolean {
+	return state.isDragging === id || !!state.group?.some((member) => member.id === id);
+}
+
+/** the height a carried entity floats at, by its kind */
+function carryY(id: string): number {
+	return id.startsWith('piece:') ? PIECE_DRAG_Y : CARD_DRAG_Y;
+}
+
+/**
+ * The one patch a pointer move writes while carrying: the lead under the
+ * pointer, every group member at its offset from it — all in the SAME patch,
+ * so a group drag puts exactly as many messages on the wire as a single drag
+ * does (the throttle in websocket/storeIntegration.ts coalesces by patch, not
+ * by entity). Each member is clamped on its own, the same clamp the drop
+ * commits with, so nothing tracks somewhere it could not land.
+ *
+ * Every carried entity is stamped `heldBy` with this client's id in the same
+ * patch (tableplace-199) — the hold rides the move, never a message of its own,
+ * and re-sending it with each position means a peer who joins mid-drag, or a
+ * coalesced first frame, still learns who has it. The drop clears it.
+ */
+function carryPatch(
+	state: Pick<DragState, 'isDragging' | 'group'>,
+	x: number,
+	z: number
+): Partial<GameDTO> | null {
+	const lead = state.isDragging;
+	if (!lead) return null;
+	const patch: Record<string, Record<string, { position: Vec3; heldBy?: string }>> = {};
+	const me = myHoldId();
+	const place = (id: string, px: number, pz: number) => {
+		const [cx, cz] = clampToTable(px, pz);
+		(patch[collectionOf(id)] ??= {})[id] = {
+			position: [cx, carryY(id), cz],
+			...(me ? { heldBy: me } : {})
+		};
+	};
+	place(lead, x, z);
+	for (const member of state.group ?? [])
+		place(member.id, x + member.offset[0], z + member.offset[1]);
+	return patch as Partial<GameDTO>;
 }
 
 // Update intersection point during drag
@@ -79,7 +192,7 @@ function updateIntersection(point: Vector3) {
 
 // End dragging and reset state
 function dragEnd() {
-	dragStore.update((state) => ({ ...state, isDragging: null, origin: undefined }));
+	dragStore.update((state) => ({ ...state, isDragging: null, origin: undefined, group: [] }));
 }
 
 // Set hover state, and with it the loose stack the hovered card belongs to —
@@ -171,5 +284,8 @@ export {
 	setTrayHover,
 	updateIntersection,
 	dragActions,
+	carriedIds,
+	isCarried,
+	carryPatch,
 	type DragState
 };

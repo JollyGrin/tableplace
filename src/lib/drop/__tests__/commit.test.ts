@@ -85,19 +85,24 @@ describe('commitActiveDrag with authored snap points', () => {
 		const deck = get(gameStore).decks?.[DECK];
 		expect([deck?.position?.[0], deck?.position?.[2]]).toEqual([6, 3]);
 		expect(deck?.position?.[1]).toBeCloseTo(TABLE_TOP_Y + deckHeightForCount(DECK_SIZE) / 2);
-		expect(deck?.rotation?.[1]).toBeCloseTo(Math.PI / 2);
+		// the point's 90° is clockwise; a deck's radians are counter-clockwise
+		expect(deck?.rotation?.[1]).toBeCloseTo((3 * Math.PI) / 2);
 	});
 
 	it('writes no rotation when the point authored none', () => {
 		const patch = vi.spyOn(gameStore, 'updateState');
 		release(CARD, -6.4, 3);
-		expect(patch).toHaveBeenCalledWith({ cards: { [CARD]: { position: [-6, CARD_REST_Y, 3] } } });
+		expect(patch).toHaveBeenCalledWith({
+			cards: { [CARD]: { position: [-6, CARD_REST_Y, 3], heldBy: null } }
+		});
 	});
 
 	it('writes no rotation for an ordinary drop, so nothing unchanged goes on the wire', () => {
 		const patch = vi.spyOn(gameStore, 'updateState');
 		release(CARD, 1, 1);
-		expect(patch).toHaveBeenCalledWith({ cards: { [CARD]: { position: [1, CARD_REST_Y, 1] } } });
+		expect(patch).toHaveBeenCalledWith({
+			cards: { [CARD]: { position: [1, CARD_REST_Y, 1], heldBy: null } }
+		});
 	});
 
 	it('leaves the drag cleared afterwards, snapped or not', () => {

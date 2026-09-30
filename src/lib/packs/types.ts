@@ -7,7 +7,7 @@
 // relative, not `$lib`: these types are a schema-generation root
 // (scripts/build-schemas.ts), and that program is compiled without the
 // SvelteKit path aliases
-import type { DieSides } from '../store/game/types';
+import type { DieSides, TokenShape } from '../store/game/types';
 
 /**
  * Which way a card rests when squared up. `'landscape'` cards (e.g. Sorcery
@@ -34,6 +34,12 @@ export type PackDeckDef = {
 	/** Face ref for the card back */
 	back: string;
 	isFaceUp?: boolean;
+	/**
+	 * Spawns pinned in place (TTS `Locked`): the pile can't be moved, flipped or
+	 * ungrouped, but cards still come off its top. `L` unpins it at the table.
+	 * Omitted means unlocked.
+	 */
+	locked?: boolean;
 	cards: PackCardDef[];
 };
 
@@ -54,8 +60,12 @@ export type PackBagPieceItem = {
 	color?: string;
 	imageUrl?: string;
 	radius?: number;
+	/** tokens only: `'square'` draws a tile instead of a disc (default `'disc'`) */
+	shape?: TokenShape;
 	/** counters draw at this value */
 	maxValue?: number;
+	/** counters only: the lowest value it can show (default 0) */
+	minValue?: number;
 };
 
 /** A card inside a bag: the same face-ref grammar cards use, plus its own back. */
@@ -113,8 +123,21 @@ export type PackPieceDef = {
 	state?: number;
 	/** world radius of the piece footprint (a die's circumradius) */
 	radius?: number;
+	/**
+	 * tokens only: the token's outline (default `'disc'`). `'square'` is a flat
+	 * tile whose half-width is `radius`, as thick as a disc; the image covers
+	 * its top uncropped, so an image that is not 1:1 makes it a rectangle of
+	 * that aspect (width stays `2 × radius`). The rim and base keep `color`.
+	 */
+	shape?: TokenShape;
 	/** counters start at this value */
 	maxValue?: number;
+	/**
+	 * counters only: the lowest value it can show (default 0) — a dial that
+	 * reads 3–17 is `minValue: 3, maxValue: 17`. May be negative; never above
+	 * `maxValue`.
+	 */
+	minValue?: number;
 	/** dice only: how many faces the die has (defaults to 6) */
 	sides?: DieSides;
 	/**
@@ -136,6 +159,18 @@ export type PackPieceDef = {
 	 * grid, a loose prop shouldn't.
 	 */
 	snap?: boolean;
+	/**
+	 * How many snap-point links this piece usually travels. Advisory: lifted
+	 * off a linked snap point, the points within `reach` links glow brighter.
+	 * Nothing is blocked. A non-negative whole number; omitted means none.
+	 */
+	reach?: number;
+	/**
+	 * Spawns pinned in place (TTS `Locked`) — a board, a fixed track: it can't
+	 * be dragged or turned, but still counts, rolls or hands things out. `L`
+	 * unpins it at the table. Omitted means unlocked.
+	 */
+	locked?: boolean;
 	/** bags only — what a draw pulls out. Hidden from every player in play. */
 	contents?: PackBagItemDef[];
 	/** bags only — draw order; defaults to `'random'` */
@@ -150,6 +185,8 @@ export type PackOverlayDef = {
 	/** width / height of the image */
 	ratio: number;
 	scale: number;
+	/** spawns pinned in place (TTS `Locked`); omitted means unlocked */
+	locked?: boolean;
 };
 
 export type GamePackDef = {

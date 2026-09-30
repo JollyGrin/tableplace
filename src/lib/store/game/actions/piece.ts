@@ -10,6 +10,7 @@ import {
 	slugify,
 	type PieceProps
 } from '$lib/compose/piece';
+import { clampToRange, counterRange } from '$lib/primitives/counter-range';
 import type { GameDTO, PieceKind } from '../types';
 
 // re-exported so `slugify` keeps its historical home here (bag.ts imports it)
@@ -38,19 +39,32 @@ function movePiece(pieceId: string, position: [number, number, number]) {
  */
 function rotatePiece(pieceId: string, delta: number) {
 	const piece = getPieceState(pieceId);
-	if (!piece) return;
+	if (!piece || piece.locked) return;
 	const [x = 0, yaw = 0, z = 0] = piece.rotation ?? [];
 	const next = (((yaw + delta) % 360) + 360) % 360;
 	return gameStore.updateState({ pieces: { [pieceId]: { rotation: [x, next, z] } } });
 }
 
-/** Adjust a counter piece's value, clamped to [0, maxValue] */
+/**
+ * Adjust a counter piece's value, clamped to [minValue, maxValue]. An absent
+ * `minValue` is 0, so a counter that never declared one moves as it always did.
+ */
 function incrementCounter(pieceId: string, delta: number) {
 	const piece = getPieceState(pieceId);
 	if (!piece || piece.kind !== 'counter') return;
-	const max = piece.maxValue ?? 99;
-	const value = Math.min(max, Math.max(0, (piece.value ?? max) + delta));
+	const range = counterRange(piece);
+	const value = clampToRange((piece.value ?? range.max) + delta, range);
 	return gameStore.updateState({ pieces: { [pieceId]: { value } } });
+}
+
+/**
+ * Put a counter back to its maximum. A counter with no `maxValue` has no
+ * "full" to return to, so it is left alone.
+ */
+function resetCounter(pieceId: string) {
+	const piece = getPieceState(pieceId);
+	if (!piece || piece.kind !== 'counter' || piece.maxValue == null) return;
+	return gameStore.updateState({ pieces: { [pieceId]: { value: piece.maxValue } } });
 }
 
 /**
@@ -84,6 +98,17 @@ function setPieceState(pieceId: string, index: number) {
 function setPieceSnap(pieceId: string, snap: boolean) {
 	return gameStore.updateState({
 		pieces: { [pieceId]: { snap: snap ? null : false } }
+	} as Parameters<typeof gameStore.updateState>[0]);
+}
+
+/**
+ * How many snap-point links a piece usually travels — advisory reach rings
+ * (tableplace-190). 0 or less deletes the field: no reach, no bright set.
+ */
+function setPieceReach(pieceId: string, reach: number) {
+	const whole = Math.round(reach);
+	return gameStore.updateState({
+		pieces: { [pieceId]: { reach: whole > 0 ? whole : null } }
 	} as Parameters<typeof gameStore.updateState>[0]);
 }
 
@@ -215,9 +240,11 @@ export const pieceActions = {
 	movePiece,
 	rotatePiece,
 	incrementCounter,
+	resetCounter,
 	currentPieceState,
 	setPieceState,
 	setPieceSnap,
+	setPieceReach,
 	cyclePieceState,
 	rollDie
 };

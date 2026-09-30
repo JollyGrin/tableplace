@@ -5,11 +5,14 @@
 	import { dragStore } from '$lib/store/dragStore.svelte';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { tableFeatures } from '$lib/store/tableFeatures';
-	import { resolveDrop } from '$lib/utils/transforms/drop';
-	import { modelSurfaceYAt } from '$lib/models/surface';
+	import { previewDrop } from './preview';
 	import { SNAP_DROP_COLOR } from '$lib/utils/constants-snap';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
+	import { currentPieceState } from '$lib/compose/piece';
+	import { tokenShape } from '$lib/primitives/token-shape';
+	import { imageAspect, imageAspects } from '$lib/utils/image-aspect';
 	import DropFootprint from './DropFootprint.svelte';
+	import SnapGuides from './SnapGuides.svelte';
 
 	/**
 	 * Resolved drop preview: draws the landing the release will actually
@@ -27,22 +30,21 @@
 
 	const dragId = $derived($dragStore.isDragging);
 
-	const drop = $derived(
-		resolveDrop(
-			$gameStore,
-			dragId,
-			$dragStore.intersectionPoint,
-			{
-				deckId: $dragStore.isDeckHovered,
-				bagId: $dragStore.isBagHovered,
-				tray: $dragStore.isTrayHovered
-			},
-			// live: pressing or releasing Alt mid-drag redraws the preview. Same
-			// options the commit resolves with — surfaceYAt included — so the
-			// preview stays honest.
-			{ noSnap: $dragStore.noSnap, hand: $tableFeatures.hand, surfaceYAt: modelSurfaceYAt(dragId) }
-		)
-	);
+	// live: pressing or releasing Alt mid-drag redraws the preview. Same
+	// resolution the commit makes — a group drag previews its lead as the
+	// group commit lands it (see drop/preview.ts).
+	//
+	// A square token lands as the rectangle its art makes it (tableplace-254),
+	// which only the loaded image knows — so the aspect is read here, where the
+	// image is, and handed to the resolution.
+	const piece = $derived(dragId?.startsWith('piece:') ? $gameStore?.pieces?.[dragId] : undefined);
+	const faceAspect = $derived.by(() => {
+		if (!piece || tokenShape(piece) !== 'square') return 1;
+		const states = piece.states ?? [];
+		const face = states.length ? states[currentPieceState(piece)]?.face : piece.imageUrl;
+		return imageAspect(resolveCardImage(face, $sheetRefCache), $imageAspects);
+	});
+	const drop = $derived(previewDrop($gameStore, $dragStore, $tableFeatures.hand, faceAspect));
 
 	// the deck / bag / tray highlights are the cue for those targets — a table
 	// footprint there would promise a landing that isn't going to happen
@@ -51,15 +53,11 @@
 	);
 
 	/**
-	 * A caught snap point is the whole feedback for snapping in /play, where the
-	 * markers themselves aren't drawn (see `store/tableFeatures`): the footprint
-	 * jumps onto the point, in its own colour, already turned to the authored
-	 * yaw. The ring behind it shows what caught it — and when the catcher is a
-	 * grid, the cell (a rect at the lattice's pitch and yaw) is what caught it,
-	 * so that is what draws instead.
+	 * A caught snap point shows twice over: the footprint jumps onto the point,
+	 * in its own colour, already turned to the authored yaw — and `SnapGuides`
+	 * (fed this same `drop`) fills the point or grid cell that caught it among
+	 * the rings of every other point the entity could land on.
 	 */
-	const snapGrid = $derived(drop?.kind === 'snap' ? drop.snap?.grid : undefined);
-	const snapRing = $derived(drop?.kind === 'snap' && !snapGrid ? (drop.snap?.radius ?? 0) : 0);
 
 	// primitives, not the resolved objects: all of this recomputes on every
 	// pointer move, and threlte rebuilds a geometry whenever its `args` array
@@ -75,8 +73,10 @@
 	const posZ = $derived(drop?.position[2] ?? 0);
 	const surfaceY = $derived((drop?.footprintY ?? 0) + SURFACE_CLEARANCE);
 	// Card.svelte yaws the card by -rotation[2]; match it so a tapped card
-	// previews sideways instead of upright
-	const yaw = $derived(-(drop?.rotation[2] ?? 0) * DEG2RAD);
+	// previews sideways instead of upright. A piece keeps its yaw in rotation[1]
+	// (Piece.svelte draws -rotation[1]) — it never mattered while every piece
+	// landed as a circle, and a square token's rectangle has to turn with it.
+	const yaw = $derived(-(drop?.rotation[piece ? 1 : 2] ?? 0) * DEG2RAD);
 
 	const card = $derived(
 		dragId && !dragId.startsWith('piece:') ? $gameStore?.cards?.[dragId] : undefined
@@ -102,29 +102,12 @@
 	const connector = $derived(liftY - surfaceY);
 </script>
 
+<!-- outside the `visible` gate: over a deck or the tray the rings stay up,
+     only the fill (which follows drop.snap) goes -->
+<SnapGuides {drop} />
+
 {#if visible}
 	<T.Group position={[posX, surfaceY, posZ]}>
-		{#if snapRing > 0}
-			<!-- unrotated: the ring belongs to the point, not to what lands on it -->
-			<T.Group rotation.x={-Math.PI / 2}>
-				<DropFootprint shape="circle" r={snapRing} color={COLORS.snap} fill={0.1} border={0.04} />
-			</T.Group>
-		{/if}
-		{#if snapGrid}
-			<!-- the caught cell: turned to the lattice's yaw, not the entity's -->
-			<T.Group rotation.x={-Math.PI / 2}>
-				<T.Group rotation.z={-snapGrid.rotation * DEG2RAD}>
-					<DropFootprint
-						shape="rect"
-						w={snapGrid.pitch}
-						h={snapGrid.pitch}
-						color={COLORS.snap}
-						fill={0.1}
-						border={0.04}
-					/>
-				</T.Group>
-			</T.Group>
-		{/if}
 		<T.Group rotation.y={yaw}>
 			<T.Group rotation.x={-Math.PI / 2}>
 				<DropFootprint {shape} {w} {h} {r} {color} />

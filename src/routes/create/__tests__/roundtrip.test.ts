@@ -55,13 +55,17 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 		imageUrl: '',
 		model: '',
 		radius: 0.75,
+		shape: 'disc',
 		maxValue: 20,
+		minValue: 0,
 		states: [],
 		state: 0,
 		contents: [],
 		drawMode: 'random',
 		infinite: false,
 		snap: true,
+		reach: 0,
+		locked: false,
 		position: [0, 0],
 		rotation: 0,
 		...over
@@ -74,13 +78,30 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 			imageUrl: 'https://example.com/token.png',
 			position: [1, 1]
 		}),
-		editorPiece({ kind: 'pawn', name: 'Runner', color: '#3366ff', radius: 0.3, position: [2, -1] }),
+		editorPiece({
+			kind: 'pawn',
+			name: 'Runner',
+			color: '#3366ff',
+			radius: 0.3,
+			reach: 3,
+			// a pawn that was a square token a moment ago: the outline must not ship
+			shape: 'square',
+			position: [2, -1]
+		}),
+		editorPiece({
+			kind: 'token',
+			name: 'Plaque',
+			imageUrl: 'https://example.com/plaque.png',
+			shape: 'square',
+			position: [4, 1]
+		}),
 		editorPiece({
 			kind: 'counter',
 			name: 'HP',
 			color: '#b3202e',
 			radius: 0.6,
 			maxValue: 12,
+			minValue: 2,
 			position: [3, 0]
 		}),
 		// a multi-state token: three faces, one per face-ref scheme, spawning
@@ -125,7 +146,12 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 			]
 		})
 	);
-	draft.overlays.push({ imageUrl: 'https://example.com/map.png', ratio: 1.5, scale: 12 });
+	draft.overlays.push({
+		imageUrl: 'https://example.com/map.png',
+		ratio: 1.5,
+		scale: 12,
+		locked: false
+	});
 
 	return { draft, exported: serializePackFile(cleanForExport(draft)) };
 }
@@ -214,10 +240,21 @@ describe('/create round-trip (tts-clonetroopers.json)', () => {
 		expect(pawn?.imageUrl).toBeUndefined(); // empty image URL never ships
 		expect(pawn?.maxValue).toBeUndefined(); // maxValue is counters-only
 		expect(pack.pieces?.find((p) => p.name === 'HP')?.maxValue).toBe(12);
+		// a counter's floor ships; the editor's 0 (the default) never does
+		expect(pack.pieces?.find((p) => p.name === 'HP')?.minValue).toBe(2);
+		expect(pawn?.minValue).toBeUndefined();
+		// a square token ships its outline; the default disc never does, and
+		// neither does a stray one on a kind that has no outline (tableplace-254)
+		expect(pack.pieces?.find((p) => p.name === 'Plaque')?.shape).toBe('square');
+		expect(pack.pieces?.find((p) => p.name === 'Objective')).not.toHaveProperty('shape');
+		expect(pawn).not.toHaveProperty('shape');
 		// bag fields are bags-only, and the flat editor item narrows back down
 		expect(pawn?.contents).toBeUndefined();
 		expect(pawn?.drawMode).toBeUndefined();
 		expect(pawn?.infinite).toBeUndefined();
+		// a reach ships; the editor's 0 ("none") never does (tableplace-190)
+		expect(pawn?.reach).toBe(3);
+		expect(pack.pieces?.find((p) => p.name === 'HP')?.reach).toBeUndefined();
 	});
 
 	it('exports a bag with its contents, draw mode, and infinite flag', () => {

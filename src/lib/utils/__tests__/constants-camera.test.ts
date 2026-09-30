@@ -4,8 +4,10 @@ import {
 	CAMERA_FOV_DEG,
 	CAMERA_FRAME_ASPECT,
 	CAMERA_MAX_DISTANCE,
+	CAMERA_SEAT_POLAR,
 	distanceToFrameFelt
 } from '../constants-camera';
+import { fitPose } from '../camera-fit';
 import { TABLE_HALF_X, TABLE_HALF_Z, TABLE_TOP_Y } from '../constants-table';
 
 describe('camera max distance', () => {
@@ -29,8 +31,24 @@ describe('camera max distance', () => {
 		}
 	});
 
-	it('is enough for 16:10 and not wildly more', () => {
-		const needed = distanceToFrameFelt(CAMERA_FRAME_ASPECT);
+	it('is enough for 16:10 straight down', () => {
+		expect(CAMERA_MAX_DISTANCE).toBeGreaterThanOrEqual(distanceToFrameFelt(CAMERA_FRAME_ASPECT));
+	});
+
+	it("is enough for 16:10 from the seat view's 45° and not wildly more", () => {
+		const felt = {
+			minX: -TABLE_HALF_X,
+			maxX: TABLE_HALF_X,
+			minZ: -TABLE_HALF_Z,
+			maxZ: TABLE_HALF_Z
+		};
+		const pose = fitPose(
+			felt,
+			CAMERA_FRAME_ASPECT,
+			{ azimuth: 0, polar: CAMERA_SEAT_POLAR },
+			{ padding: 1, minDistance: 1 }
+		);
+		const needed = Math.hypot(...pose.position.map((v, i) => v - pose.target[i]!));
 		expect(CAMERA_MAX_DISTANCE).toBeGreaterThanOrEqual(needed);
 		expect(CAMERA_MAX_DISTANCE).toBeLessThan(needed * 1.1);
 	});

@@ -40,7 +40,7 @@ Every file carries an in-band discriminator at the top level: `"tbpp": 1` or `"t
 
 ### 2.1 Spec versions
 
-Current: **pack `1.6.0`**, **scenario `0.1.9`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
+Current: **pack `1.10.0`**, **scenario `0.1.20`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
 
 Two version fields exist and they answer different questions:
 
@@ -183,14 +183,15 @@ The literal prefix `model:` followed by `<kit>/<name>`, resolved through the fir
 
 ### 6.1 Fields
 
-- **`specVersion`** — the pack spec you generated against (§2.1). Currently `1.6.0`.
+- **`specVersion`** — the pack spec you generated against (§2.1). Currently `1.10.0`.
 - **`id`** — stable identity for the pack, e.g. `ember-duel`. See §8 on collisions.
 - **`name`** — human-readable title.
 - **`scope`** — `"table"` or `"player"`. `table` is the shared game loaded once per lobby by the host (board, communal decks). `player` is what one participant brings and is spawned per seat — a deck-builder export is a player pack. When in doubt for a card game, use `player`.
-- **`decks[]`** — `slot` (stable id within the pack), `name`, `back` (a face ref), optional `isFaceUp`, and `cards[]`.
-  - **`cards[]`** — `code` (stable id within the deck), optional `name`, `face` (a face ref), and optional `orientation` — `"portrait"` (default) or `"landscape"`. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
-- **`pieces[]`** _(optional)_ — `kind` (`"token"`, `"pawn"`, `"counter"`, `"die"`, `"bag"` or `"model"`), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `maxValue` (counters), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
-- **`overlays[]`** _(optional)_ — board/map images: `imageUrl` (a face ref), `ratio` (image width ÷ height), `scale` (world size along the long axis).
+- **`decks[]`** — `slot` (stable id within the pack), `name`, `back` (a face ref), optional `isFaceUp`, optional `locked` (see below), and `cards[]`.
+  - **`cards[]`** — `code` (stable id within the deck), optional `name` (carried onto the spawned card and shown as the caption of the zoomed hover preview, only while the card is face up), `face` (a face ref), and optional `orientation` — `"portrait"` (default) or `"landscape"`. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
+- **`pieces[]`** _(optional)_ — `kind` (`"token"`, `"pawn"`, `"counter"`, `"die"`, `"bag"` or `"model"`), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `shape` (tokens only: `"disc"` (the default) or `"square"` — a square token is a flat tile whose half-width is `radius`, with `imageUrl` covering its whole top face uncropped, corners included; an image that is not 1:1 makes it a rectangle of that aspect, `2 × radius` wide; the rim and base keep `color`; it is picked and dropped by its own bounds, not a circle's), optional `maxValue` and `minValue` (counters: it spawns full at `maxValue` — `COUNTER_MAX_DEFAULT` when omitted — and its value clamps to `[minValue, maxValue]`; `minValue` defaults to 0, may be negative, and must not be above `maxValue` — a dial that reads 3–17 is `"minValue": 3, "maxValue": 17`, and its rim arc is empty at 3 and full at 17), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), optional `reach` (a whole number ≥ 0: how many snap-point links the piece usually travels — advisory reach rings, §7.2), optional `locked` (see below), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
+- **`overlays[]`** _(optional)_ — board/map images: `imageUrl` (a face ref), `ratio` (image width ÷ height), `scale` (world size along the long axis), optional `locked`.
+- **`locked`** _(optional, default `false`, on `decks[]`, `pieces[]` and `overlays[]`)_ — spawn pinned in place: it can't be dragged, flipped, turned or grouped until a player presses `L` on it. What it does in place still works (a locked deck deals, a locked counter counts, a locked die rolls). Use it for boards, tracks and reference cards that should not get knocked around. Tabletop Simulator's `Locked` maps onto it one to one.
 - **`source`** _(optional)_ — provenance stamp written by converters; the only value is `"tts"`. Omit it in hand-authored packs.
 
 Decks spawn in declaration order. A facedown deck is shuffled when spawned directly onto a table; a scenario placement controls this explicitly (§7).
@@ -215,11 +216,11 @@ A piece can carry several faces and be flipped between them in play — a double
 
 **`states[0]` is the base face.** The array is the piece's _complete_ ordered set of faces, not extra ones added to `imageUrl`. A piece with `states` renders `states[n].face` and starts at `n = 0` unless a scenario placement's `state` says otherwise (§7.1). Write `imageUrl` equal to `states[0].face`: it is the fallback for anything that ignores states.
 
-`face` is a face ref (§5) — schemes may be mixed inside one piece. `name` is optional and labels the state on hover and in its picker menu. Only `token` and `counter` pieces render an image, so states on a `pawn` change its label, not its shape.
+`face` is a face ref (§5) — schemes may be mixed inside one piece. `name` is optional and labels the state on hover. Only `token` and `counter` pieces render an image, so states on a `pawn` change its label, not its shape.
 
 A piece may also carry **`state`**: the index it _spawns_ showing, for when that is not the base face. Omit it unless you mean it; a scenario placement's `state` (§7.1) overrides it.
 
-Players cycle a piece with `X` (`Shift+X` backwards) or pick a state from its right-click menu; the current index is synced game state, so it survives a scenario save/load.
+Players cycle a piece with `X` (`Shift+X` backwards), or from the same verbs on its right-click radial menu; the current index is synced game state, so it survives a scenario save/load.
 
 ### 6.3 Bags — a hidden blind-draw pool
 
@@ -241,7 +242,7 @@ A piece of `kind: "bag"` is a container: a pouch holding a pool nobody can look 
 }
 ```
 
-- **`contents`** — what the bag holds, in insertion order. Each entry is either a **piece item** — `kind` `"token"`, `"pawn"` or `"counter"`, plus `name` and the optional `color` / `imageUrl` / `radius` / `maxValue`; there is no `position`, because the draw decides where it lands — or a **card item**: `kind: "card"` plus `code`, optional `name`, `face` (a face ref, §5), optional `back` and optional `orientation` (§6.1).
+- **`contents`** — what the bag holds, in insertion order. Each entry is either a **piece item** — `kind` `"token"`, `"pawn"` or `"counter"`, plus `name` and the optional `color` / `imageUrl` / `radius` / `shape` / `maxValue` / `minValue`; there is no `position`, because the draw decides where it lands — or a **card item**: `kind: "card"` plus `code`, optional `name`, `face` (a face ref, §5), optional `back` and optional `orientation` (§6.1).
 - **`drawMode`** — `"random"` (the default: a blind draw), `"lifo"` (last in, first out — a stack) or `"fifo"` (a queue).
 - **`infinite`** — `true` makes each draw **clone** the item rather than remove it, so the bag never empties. Its badge reads `∞`.
 - `code` must be **unique within the bag**, like a deck's card codes: the drawn card's table id is built from it.
@@ -296,6 +297,11 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 							"isFaceUp": {
 								"type": "boolean",
 								"title": "isFaceUp"
+							},
+							"locked": {
+								"description": "Spawns pinned in place (TTS `Locked`): the pile can't be moved, flipped or\nungrouped, but cards still come off its top. `L` unpins it at the table.\nOmitted means unlocked.",
+								"type": "boolean",
+								"title": "locked"
 							},
 							"cards": {
 								"type": "array",
@@ -388,10 +394,21 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 								"type": "number",
 								"title": "radius"
 							},
+							"shape": {
+								"description": "tokens only: the token's outline (default `'disc'`). `'square'` is a flat\ntile whose half-width is `radius`, as thick as a disc; the image covers\nits top uncropped, so an image that is not 1:1 makes it a rectangle of\nthat aspect (width stays `2 × radius`). The rim and base keep `color`.",
+								"enum": ["disc", "square"],
+								"type": "string",
+								"title": "shape"
+							},
 							"maxValue": {
 								"description": "counters start at this value",
 								"type": "number",
 								"title": "maxValue"
+							},
+							"minValue": {
+								"description": "counters only: the lowest value it can show (default 0) — a dial that\nreads 3–17 is `minValue: 3, maxValue: 17`. May be negative; never above\n`maxValue`.",
+								"type": "number",
+								"title": "minValue"
 							},
 							"sides": {
 								"description": "dice only: how many faces the die has (defaults to 6)",
@@ -428,6 +445,16 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 								"description": "Whether snap points (and grids) pull this piece's drops. Default `true`;\n`false` is the per-piece opt-out — a big room section should snap to the\ngrid, a loose prop shouldn't.",
 								"type": "boolean",
 								"title": "snap"
+							},
+							"reach": {
+								"description": "How many snap-point links this piece usually travels. Advisory: lifted\noff a linked snap point, the points within `reach` links glow brighter.\nNothing is blocked. A non-negative whole number; omitted means none.",
+								"type": "number",
+								"title": "reach"
+							},
+							"locked": {
+								"description": "Spawns pinned in place (TTS `Locked`) — a board, a fixed track: it can't\nbe dragged or turned, but still counts, rolls or hands things out. `L`\nunpins it at the table. Omitted means unlocked.",
+								"type": "boolean",
+								"title": "locked"
 							},
 							"contents": {
 								"description": "bags only — what a draw pulls out. Hidden from every player in play.",
@@ -472,6 +499,11 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 							"scale": {
 								"type": "number",
 								"title": "scale"
+							},
+							"locked": {
+								"description": "spawns pinned in place (TTS `Locked`); omitted means unlocked",
+								"type": "boolean",
+								"title": "locked"
 							}
 						},
 						"required": ["imageUrl", "ratio", "scale"]
@@ -546,10 +578,21 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 							"type": "number",
 							"title": "radius"
 						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
+						},
 						"maxValue": {
 							"description": "counters draw at this value",
 							"type": "number",
 							"title": "maxValue"
+						},
+						"minValue": {
+							"description": "counters only: the lowest value it can show (default 0)",
+							"type": "number",
+							"title": "minValue"
 						}
 					},
 					"required": ["kind", "name"]
@@ -594,9 +637,9 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "1.6.0",
-	"x-generated-at": "2026-07-27T14:05:26.496Z",
-	"x-tableplace-source-sha": "7926a2a9b68dfae55ac2529560c329ffea742f4f-dirty"
+	"x-tableplace-spec-version": "1.10.0",
+	"x-generated-at": "2026-09-30T10:36:09.376Z",
+	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
 }
 ```
 
@@ -608,7 +651,7 @@ A complete, valid pack. Save as `ember-duel.tbpp.json` and import it from the ta
 {
 	"$schema": "https://table.place/pack.schema.json",
 	"tbpp": 1,
-	"specVersion": "1.6.0",
+	"specVersion": "1.10.0",
 	"id": "ember-duel",
 	"name": "Ember Duel",
 	"scope": "player",
@@ -738,7 +781,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
 
 ### 7.1 Fields
 
-- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.9`.
+- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.20`.
 - **`name`**, **`createdAt`** — title and a Unix epoch timestamp in milliseconds.
 - **`packs[]`** — `{ id, source? }` for every pack the scenario draws from. `source` is `"builtin"` for packs shipped with the app (currently only `standard-52`), `"local"` for a pack held in the reader's own browser-local pack library, or an `https://` URL a `.tbpp.json` can be fetched from. A remote pack goes through the same validation as a local import. A scenario meant to travel to other people must use `"builtin"` or a URL: `"local"` resolves only on the machine that has the pack, and fails loudly (naming the pack id) anywhere else.
 - **`placements[]`** — one entry per spawned thing:
@@ -750,9 +793,16 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
   - **`order`** _(decks)_ — the card sequence as pack card `code`s, top of the deck first. **Order is preserved by default**, so a rigged opening or a fixed encounter deck reloads exactly as authored. It is a list of ids, never card bodies. Unknown codes are skipped with a warning.
   - **`shuffleOnLoad`** _(decks, default `false`)_ — shuffle on load instead of restoring `order`. Per placement, so one scenario can hold a stacked encounter deck and a shuffled draw deck side by side.
   - **`state`** _(pieces)_ — which of the pack piece's `states` (§6.2) it starts on, as an index (default `0`). This is one piece's face; the scenario's top-level `state` field below is something else entirely.
-  - **`isFaceUp`** _(decks)_, **`value`** _(counter pieces)_, **`scale`** _(overlays)_ — override the pack's defaults.
+  - **`isFaceUp`** _(decks)_, **`value`** _(counter pieces)_, **`scale`** _(overlays)_ — override the pack's defaults. A counter `value` must be inside the pack piece's `[minValue, maxValue]`; one outside it is refused with a message naming both bounds.
+  - **`locked`** _(any kind)_ — place it pinned (`true`), or unpin content the pack marks locked (`false`). Omit to keep the pack's default.
 - **`snapPoints[]`** _(optional)_ — placement guides on the felt (§7.2 below). Independent of `placements`: they steer what players drop, not what the scenario spawns.
+- **`rotationStep`** _(optional, degrees, above 0 and at most 360)_ — how far `Q` and `E` turn a card, deck or piece on this table. Omit for the default, 45°. A hex board wants `60`; a table where anything goes wants `15`. `T` and `R` on a card stay 90° taps whatever this says. A snap point's own `rotation` still decides the yaw of whatever lands on it.
+- **`handPlayFace`** _(optional, `"down"` or `"up"`)_ — which face a card dragged out of a player's hand lands on. Omit for the default, `"down"`. Set `"up"` for a game whose cards are played face up. Whatever this says, holding Shift at release plays the other face.
+- **`coach`** _(optional, boolean)_ — `false` hides the first-run "things to try" strip on this table, for players who already know it. Omit to show it (each player can still dismiss it for their own browser). It only ever hides a hint; it changes no rule of play.
 - **`state`** — a partial snapshot for everything _not_ pack-derived: hand-placed cards, ad-hoc pieces. Applied on top of the placements, so it can also override them. This is the part of the format most likely to change; keep as little in it as you can.
+  - A card in `state.cards` may carry **`placedBy`** — the player who laid it face-down out of their hand. Only that player's zoomed preview shows its face ("Only you see this"); everyone else sees the back. It is a display rule, not secrecy: the face is in the file and on the wire for anyone to read. In a scenario it is only meaningful as a seat placeholder (`seat0`–`seat3`), which passes to whoever claims that seat. Flipping the card face up, taking it into a hand or putting it on a pile clears it.
+  - Never write **`heldBy`**. On a live table it names the player whose pointer is carrying a card, deck or piece; a file has no pointer, so save and export strip it and import drops it.
+  - A card in a hand (`state.players[id].tray`) may carry **`handOrder`** — a number; the hand shows its cards lowest first, left to right, and cards without one after the rest. Leave it out unless the order matters.
 
 Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`–`seat3`, and entity ids follow `kind:owner:slug` — `deck:seat0:main`, `card:seat0:main-AS`, `piece:seat0:hp-0`. Overlays are table-scoped and keyed `overlay:<packId>:<index>`. When a real player claims a seat, every id containing that placeholder is renamed to them. Never put a real player id in a file.
 
@@ -778,6 +828,24 @@ Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`�
   - **`yawStep`** _(optional)_ — degrees; the landing's yaw rounds to the nearest multiple, measured from the grid's `rotation`. Default 90.
 
 Pieces can opt out per piece: a pack piece (or `state` piece) with `snap: false` ignores points and grids entirely — see §6.1.
+
+**Links, tags and reach — an optional board graph.** Many boards move pieces along connected spaces. Three optional fields describe that, and one on pieces uses it:
+
+```json
+"snapPoints": [
+	{ "position": [-4, 0], "links": ["snap:1"], "tags": ["north"] },
+	{ "position": [0, 0], "links": ["snap:2"] },
+	{ "position": [4, 0], "outLinks": ["snap:3"] },
+	{ "position": [8, 0] }
+]
+```
+
+- **`links`** _(optional)_ — ids of the snap points this one connects to. A point's id is **`snap:<its index in the array>`** — `snap:0` is the first entry. Links are **undirected**: written on either end they join both, so you need not repeat them. A link to an index that doesn't exist is ignored.
+- **`outLinks`** _(optional)_ — **one-way** links, written with the same ids: the points this one _leads to_. The edge leaves the point it is written on, and the target does not reach back through it — use it for a directed route (a one-way path, a slide, a door that only opens from one side). Above, `snap:2` leads to `snap:3` but `snap:3` leads nowhere. Write a one-way link only on its starting point; a pair that is also joined by `links` is simply two-way. A target that doesn't exist is ignored.
+- **`tags`** _(optional)_ — free-form string labels (regions, sides, anything a scenario wants to group points by). The table never reads them.
+- A piece's **`reach`** _(optional, §6.1 and `state.pieces`)_ — a whole number: how many links the piece usually travels. Lift a piece with `reach` off a linked snap point and the points within `reach` links (breadth-first, including the one it left; `links` walked both ways, `outLinks` only the way they point) glow brighter than the rest; points with something already on them are left out of that bright set but still count as passable.
+
+All four are **advisory only**. Nothing is ever blocked — a drop still lands on whichever point catches it, so house rules keep working. A scenario without links behaves exactly as it did before they existed.
 
 Snap points are **table-scoped, not seat-relative**: unlike a pack piece's `[x, z]`, they are never mirrored for the far side of the table. Author both ends explicitly — one at `[0, 2.5]` facing `0`, one at `[0, -2.5]` facing `180`.
 
@@ -907,7 +975,7 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 								"title": "shuffleOnLoad"
 							},
 							"value": {
-								"description": "counter pieces only",
+								"description": "counter pieces only — the count it starts on. Must sit inside the pack\npiece's `[minValue, maxValue]`; a value outside it is refused when the\nplacement meets its pack (the file alone does not know the range).",
 								"type": "number",
 								"title": "value"
 							},
@@ -920,6 +988,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 								"description": "overlays only",
 								"type": "number",
 								"title": "scale"
+							},
+							"locked": {
+								"description": "Place it pinned (tableplace-189): it can't be dragged, flipped, turned or\ngrouped until someone presses `L` on it. Any kind — how a layout lays a\nboard down locked. `false` unpins content the pack itself marks locked;\nomitted keeps the pack's own default.",
+								"type": "boolean",
+								"title": "locked"
 							}
 						},
 						"required": ["content", "kind", "pack"]
@@ -988,11 +1061,53 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 								"description": "grid only — degrees a landing's yaw rounds to, from the grid's own yaw (default 90)",
 								"type": "number",
 								"title": "yawStep"
+							},
+							"links": {
+								"description": "Connected snap points, by id — an optional board graph. A point's id is\n`snap:<its index in this array>` (`snap:0` is the first), the same id it\ngets in state. Undirected: a link written on either end joins both. A\nlink to an index that doesn't exist is ignored. Only read to light the\npoints a lifted piece with `reach` can get to — nothing is ever blocked.",
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"title": "links"
+							},
+							"outLinks": {
+								"description": "One-way links: ids (`snap:<index>`, as in `links`) of the points this one\nleads to. The edge leaves this point only — the target doesn't reach back\nthrough it — so a directed route is written on its starting end. A pair\nthat is also joined by `links` is two-way. Advisory, like `links`.",
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"title": "outLinks"
+							},
+							"tags": {
+								"description": "free-form labels (regions, sides, anything) the table itself never reads",
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"title": "tags"
 							}
 						},
 						"required": ["position"]
 					},
 					"title": "snapPoints"
+				},
+				"rotationStep": {
+					"description": "How far Q and E turn a card, deck or piece on this table, in degrees:\ngreater than 0, at most 360. Omitted means 45. T and R on a card stay 90°\ntaps. Seeded into the lobby's synced `state.table`, so every player turns\nby the same step (tableplace-200).",
+					"exclusiveMinimum": 0,
+					"maximum": 360,
+					"type": "number",
+					"title": "rotationStep"
+				},
+				"handPlayFace": {
+					"description": "Which face a card dragged out of a hand lands on by default: `\"down\"`\n(the default when omitted) or `\"up\"`, for games that play cards face up.\nHolding Shift at release plays the other face. Seeded into the lobby's\nsynced `state.table`, like `rotationStep` (tableplace-195).",
+					"enum": ["down", "up"],
+					"type": "string",
+					"title": "handPlayFace"
+				},
+				"coach": {
+					"description": "`false` hides the first-run \"things to try\" checklist on this table, for\nplayers who already know it. Omitted (or `true`) shows it to anyone who\nhas not dismissed it in their own browser. Seeded into the lobby's synced\n`state.table`, like `rotationStep` (tableplace-206).",
+					"type": "boolean",
+					"title": "coach"
 				}
 			},
 			"required": ["createdAt", "name", "state"]
@@ -1090,6 +1205,29 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 						]
 					},
 					"title": "snapPoints"
+				},
+				"table": {
+					"description": "table-wide settings (`rotationStep`, `handPlayFace`, `coach`); a field set to null is removed",
+					"type": "object",
+					"properties": {
+						"rotationStep": {
+							"description": "How far Q and E turn a card, deck or piece, in degrees — any value in\n(0, 360]. Absent means `ROTATION_STEP_DEFAULT` (45). T and R on a card\nstay 90° taps whatever this says.",
+							"type": "number",
+							"title": "rotationStep"
+						},
+						"handPlayFace": {
+							"description": "How a card dragged out of a hand lands when no modifier is held\n(tableplace-195): `'down'` (absent) or `'up'`. Holding Shift at release\nplays the other face.",
+							"enum": ["down", "up"],
+							"type": "string",
+							"title": "handPlayFace"
+						},
+						"coach": {
+							"description": "`false` hides the first-run \"things to try\" strip on this table\n(tableplace-206) — for a table whose players already know it. Absent\n(or `true`) shows it to anyone who has not dismissed it in their browser.",
+							"type": "boolean",
+							"title": "coach"
+						}
+					},
+					"title": "table"
 				}
 			}
 		},
@@ -1139,11 +1277,36 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"type": "string",
 					"title": "backImageUrl"
 				},
+				"name": {
+					"description": "Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the\nzoomed preview's caption, and only while the card is face up to the\nviewer — a face-down card never reveals it. Absent = no caption.",
+					"type": "string",
+					"title": "name"
+				},
 				"orientation": {
 					"description": "Default resting orientation (pack `PackCardDef.orientation`). Landscape\ncards render turned 90° in every renderer, while `rotation` stays\norientation-relative — `tapCard` is additive on `rotation[2]` and the\nsnap/group logic assumes a squared-up yaw is `z % 180 == 0`, so the\nquarter turn must never be baked into the persisted rotation. Its own\nfield (not part of `rotation`) so it survives the `CardInDeck` hop,\nwhich strips `rotation`. Absent = 'portrait'.",
 					"enum": ["landscape", "portrait"],
 					"type": "string",
 					"title": "orientation"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189, TTS `Locked`): it can't be dragged,\nflipped, turned or grouped, only previewed — and `L` unpins it. Absent\nmeans unlocked.",
+					"type": "boolean",
+					"title": "locked"
+				},
+				"placedBy": {
+					"description": "Player id of whoever laid this card face-down out of their hand\n(tableplace-193). For that player alone the zoomed preview shows the face\n— a peek. A display rule only: the face is in synced state for everyone,\nthis just decides what the UI draws. Cleared when the card is flipped\nface up or goes into a hand; a pile never carries it. Absent = nobody\nmay peek.",
+					"type": "string",
+					"title": "placedBy"
+				},
+				"handOrder": {
+					"description": "Where this card sits in its holder's hand, left to right (tableplace-195):\na sort key, lowest first, so a reorder is one patch of numbers and the\norder survives a reload (the relay does not keep object key order).\nOnly meaningful inside `players[id].tray`; a card leaving the hand drops\nit. Absent sorts after every numbered card.",
+					"type": "number",
+					"title": "handOrder"
+				},
+				"heldBy": {
+					"description": "Player id of whoever is carrying this card right now (tableplace-199).\nWritten in the same patch as the first carried position and cleared\n(`null`) by the patch that lands it, so it costs no message of its own.\nEveryone else draws the holder's colour around it and refuses a second\ngrab. A hold by a player whose `connected` is false reads as released.\nLive-table state only: never saved into a scenario, stripped on load.\nAbsent = nobody holds it.",
+					"type": "string",
+					"title": "heldBy"
 				}
 			}
 		},
@@ -1239,14 +1402,25 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"description": "wall-clock ms of the last shuffle. Its only job is to CHANGE in the same\npatch as the reordered cards — the reorder alone is invisible from the\nback, the changed timestamp is what remote clients turn into the wiggle.",
 					"type": "number",
 					"title": "shuffledAt"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189): the pile can't be moved, flipped or\nungrouped. Cards still come off its top — a locked draw pile is still a\ndraw pile.",
+					"type": "boolean",
+					"title": "locked"
+				},
+				"heldBy": {
+					"description": "player id of whoever is carrying the pile right now — see `CardDTO.heldBy`",
+					"type": "string",
+					"title": "heldBy"
 				}
 			}
 		},
 		"CardInDeck": {
+			"description": "a card in a pile has no place of its own to be pinned to, and nobody's peek\nsurvives the shuffle into one",
 			"title": "CardInDeck",
 			"allOf": [
 				{
-					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%3E"
+					"$ref": "#/definitions/Omit%3CCardDTO%2C%22position%22%7C%22rotation%22%7C%22locked%22%7C%22placedBy%22%7C%22handOrder%22%7C%22heldBy%22%3E"
 				},
 				{
 					"type": "object",
@@ -1260,8 +1434,8 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 				}
 			]
 		},
-		"Omit<CardDTO,\"position\"|\"rotation\">": {
-			"title": "Omit<CardDTO,\"position\"|\"rotation\">",
+		"Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\"|\"heldBy\">": {
+			"title": "Omit<CardDTO,\"position\"|\"rotation\"|\"locked\"|\"placedBy\"|\"handOrder\"|\"heldBy\">",
 			"type": "object",
 			"properties": {
 				"faceImageUrl": {
@@ -1271,6 +1445,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 				"backImageUrl": {
 					"type": "string",
 					"title": "backImageUrl"
+				},
+				"name": {
+					"description": "Display name (pack `PackCardDef.name`, TTS `Nickname`). Shown as the\nzoomed preview's caption, and only while the card is face up to the\nviewer — a face-down card never reveals it. Absent = no caption.",
+					"type": "string",
+					"title": "name"
 				},
 				"orientation": {
 					"description": "Default resting orientation (pack `PackCardDef.orientation`). Landscape\ncards render turned 90° in every renderer, while `rotation` stays\norientation-relative — `tapCard` is additive on `rotation[2]` and the\nsnap/group logic assumes a squared-up yaw is `z % 180 == 0`, so the\nquarter turn must never be baked into the persisted rotation. Its own\nfield (not part of `rotation`) so it survives the `CardInDeck` hop,\nwhich strips `rotation`. Absent = 'portrait'.",
@@ -1371,6 +1550,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 				"scale": {
 					"type": "number",
 					"title": "scale"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189). Overlays can't be picked up in play\ntoday, so this records authoring intent a board keeps across exports\nand imports (TTS `Locked`).",
+					"type": "boolean",
+					"title": "locked"
 				},
 				"packOrigin": {
 					"description": "Provenance stamped on pack-spawned entities so a scenario export (tbps v2)\ncan reference the pack instead of inlining its content. Wire-safe: the\nrelay server merges state schema-agnostically.",
@@ -1486,6 +1670,12 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"type": "number",
 					"title": "radius"
 				},
+				"shape": {
+					"description": "Tokens only (tableplace-254): `'square'` draws a flat tile whose\nhalf-width is `radius` — a rectangle of the image's aspect when that is\nnot 1:1 — with the image uncropped on top. Absent = `'disc'`.",
+					"enum": ["disc", "square"],
+					"type": "string",
+					"title": "shape"
+				},
 				"model": {
 					"description": "`kind: 'model'` only — a `model:<kit>/<name>` catalog ref (tableplace-135),\nresolved through the static manifest exactly the way face refs resolve\nthrough their schemes: the tiny ref string is all that syncs, never\ngeometry. An unresolvable ref renders as a placeholder, not an error.",
 					"type": "string",
@@ -1499,6 +1689,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 				"maxValue": {
 					"type": "number",
 					"title": "maxValue"
+				},
+				"minValue": {
+					"description": "counters only: the lowest `value` it can show (default 0)",
+					"type": "number",
+					"title": "minValue"
 				},
 				"sides": {
 					"description": "dice only: how many faces the die has",
@@ -1534,6 +1729,21 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"description": "Whether snap points (and grids) pull this piece's drops. Absent means\n`true`; `false` is the per-piece opt-out — the drop resolves as if Alt\nwere held, for snap resolution only (aimed-at targets like bags are\nunaffected). A big room section snaps to the grid; a loose prop doesn't.",
 					"type": "boolean",
 					"title": "snap"
+				},
+				"reach": {
+					"description": "How many snap-point links this piece usually travels (tableplace-190).\nAdvisory only: lifted from a linked snap point, the points within `reach`\nlinks glow brighter than the rest. Nothing is ever blocked. Absent means\nno reach rings.",
+					"type": "number",
+					"title": "reach"
+				},
+				"locked": {
+					"description": "Pinned in place (tableplace-189): it can't be dragged or turned. What it\ndoes in place still works — a locked counter counts, a locked die rolls,\na locked bag hands things out. Absent means unlocked.",
+					"type": "boolean",
+					"title": "locked"
+				},
+				"heldBy": {
+					"description": "player id of whoever is carrying the piece right now — see `CardDTO.heldBy`",
+					"type": "string",
+					"title": "heldBy"
 				},
 				"packOrigin": {
 					"description": "Provenance stamped on pack-spawned entities so a scenario export (tbps v2)\ncan reference the pack instead of inlining its content. Wire-safe: the\nrelay server merges state schema-agnostically.",
@@ -1588,9 +1798,20 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 							"type": "number",
 							"title": "radius"
 						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
+						},
 						"maxValue": {
 							"type": "number",
 							"title": "maxValue"
+						},
+						"minValue": {
+							"description": "counters only: the lowest value it can show (default 0)",
+							"type": "number",
+							"title": "minValue"
 						}
 					},
 					"required": ["kind", "name"]
@@ -1694,14 +1915,38 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"description": "grid only — degrees; a snapped entity's yaw rounds to the nearest\nmultiple, measured from the grid's own `rotation`. Default 90 (the\nmodular-kit case).",
 					"type": "number",
 					"title": "yawStep"
+				},
+				"links": {
+					"description": "Ids of the snap points this one connects to — an optional board graph\n(tableplace-190). A link is undirected: authored on either end, it joins\nboth. A target that doesn't exist is ignored. Inert unless a lifted piece\ncarries `reach`.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"title": "links"
+				},
+				"outLinks": {
+					"description": "One-way links (tableplace-255): ids of the points this one leads to. The\nedge leaves this point only — the target doesn't reach back through it.\nFor directed routes; everything else about `links` holds (a missing\ntarget is ignored, inert without `reach`). A pair that is also in\n`links` is simply two-way.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"title": "outLinks"
+				},
+				"tags": {
+					"description": "free-form labels a scenario can group points by; the table reads none of them",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"title": "tags"
 				}
 			}
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.9",
-	"x-generated-at": "2026-07-27T14:05:26.496Z",
-	"x-tableplace-source-sha": "7926a2a9b68dfae55ac2529560c329ffea742f4f-dirty"
+	"x-tableplace-spec-version": "0.1.20",
+	"x-generated-at": "2026-09-30T10:36:09.376Z",
+	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
 }
 ```
 
@@ -1713,7 +1958,7 @@ Two packs — one builtin, one fetched from `https://example.com/packs/ember-due
 {
 	"$schema": "https://table.place/scenario.schema.json",
 	"tbps": 2,
-	"specVersion": "0.1.9",
+	"specVersion": "0.1.20",
 	"name": "ember-duel-opening",
 	"createdAt": 1700000000000,
 	"packs": [

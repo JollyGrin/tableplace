@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
-	import { clearHover, dragStart, dragStore, setHover } from './store/dragStore.svelte';
+	import { clearHover, dragStart, dragStore, isCarried, setHover } from './store/dragStore.svelte';
+	import { isSelectClick, selectedIds, toggleSelected } from './store/selection';
+	import SelectionRing from './SelectionRing.svelte';
+	import HeldMark from './HeldMark.svelte';
 	import { Spring } from 'svelte/motion';
+	import { untrack } from 'svelte';
 	import { ImageMaterial } from '@threlte/extras';
 	import type { IntersectionEvent } from '@threlte/extras';
 	import { DEG2RAD } from 'three/src/math/MathUtils.js';
 	import { degrees } from '$lib/utils/constants-rotation';
+	import { nearestTurn } from '$lib/utils/yaw';
 	import { gameStore } from './store/game/gameStore.svelte';
 	import type { GameDTO } from './store/game/types';
 	import { gameActions } from './store/game/actions';
@@ -25,8 +30,17 @@
 	import { pickCard, pickedCard } from './store/cardPick';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
+	import { Weight, flipHopFor, weightOn } from '$lib/utils/weight.svelte';
+	import { WEIGHT_CARRY_EPSILON } from '$lib/utils/constants-weight';
 	import { claimPointerDown, createSingleDispatchGuard } from '$lib/utils/single-hit-dispatch';
 	import { armRadialPress, cancelRadialPress } from '$lib/radial/gesture';
+	import { toastLocked } from '$lib/hotkeys/lock';
+	import LabelBadge from './LabelBadge.svelte';
+	import {
+		LOCK_BADGE_FONT_SIZE,
+		LOCK_BADGE_LIFT_CARD,
+		LOCK_BADGE_TEXT
+	} from '$lib/utils/constants-lock';
 	type Vec3Array = [number, number, number];
 
 	let { id }: { id: string } = $props();
@@ -39,7 +53,10 @@
 		rotation: [0, 0, 0]
 	};
 
-	const isDragging = $derived($dragStore.isDragging === id);
+	// in the pointer's hand — the card grabbed, or one carried along with it
+	// as part of a selection (tableplace-202); either way it floats and tracks
+	const isDragging = $derived(isCarried($dragStore, id));
+	const isSelected = $derived($selectedIds.includes(id));
 	const cardState = $derived($gameStore?.cards?.[id] ?? initCardState);
 	const faceImageUrl = $derived(resolveCardImage(cardState?.faceImageUrl, $sheetRefCache));
 	const backImageUrl = $derived(resolveCardImage(cardState?.backImageUrl, $sheetRefCache));
@@ -157,9 +174,31 @@
 		else driveSpring(planar, { x: x + fanX, z: z + fanZ });
 	});
 
+	// Weight (tableplace-203): a lean against the travel while carried — here
+	// or, read off the store's carry height, by another player — one small
+	// bounce on landing, and a hop through a flip. Render-only; see
+	// utils/weight.svelte.ts.
+	const carried = $derived(
+		isDragging ||
+			Math.abs((cardState?.position?.[1] ?? CARD_REST_Y) - CARD_DRAG_Y) < WEIGHT_CARRY_EPSILON
+	);
+	const weight = new Weight('card', () => ({
+		x: planar.current.x,
+		z: planar.current.z,
+		y: height.current,
+		rest: height.target,
+		carried
+	}));
+	$effect(() => {
+		if (carried) weight.wake();
+	});
+	$effect(() => () => weight.stop());
+	// on top of the flip's clearance lift above, which is geometry, not feel
+	const flipHop = $derived(weightOn() ? flipHopFor(rotation.current, rotation.target) : 0);
+
 	// Create derived values for each component
 	const posX = $derived(planar.current.x);
-	const posY = $derived(height.current);
+	const posY = $derived(height.current + weight.lift + flipHop);
 	const posZ = $derived(planar.current.z);
 
 	// Combine components into position array
@@ -170,10 +209,15 @@
 		emissiveIntensity = isHovered ? 0.1 : 0;
 	});
 
-	// Flip / tap rotation targets
+	// Flip / tap rotation targets. The yaw heads for the stored value's nearest
+	// equivalent, so a turn takes the shortest arc (tableplace-200) — a Q/E
+	// turn wraps the stored yaw into one turn, and a snap writes it absolute.
+	// Measured from the spring's last target, read untracked: this effect
+	// writes that target, so it must never depend on it.
 	$effect(() => {
 		driveSpring(rotation, baseRotation[0]);
-		driveSpring(rotationTap, baseRotation[2]);
+		const heading = untrack(() => rotationTap.target);
+		driveSpring(rotationTap, nearestTurn(heading, baseRotation[2]));
 	});
 
 	// px the pointer may travel between down and up and still count as a click
@@ -181,6 +225,9 @@
 	let pendingDrag: { x: number; y: number } | null = null;
 
 	function liftIntoDrag() {
+		// pinned: the press still claimed the pile (nothing under it moves either),
+		// but the card stays put and the toast names the key that frees it
+		if (cardState?.locked) return toastLocked();
 		// origin is the store position from before the lift, so Esc can put the
 		// card back exactly where it was
 		dragStart(id, position[1], (cardState?.position as Vec3Array) ?? undefined);
@@ -224,6 +271,13 @@
 		// claims the pointerdown for the topmost card in a pile — see
 		// claimPointerDown — so the rest of the stack never sees this event
 		if (!claimPointerDown(e)) return;
+		// Shift/Ctrl+click adds this card to the selection, or takes it out —
+		// a press that neither drags nor opens the wheel
+		if (isSelectClick(e.nativeEvent)) {
+			if (cardState?.locked) return toastLocked();
+			toggleSelected(id);
+			return;
+		}
 		pendingDrag = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
 		// press-and-hold-still opens the wheel instead; the FIRST travel past the
 		// threshold cancels it (in the gesture's own move listener) and this drag
@@ -266,61 +320,42 @@
 <!-- the store id, mirrored onto the object3D: what makes an entity findable in
      the scene graph — by devtools, and by the headless harness, which has to
      know where a thing actually draws in order to click it -->
-<T.Group
-	name={id}
-	{position}
-	rotation.z={rotation.current * DEG2RAD}
-	rotation.y={(rotationTap.current + orientationYaw) * -DEG2RAD}
-	onpointerdown={handleDragStart}
-	onpointerleave={handlePointerLeave}
-	onpointerenter={handlePointerEnter}
-	onclick={handleClick}
->
-	<!-- card body: visible paper edge between the two faces (unlit so side faces
+<!-- the lean rides on its own group, in the world frame, so it tips the card
+     against its travel whatever its tap or flip -->
+<T.Group {position} rotation.x={weight.tiltX} rotation.z={weight.tiltZ}>
+	<T.Group
+		name={id}
+		rotation.z={rotation.current * DEG2RAD}
+		rotation.y={(rotationTap.current + orientationYaw) * -DEG2RAD}
+		onpointerdown={handleDragStart}
+		onpointerleave={handlePointerLeave}
+		onpointerenter={handlePointerEnter}
+		onclick={handleClick}
+	>
+		<!-- card body: visible paper edge between the two faces (unlit so side faces
 	     never go black). Rounded to match the face's corner radius — a square box
 	     pokes white nubs past the ImageMaterial's alpha-cutout arc. The geometry
 	     is shared across all cards: dispose={false} keeps one card's unmount from
 	     destroying it for everyone. -->
-	<T.Mesh castShadow>
-		<T is={cardBodyGeometry} attach="geometry" dispose={false} />
-		<T.MeshBasicMaterial color="#d9d6c9" />
-	</T.Mesh>
-	<!-- key the MESH, not the material: threlte 8.5 material swaps on a live
+		<T.Mesh castShadow>
+			<T is={cardBodyGeometry} attach="geometry" dispose={false} />
+			<T.MeshBasicMaterial color="#d9d6c9" />
+		</T.Mesh>
+		<!-- key the MESH, not the material: threlte 8.5 material swaps on a live
 	     mesh detach without reattaching (same bug as the felt table), leaving
 	     the default white material. Mesh recreation attaches cleanly. -->
-	{#key faceImageUrl}
-		<T.Mesh
-			castShadow
-			receiveShadow
-			bind:ref={card}
-			visible={!isFacedown}
-			rotation.x={-Math.PI / 2}
-			position.y={CARD_THICKNESS / 2}
-		>
-			<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
-			<ImageMaterial
-				url={faceImageUrl ?? ''}
-				side={0}
-				radius={0.1}
-				monochromeColor={'#fff'}
-				monochromeStrength={emissiveIntensity}
-			/>
-		</T.Mesh>
-	{/key}
-
-	{#if backImageUrl}
-		<!-- rotation.z compensates the width-axis flip so directional backs read upright -->
-		{#key backImageUrl}
+		{#key faceImageUrl}
 			<T.Mesh
 				castShadow
 				receiveShadow
-				rotation.x={-DEG2RAD * 270}
-				rotation.z={Math.PI}
-				position.y={-CARD_THICKNESS / 2}
+				bind:ref={card}
+				visible={!isFacedown}
+				rotation.x={-Math.PI / 2}
+				position.y={CARD_THICKNESS / 2}
 			>
 				<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
 				<ImageMaterial
-					url={backImageUrl}
+					url={faceImageUrl ?? ''}
 					side={0}
 					radius={0.1}
 					monochromeColor={'#fff'}
@@ -328,13 +363,67 @@
 				/>
 			</T.Mesh>
 		{/key}
-	{:else}
-		<T.Mesh rotation.x={Math.PI / 2} position.y={-CARD_THICKNESS / 2}>
-			<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
-			<T.MeshBasicMaterial color="white" />
-		</T.Mesh>
-	{/if}
+
+		{#if backImageUrl}
+			<!-- rotation.z compensates the width-axis flip so directional backs read upright -->
+			{#key backImageUrl}
+				<T.Mesh
+					castShadow
+					receiveShadow
+					rotation.x={-DEG2RAD * 270}
+					rotation.z={Math.PI}
+					position.y={-CARD_THICKNESS / 2}
+				>
+					<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
+					<ImageMaterial
+						url={backImageUrl}
+						side={0}
+						radius={0.1}
+						monochromeColor={'#fff'}
+						monochromeStrength={emissiveIntensity}
+					/>
+				</T.Mesh>
+			{/key}
+		{:else}
+			<T.Mesh rotation.x={Math.PI / 2} position.y={-CARD_THICKNESS / 2}>
+				<T.PlaneGeometry args={[CARD_WIDTH, CARD_HEIGHT]} />
+				<T.MeshBasicMaterial color="white" />
+			</T.Mesh>
+		{/if}
+	</T.Group>
 </T.Group>
+
+{#if isHovered && cardState?.locked}
+	<!-- the pin's hover mark: outside the card's group so a flip never turns it -->
+	<LabelBadge
+		text={LOCK_BADGE_TEXT}
+		fontSize={LOCK_BADGE_FONT_SIZE}
+		position={[posX, posY + LOCK_BADGE_LIFT_CARD, posZ]}
+	/>
+{/if}
+
+{#if isSelected}
+	<!-- the selection ring: at the card's own height, turned with its tap and
+	     never with its flip, so it follows the card through a group drag -->
+	<SelectionRing
+		shape="rect"
+		w={CARD_WIDTH}
+		h={CARD_HEIGHT}
+		position={[posX, posY - CARD_THICKNESS / 2, posZ]}
+		yaw={(rotationTap.current + orientationYaw) * -DEG2RAD}
+	/>
+{/if}
+
+<!-- held-by (tableplace-199): another player is carrying this card -->
+<HeldMark
+	{id}
+	heldBy={cardState?.heldBy}
+	shape="rect"
+	w={CARD_WIDTH}
+	h={CARD_HEIGHT}
+	position={[posX, posY - CARD_THICKNESS / 2, posZ]}
+	yaw={(rotationTap.current + orientationYaw) * -DEG2RAD}
+/>
 
 {#if isPicked}
 	<!--
