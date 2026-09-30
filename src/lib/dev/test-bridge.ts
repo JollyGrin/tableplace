@@ -71,6 +71,9 @@ export type TestBridge = {
 	 * to, and `shown` the image the preview mesh's texture actually holds —
 	 * null until it has loaded. `shown === url` is "it is drawing that face".
 	 * `at` is the centre of the zoomed art on screen, for a pixel check.
+	 * `geometry` is the art mesh's geometry type — `PlaneGeometry` for a card
+	 * and for a square token's uncropped face, `CircleGeometry` for a disc —
+	 * and `bounds` its extent on screen, so a spec can sample its corners.
 	 */
 	preview: () => {
 		id: string;
@@ -79,6 +82,8 @@ export type TestBridge = {
 		caption: string;
 		shown: string | null;
 		at: ScreenPoint | null;
+		geometry: string | null;
+		bounds: { left: number; right: number; top: number; bottom: number } | null;
 	} | null;
 	/** the raycast the shared interactivity context runs, minus the dispatch */
 	hits: (screen: ScreenPoint) => string[];
@@ -481,6 +486,7 @@ export function installTestBridge(handles: SceneHandles): void {
 			const target = get(previewStore);
 			if (!target) return null;
 			let shown: string | null = null;
+			let art: THREE.Mesh | null = null;
 			const hud = huds.get('preview');
 			const camera = hud?.camera();
 			const group = hud?.scene()?.getObjectByName('hud-preview');
@@ -493,15 +499,34 @@ export function installTestBridge(handles: SceneHandles): void {
 				const material = mesh.material as THREE.ShaderMaterial & THREE.MeshBasicMaterial;
 				const texture: THREE.Texture | null = material.uniforms?.map?.value ?? material.map ?? null;
 				const image = texture?.image as { src?: string } | undefined;
-				if (image?.src) shown = image.src;
+				if (image?.src) {
+					shown = image.src;
+					art = mesh;
+				}
 			});
+			// Box3 only refreshes the mesh's own matrix; its HUD ancestors (the group
+			// that places the art on screen) have to be brought up to date first
+			(art as THREE.Mesh | null)?.updateWorldMatrix(true, false);
+			const box = art ? new THREE.Box3().setFromObject(art) : null;
+			const low = box && camera ? project([box.min.x, box.min.y, box.min.z], camera) : null;
+			const high = box && camera ? project([box.max.x, box.max.y, box.max.z], camera) : null;
 			return {
 				id: target.id,
 				face: target.face,
 				url: resolveCardImage(target.face, get(sheetRefCache)),
 				caption: target.caption,
 				shown,
-				at: centre && camera ? project([centre.x, centre.y, centre.z], camera) : null
+				at: centre && camera ? project([centre.x, centre.y, centre.z], camera) : null,
+				geometry: (art as THREE.Mesh | null)?.geometry.type ?? null,
+				bounds:
+					low && high
+						? {
+								left: Math.min(low.x, high.x),
+								right: Math.max(low.x, high.x),
+								top: Math.min(low.y, high.y),
+								bottom: Math.max(low.y, high.y)
+							}
+						: null
 			};
 		},
 		hits,

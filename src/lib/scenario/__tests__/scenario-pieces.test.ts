@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
 import { gameActions } from '$lib/store/game/actions';
+import type { GameDTO } from '$lib/store/game/types';
 import {
 	applyScenario,
 	claimSeat,
@@ -98,7 +99,7 @@ describe('scenario round-trip with hand-spawned pieces', () => {
 		expect(get(gameStore).pieces?.[chip]).not.toHaveProperty('shape');
 		const saved = saveScenario('shape-test');
 
-		const check = (pieces: NonNullable<ReturnType<typeof get<typeof gameStore>>>['pieces']) => {
+		const check = (pieces: Partial<GameDTO>['pieces']) => {
 			expect(pieces?.[plaque]).toMatchObject({ kind: 'token', shape: 'square', radius: 1 });
 			expect(pieces?.[chip]).not.toHaveProperty('shape');
 			expect(pieces?.[bag]?.contents).toEqual([

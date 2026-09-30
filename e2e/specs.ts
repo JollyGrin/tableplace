@@ -3672,6 +3672,307 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-254: a token can be a square tile. Its image covers the whole
+		 * top face — corners included — where a disc crops the same image to the
+		 * circle it is, and an image that is not 1:1 makes the tile a rectangle of
+		 * that aspect. The tile is grabbed by its own bounds, so a press in its
+		 * corner lifts it; the same offset from a disc is bare felt.
+		 *
+		 * The art is a blue medallion on a red field, so red is what only the
+		 * corners carry: red drawn at a corner is the uncropped image, and nothing
+		 * else on the table (felt, the cream chip, a shadow) is red.
+		 */
+		name: 'square token: a tile draws its whole image, corners included, and is grabbed by its corner',
+		run: (context) =>
+			withTable(context, 'square-token', async (table) => {
+				const art = await table.page.evaluate(() => {
+					const draw = (width: number, height: number) => {
+						const canvas = document.createElement('canvas');
+						canvas.width = width;
+						canvas.height = height;
+						const context = canvas.getContext('2d')!;
+						context.fillStyle = 'rgb(225, 30, 40)';
+						context.fillRect(0, 0, width, height);
+						context.fillStyle = 'rgb(30, 80, 235)';
+						context.beginPath();
+						context.ellipse(width / 2, height / 2, width * 0.42, height * 0.42, 0, 0, Math.PI * 2);
+						context.fill();
+						return canvas.toDataURL('image/webp').split(',')[1]!;
+					};
+					return { even: draw(1200, 1200), wide: draw(1200, 600) };
+				});
+				// a real cross-origin host, as in the piece-art spec above
+				const host = createServer((request, response) => {
+					const name = (request.url ?? '').replace(/^\/|\.webp$/g, '');
+					const body = name in art ? art[name as keyof typeof art] : null;
+					response.writeHead(body ? 200 : 404, {
+						'access-control-allow-origin': '*',
+						'content-type': 'image/webp'
+					});
+					response.end(body ? Buffer.from(body, 'base64') : undefined);
+				});
+				await new Promise<void>((resolve) => host.listen(0, '127.0.0.1', resolve));
+				const ART = `http://127.0.0.1:${(host.address() as AddressInfo).port}/`;
+				try {
+					const even = `${ART}even.webp`;
+					const wide = `${ART}wide.webp`;
+					const RADIUS = 1;
+					const pieces = {
+						square: await table.spawn('token', {
+							name: 'Tile',
+							position: ON_FELT(0),
+							radius: RADIUS,
+							imageUrl: even,
+							shape: 'square'
+						}),
+						// no `shape` at all: exactly what every token was before
+						disc: await table.spawn('token', {
+							name: 'Chip',
+							position: ON_FELT(1),
+							radius: RADIUS,
+							imageUrl: even
+						}),
+						wide: await table.spawn('token', {
+							name: 'Plaque',
+							position: ON_FELT(2),
+							radius: RADIUS,
+							imageUrl: wide,
+							shape: 'square'
+						}),
+						counter: await table.spawn('counter', { position: ON_FELT(3), maxValue: 10 })
+					};
+					await table.settle(2000);
+					assertClean(table, 'after spawning square and disc tokens');
+
+					const stored = await table.page.evaluate(
+						(ids) => {
+							const all = window.__tableplace!.state()?.pieces ?? {};
+							return {
+								square: all[ids.square]?.shape,
+								hasDiscShape: 'shape' in (all[ids.disc] ?? {})
+							};
+						},
+						{ square: pieces.square, disc: pieces.disc }
+					);
+					ok(stored.square === 'square', `the square token stores shape ${stored.square}`);
+					ok(!stored.hasDiscShape, 'a token spawned without a shape was given one');
+
+					// ── the bodies: a 2×2 tile, a 2×2 disc, and a 2×1 plaque ──────────
+					const near = (a: number, b: number) => Math.abs(a - b) < 0.12;
+					const sizeOf = async (id: string) => (await table.describe(id))?.size ?? [0, 0, 0];
+					const squareSize = await sizeOf(pieces.square);
+					ok(
+						near(squareSize[0], 2) && near(squareSize[2], 2),
+						`a square token of radius 1 with 1:1 art measures ${JSON.stringify(squareSize)}, not 2 × 2`
+					);
+					// the plaque starts square and takes its art's aspect once that loads
+					const wideSize = await eventually(
+						() => sizeOf(pieces.wide),
+						(size) => near(size[0], 2) && near(size[2], 1)
+					);
+					ok(
+						near(wideSize[0], 2) && near(wideSize[2], 1),
+						`a square token with 2:1 art measures ${JSON.stringify(wideSize)}, not 2 wide × 1 deep`
+					);
+
+					// ── the pixels: red at the tile's corners, none at the disc's ──────
+					const isRed = ([r, g, b]: number[]) => r! > g! + 80 && r! > b! + 80;
+					const isBlue = ([r, g, b]: number[]) => b! > r! + 60 && b! > g! + 40;
+					/** screen points for table offsets from a piece's centre, at its top face */
+					const onTop = async (id: string, offsets: number[][]) => {
+						const at = await table.positionOf(id);
+						ok(at, `${id} has no position`);
+						const points = await table.page.evaluate(
+							(x, y, z, offsets) =>
+								offsets.map(([dx, dz]) => window.__tableplace!.project([x + dx!, y, z + dz!])),
+							at![0]!,
+							at![1]! + PIECE_THICKNESS / 2,
+							at![2]!,
+							offsets
+						);
+						ok(points.every(Boolean), `${id} projects off-screen — move it into the camera frame`);
+						return points as { x: number; y: number }[];
+					};
+					const coloursAt = async (id: string, offsets: number[][]) => {
+						const samples = await table.pixels(await onTop(id, offsets));
+						ok(
+							samples.every((sample) => sample.onCanvas),
+							`${id} is covered by a HUD pane where it is sampled — move it clear`
+						);
+						return samples.map((sample) => sample.rgb);
+					};
+					// inside the 2×2 square, outside the circle of radius 1
+					const CORNERS = [
+						[0.84, -0.84],
+						[-0.84, -0.84],
+						[0.84, 0.84],
+						[-0.84, 0.84]
+					];
+					const CENTRE = [[0, 0]];
+
+					const squareCorners = await eventually(
+						() => coloursAt(pieces.square, CORNERS),
+						(colours) => colours.every(isRed)
+					);
+					ok(
+						squareCorners.every(isRed),
+						`a square token does not draw its image to the corners — they show ${JSON.stringify(squareCorners)} (red is the art's corner)`
+					);
+					const squareCentre = await coloursAt(pieces.square, CENTRE);
+					ok(
+						isBlue(squareCentre[0]!),
+						`a square token's centre shows ${JSON.stringify(squareCentre)}`
+					);
+
+					const discCentre = await eventually(
+						() => coloursAt(pieces.disc, CENTRE),
+						(colours) => isBlue(colours[0]!)
+					);
+					ok(isBlue(discCentre[0]!), `the disc token's centre shows ${JSON.stringify(discCentre)}`);
+					const discCorners = await coloursAt(pieces.disc, CORNERS);
+					ok(
+						!discCorners.some(isRed),
+						`a token with no shape draws outside its disc — its corners show ${JSON.stringify(discCorners)}`
+					);
+
+					// the plaque: red in the corners of a 2×1 rectangle, and felt — not
+					// tile — where a 2×2 square would have reached
+					const PLAQUE_CORNERS = [
+						[0.86, -0.4],
+						[-0.86, -0.4],
+						[0.86, 0.4],
+						[-0.86, 0.4]
+					];
+					const plaqueCorners = await eventually(
+						() => coloursAt(pieces.wide, PLAQUE_CORNERS),
+						(colours) => colours.every(isRed)
+					);
+					ok(
+						plaqueCorners.every(isRed),
+						`a 2:1 square token does not draw its image to the corners — they show ${JSON.stringify(plaqueCorners)}`
+					);
+					const beyondPlaque = await coloursAt(pieces.wide, [
+						[0.84, -0.84],
+						[-0.84, -0.84]
+					]);
+					ok(
+						!beyondPlaque.some((rgb) => isRed(rgb) || isBlue(rgb)),
+						`a 2:1 square token draws past its rectangle: ${JSON.stringify(beyondPlaque)}`
+					);
+					await table.snap('square-token');
+
+					// ── the raycast: the far corner picks the tile, and misses the disc ─
+					// (the far one: past a near corner the pointer ray runs on under the
+					// piece, which says nothing about the top face)
+					const FAR_CORNER = [[0.84, -0.84]];
+					const [squareCorner] = await onTop(pieces.square, FAR_CORNER);
+					const [discCorner] = await onTop(pieces.disc, FAR_CORNER);
+					const squareHits = await table.hits(squareCorner!);
+					ok(
+						squareHits[0] === pieces.square,
+						`a press in a square token's corner reaches ${squareHits.join(', ') || 'nothing'}, not the token`
+					);
+					const discHits = await table.hits(discCorner!);
+					ok(
+						!discHits.includes(pieces.disc),
+						`a press at the same offset from a disc token picks it: ${discHits.join(', ')}`
+					);
+
+					// and a real mouse agrees: grab the tile BY that corner and carry it
+					const before = await table.positionOf(pieces.square);
+					await table.page.mouse.move(squareCorner!.x, squareCorner!.y);
+					await sleep(80);
+					await table.page.mouse.down();
+					await sleep(80);
+					for (let step = 1; step <= 12; step++) {
+						await table.page.mouse.move(squareCorner!.x, squareCorner!.y + (DRAG.dy * step) / 12);
+						await sleep(20);
+					}
+					await sleep(150);
+					await table.page.mouse.up();
+					await table.settle(900);
+					const after = await table.positionOf(pieces.square);
+					ok(
+						planarDistance(before, after) > 0.5,
+						`a square token grabbed by its corner did not move: ${JSON.stringify(before)} → ${JSON.stringify(after)}`
+					);
+
+					// ── the zoomed preview: the whole image, at its own aspect ─────────
+					const preview = () => table.page.evaluate(() => window.__tableplace!.preview());
+					const zoom = async (id: string, label: string) => {
+						const at = await table.locate(id);
+						ok(at, `${label} (${id}) never mounted`);
+						await table.page.mouse.move(at!.x, at!.y, { steps: 8 });
+						await sleep(300);
+						await table.page.keyboard.down('Space');
+						const shown = await eventually(
+							preview,
+							(p) => p?.id === id && !!p.shown && p.shown === p.url && !!p.bounds
+						);
+						ok(
+							shown?.id === id && shown.shown === shown.url && shown.bounds,
+							`Space over ${label} previews ${JSON.stringify(shown)}`
+						);
+						await table.settle(400);
+						const { left, right, top, bottom } = shown!.bounds!;
+						const [w, h] = [right - left, bottom - top];
+						const samples = await table.pixels([
+							{ x: left + w * 0.06, y: top + h * 0.06 },
+							{ x: right - w * 0.06, y: top + h * 0.06 },
+							{ x: left + w * 0.06, y: bottom - h * 0.06 },
+							{ x: right - w * 0.06, y: bottom - h * 0.06 },
+							{ x: (left + right) / 2, y: (top + bottom) / 2 }
+						]);
+						return { geometry: shown!.geometry, aspect: w / h, colours: samples.map((s) => s.rgb) };
+					};
+					const close = async () => {
+						await table.page.keyboard.up('Space');
+						await eventually(preview, (p) => p === null);
+					};
+
+					const zoomedSquare = await zoom(pieces.square, 'a square token');
+					ok(
+						zoomedSquare.geometry === 'PlaneGeometry' && near(zoomedSquare.aspect, 1),
+						`a square token previews on a ${zoomedSquare.geometry} of aspect ${zoomedSquare.aspect.toFixed(2)}`
+					);
+					ok(
+						zoomedSquare.colours.slice(0, 4).every(isRed) && isBlue(zoomedSquare.colours[4]!),
+						`a square token's preview crops its image — corners and centre show ${JSON.stringify(zoomedSquare.colours)}`
+					);
+					await table.snap('square-token-preview');
+					await close();
+
+					const zoomedWide = await zoom(pieces.wide, 'a 2:1 square token');
+					ok(
+						zoomedWide.geometry === 'PlaneGeometry' && Math.abs(zoomedWide.aspect - 2) < 0.2,
+						`a 2:1 square token previews on a ${zoomedWide.geometry} of aspect ${zoomedWide.aspect.toFixed(2)}, not 2`
+					);
+					ok(
+						zoomedWide.colours.slice(0, 4).every(isRed) && isBlue(zoomedWide.colours[4]!),
+						`a 2:1 square token's preview crops its image — corners and centre show ${JSON.stringify(zoomedWide.colours)}`
+					);
+					await close();
+
+					const zoomedDisc = await zoom(pieces.disc, 'a disc token');
+					ok(
+						zoomedDisc.geometry === 'CircleGeometry' && !zoomedDisc.colours.slice(0, 4).some(isRed),
+						`a disc token's preview is no longer a disc: ${JSON.stringify(zoomedDisc)}`
+					);
+					await table.snap('disc-token-preview');
+					await close();
+
+					// ── and everything else on the table still works ──────────────────
+					await assertDraggable(table, pieces.disc, 'a disc token beside square ones');
+					await assertDraggable(table, pieces.wide, 'a 2:1 square token');
+					await assertDraggable(table, pieces.counter, 'a counter beside square tokens');
+					assertClean(table, 'at the end of the square-token table');
+				} finally {
+					host.close();
+				}
+			})
+	},
+	{
+		/**
 		 * tableplace-155, the material finish: tokens, counters and pawns are
 		 * lacquered chips rather than three.js's dead-matte default (bags stay
 		 * cloth), and every image texture — card faces, a map overlay — filters

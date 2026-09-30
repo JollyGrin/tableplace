@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DEG2RAD } from 'three/src/math/MathUtils.js';
 import { clampToTable, resolveDrop } from '../drop';
-import type { GameDTO } from '$lib/store/game/types';
+import type { GameDTO, PieceDTO } from '$lib/store/game/types';
 import {
 	CARD_WIDTH,
 	CARD_HEIGHT,
@@ -117,7 +117,12 @@ describe('resolveDrop', () => {
 	});
 
 	it('gives a square token the rectangle it is, not a circle round it', () => {
-		const tile = { position: [0, 1.2, 0], kind: 'token', shape: 'square', radius: 1.25 };
+		const tile: Partial<PieceDTO> = {
+			position: [0, 1.2, 0],
+			kind: 'token',
+			shape: 'square',
+			radius: 1.25
+		};
 		const s = state({ pieces: { 'piece:1': tile } });
 		expect(resolveDrop(s, 'piece:1', { x: 2, z: 2 })?.footprint).toEqual({
 			shape: 'rect',
