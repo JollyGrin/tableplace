@@ -729,6 +729,110 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-255: one-way links. Three snap points, snap:0 → snap:1 one
+		 * way (`outLinks`) and snap:1 — snap:2 both ways (`links`). A piece with
+		 * `reach: 2` lifted off snap:1 lights snap:2 but not snap:0 — the edge
+		 * doesn't run back — and, advisory as ever, still lands on snap:0 when
+		 * dropped there. Lifted off snap:0 it then lights all three.
+		 */
+		name: 'one-way links: reach rings follow an outLink forwards only',
+		run: (context) =>
+			withTable(context, 'one-way-links', async (table) => {
+				const { page } = table;
+				const spots: [number, number][] = [
+					[-5, -1],
+					[0, 1],
+					[5, -1]
+				];
+				const ids = await page.evaluate(
+					(batch) => batch.map((p) => window.__tableplace!.actions.addSnapPoint(p as never)),
+					[
+						{ position: spots[0], radius: 1.2, outLinks: ['snap:1', 'snap:99'] },
+						{ position: spots[1], radius: 1.2, links: ['snap:2'] },
+						{ position: spots[2], radius: 1.2 }
+					]
+				);
+				ok(ids.join() === 'snap:0,snap:1,snap:2', `the board seeded unexpected ids: ${ids.join()}`);
+				await sleep(700);
+				const runner = await table.spawn('token', {
+					position: [spots[1]![0], PIECE_REST_Y, spots[1]![1]],
+					reach: 2
+				});
+				await table.settle();
+
+				const guides = () => page.evaluate(() => window.__tableplace!.snapGuides());
+				const at = (x: number, z: number) =>
+					page.evaluate((wx, wz) => window.__tableplace!.project([wx, 0.26, wz]), x, z);
+
+				/** lift the runner, carry it over `spot`, check the bright set, drop it there */
+				const carry = async (spot: number, expected: string[], ordinary: number) => {
+					const from = await table.locate(runner);
+					const to = await at(spots[spot]![0], spots[spot]![1]);
+					ok(from && to, 'cannot place the gesture on screen');
+					await page.mouse.move(from!.x, from!.y);
+					await sleep(80);
+					await page.mouse.down();
+					await sleep(80);
+					for (let step = 1; step <= 12; step++) {
+						await page.mouse.move(
+							from!.x + ((to!.x - from!.x) * step) / 12,
+							from!.y + ((to!.y - from!.y) * step) / 12
+						);
+						await sleep(20);
+					}
+					try {
+						const lifted = await eventually(guides, (g) => g.reach > 0 && g.target !== null);
+						const dragging = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+						ok(dragging === runner, `the runner was never lifted (dragging: ${dragging})`);
+						ok(
+							JSON.stringify(lifted.reachIds) === JSON.stringify(expected),
+							`bright set is ${JSON.stringify(lifted.reachIds)}, expected ${JSON.stringify(expected)}`
+						);
+						ok(
+							lifted.reach === expected.length && lifted.rings === ordinary,
+							`expected ${expected.length} bright + ${ordinary} ordinary rings: ${JSON.stringify(lifted)}`
+						);
+						ok(
+							lifted.target === `snap:${spot}`,
+							`the drop should be caught by snap:${spot}: ${lifted.target}`
+						);
+						await table.snap(`one-way-links-to-${spot}`);
+					} finally {
+						await page.mouse.up();
+					}
+					const dropped = await eventually(guides, (g) => g.reach === 0 && g.rings === 0);
+					ok(
+						dropped.reach === 0 && dropped.reachIds.length === 0,
+						`reach rings still draw after the drop: ${JSON.stringify(dropped)}`
+					);
+					const landed = await eventually(
+						() => table.positionOf(runner),
+						(p) =>
+							!!p &&
+							Math.abs(p[0] - spots[spot]![0]) < 0.01 &&
+							Math.abs(p[2] - spots[spot]![1]) < 0.01
+					);
+					ok(
+						landed &&
+							Math.abs(landed[0] - spots[spot]![0]) < 0.01 &&
+							Math.abs(landed[2] - spots[spot]![1]) < 0.01,
+						`the drop on snap:${spot} was blocked or moved: ${JSON.stringify(landed)}`
+					);
+					await table.settle();
+				};
+
+				// off snap:1, against the one-way link: snap:0 is an ordinary ring,
+				// and the drop on it lands all the same
+				await carry(0, ['snap:1', 'snap:2'], 1);
+				// off snap:0, along it: the whole board is within two links
+				await carry(2, ['snap:0', 'snap:1', 'snap:2'], 0);
+
+				await assertDraggable(table, runner, 'the runner (after one-way links)');
+				assertClean(table, 'with one-way links');
+			})
+	},
+	{
+		/**
 		 * tableplace-145: Alt opts out of the XZ square-up, not of resting on
 		 * top. An Alt-drop overlapping a resting card must land at the pointer's
 		 * XZ (no pull onto the pile) but one card thickness ABOVE the card under

@@ -762,11 +762,7 @@
 							disabled
 						/>
 						{#if point?.outLinks?.length}
-							<Text
-								label="one-way to"
-								value={point.outLinks.map(snapLabel).join(', ')}
-								disabled
-							/>
+							<Text label="one-way to" value={point.outLinks.map(snapLabel).join(', ')} disabled />
 						{/if}
 						<Text
 							label="tags"
