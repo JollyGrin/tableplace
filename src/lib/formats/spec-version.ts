@@ -67,6 +67,11 @@ export const PACK_SPEC_VERSION = '1.10.0';
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
  *
+ * 0.1.20 — snap points can carry `outLinks` (one-way links: ids of the points
+ * this one leads to, which don't reach back through that edge —
+ * tableplace-255), both in the top-level `snapPoints` array and in
+ * `state.snapPoints`. One optional field — additive, so PATCH.
+ *
  * 0.1.19 — `state.pieces` (and bag piece items) can carry `shape`, a token's
  * outline (`'disc'` | `'square'`, tableplace-254), because the schema is
  * generated from `Partial<GameDTO>`. Any other value is refused by the parser.
@@ -132,7 +137,7 @@ export const PACK_SPEC_VERSION = '1.10.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.19';
+export const SCENARIO_SPEC_VERSION = '0.1.20';
 
 export type Semver = { major: number; minor: number; patch: number };
 

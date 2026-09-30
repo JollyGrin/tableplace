@@ -292,21 +292,23 @@ Scenarios are **seat-relative**. Entities belong to placeholder players `seat0`�
 
 Pieces can opt out per piece: a pack piece (or `state` piece) with `snap: false` ignores points and grids entirely — see §6.1.
 
-**Links, tags and reach — an optional board graph.** Many boards move pieces along connected spaces. Two optional fields describe that, and one on pieces uses it:
+**Links, tags and reach — an optional board graph.** Many boards move pieces along connected spaces. Three optional fields describe that, and one on pieces uses it:
 
 ```json
 "snapPoints": [
 	{ "position": [-4, 0], "links": ["snap:1"], "tags": ["north"] },
 	{ "position": [0, 0], "links": ["snap:2"] },
-	{ "position": [4, 0] }
+	{ "position": [4, 0], "outLinks": ["snap:3"] },
+	{ "position": [8, 0] }
 ]
 ```
 
 - **`links`** _(optional)_ — ids of the snap points this one connects to. A point's id is **`snap:<its index in the array>`** — `snap:0` is the first entry. Links are **undirected**: written on either end they join both, so you need not repeat them. A link to an index that doesn't exist is ignored.
+- **`outLinks`** _(optional)_ — **one-way** links, written with the same ids: the points this one _leads to_. The edge leaves the point it is written on, and the target does not reach back through it — use it for a directed route (a one-way path, a slide, a door that only opens from one side). Above, `snap:2` leads to `snap:3` but `snap:3` leads nowhere. Write a one-way link only on its starting point; a pair that is also joined by `links` is simply two-way. A target that doesn't exist is ignored.
 - **`tags`** _(optional)_ — free-form string labels (regions, sides, anything a scenario wants to group points by). The table never reads them.
-- A piece's **`reach`** _(optional, §6.1 and `state.pieces`)_ — a whole number: how many links the piece usually travels. Lift a piece with `reach` off a linked snap point and the points within `reach` links (breadth-first, including the one it left) glow brighter than the rest; points with something already on them are left out of that bright set but still count as passable.
+- A piece's **`reach`** _(optional, §6.1 and `state.pieces`)_ — a whole number: how many links the piece usually travels. Lift a piece with `reach` off a linked snap point and the points within `reach` links (breadth-first, including the one it left; `links` walked both ways, `outLinks` only the way they point) glow brighter than the rest; points with something already on them are left out of that bright set but still count as passable.
 
-All three are **advisory only**. Nothing is ever blocked — a drop still lands on whichever point catches it, so house rules keep working. A scenario without links behaves exactly as it did before they existed.
+All four are **advisory only**. Nothing is ever blocked — a drop still lands on whichever point catches it, so house rules keep working. A scenario without links behaves exactly as it did before they existed.
 
 Snap points are **table-scoped, not seat-relative**: unlike a pack piece's `[x, z]`, they are never mirrored for the far side of the table. Author both ends explicitly — one at `[0, 2.5]` facing `0`, one at `[0, -2.5]` facing `180`.
 

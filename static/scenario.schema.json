@@ -214,6 +214,14 @@
 								},
 								"title": "links"
 							},
+							"outLinks": {
+								"description": "One-way links: ids (`snap:<index>`, as in `links`) of the points this one\nleads to. The edge leaves this point only — the target doesn't reach back\nthrough it — so a directed route is written on its starting end. A pair\nthat is also joined by `links` is two-way. Advisory, like `links`.",
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"title": "outLinks"
+							},
 							"tags": {
 								"description": "free-form labels (regions, sides, anything) the table itself never reads",
 								"type": "array",
@@ -1060,6 +1068,14 @@
 					},
 					"title": "links"
 				},
+				"outLinks": {
+					"description": "One-way links (tableplace-255): ids of the points this one leads to. The\nedge leaves this point only — the target doesn't reach back through it.\nFor directed routes; everything else about `links` holds (a missing\ntarget is ignored, inert without `reach`). A pair that is also in\n`links` is simply two-way.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"title": "outLinks"
+				},
 				"tags": {
 					"description": "free-form labels a scenario can group points by; the table reads none of them",
 					"type": "array",
@@ -1072,7 +1088,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.19",
-	"x-generated-at": "2026-09-30T09:59:25.483Z",
-	"x-tableplace-source-sha": "f0a440405a4798f2e075eb640f7b9947ce47c5f5-dirty"
+	"x-tableplace-spec-version": "0.1.20",
+	"x-generated-at": "2026-09-30T10:36:09.376Z",
+	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
 }

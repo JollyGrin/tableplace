@@ -56,6 +56,8 @@ export type AddSnapPointOptions = {
 	yawStep?: number;
 	/** ids of connected points (see `toggleSnapLink` to keep both ends in step) */
 	links?: string[];
+	/** ids of the points this one leads to, one way only */
+	outLinks?: string[];
 	/** free-form labels */
 	tags?: string[];
 };
@@ -78,6 +80,7 @@ function addSnapPoint(opts: AddSnapPointOptions = {}): string {
 		'rows',
 		'yawStep',
 		'links',
+		'outLinks',
 		'tags'
 	] as const) {
 		if (opts[field] !== undefined) (point as Record<string, unknown>)[field] = opts[field];
@@ -108,6 +111,7 @@ function updateSnapPoint(id: string, patch: Partial<Omit<SnapPointDTO, 'id'>>) {
 		'rows',
 		'yawStep',
 		'links',
+		'outLinks',
 		'tags'
 	] as const) {
 		if (field in patch && patch[field] === undefined) next[field] = null;
@@ -126,14 +130,22 @@ function removeSnapPoint(id: string) {
 	const points = get(gameStore)?.snapPoints ?? {};
 	const update: Record<string, Partial<SnapPointState> | null> = { [id]: null };
 	for (const other in points) {
-		const links = points[other]?.links;
-		if (other === id || !links?.includes(id)) continue;
-		const rest = links.filter((link) => link !== id);
-		// an emptied list is deleted, not shipped
-		update[other] = { links: rest.length ? rest : null } as Partial<SnapPointState>;
+		if (other === id) continue;
+		const patch: Record<string, string[] | null> = {};
+		for (const field of LINK_FIELDS) {
+			const links = points[other]?.[field];
+			if (!links?.includes(id)) continue;
+			const rest = links.filter((link) => link !== id);
+			// an emptied list is deleted, not shipped
+			patch[field] = rest.length ? rest : null;
+		}
+		if (Object.keys(patch).length) update[other] = patch as Partial<SnapPointState>;
 	}
 	gameStore.updateState({ snapPoints: update });
 }
+
+/** the two lists an edge can be written in: two-way `links`, one-way `outLinks` */
+const LINK_FIELDS = ['links', 'outLinks'] as const;
 
 /** are `a` and `b` linked — from either end, since links are undirected */
 function snapPointsLinked(a: string, b: string, state?: Partial<GameDTO> | null): boolean {
@@ -142,33 +154,57 @@ function snapPointsLinked(a: string, b: string, state?: Partial<GameDTO> | null)
 }
 
 /**
- * Draw a link between two points, or remove it if they are already linked.
- * Written on both ends, so a file reads the same from either point. Returns
- * whether they are linked afterwards.
+ * Draw a link between two points, or remove the one that is there.
+ *
+ * Two-way (the default): written on both ends, so a file reads the same from
+ * either point; toggling a pair that is joined in any way — a one-way edge
+ * included — clears it.
+ *
+ * `oneWay`: the edge leaves `a` for `b` and is written on `a` alone
+ * (`outLinks`). It replaces whatever joined the pair, so drawing it against
+ * an existing edge turns that edge round; toggling the same edge again
+ * removes it.
+ *
+ * Returns whether the pair is joined afterwards.
  */
-function toggleSnapLink(a: string, b: string): boolean {
+function toggleSnapLink(a: string, b: string, oneWay = false): boolean {
 	const points = get(gameStore)?.snapPoints;
 	if (a === b || !points?.[a] || !points?.[b]) return false;
-	const linked = snapPointsLinked(a, b);
-	const next = (self: string, other: string) => {
-		const links = (points[self]?.links ?? []).filter((link) => link !== other);
-		if (!linked) links.push(other);
-		// an empty list is deleted rather than shipped
-		return { links: links.length ? links : null };
+	const forward = !!points[a]?.outLinks?.includes(b);
+	const back = !!points[b]?.outLinks?.includes(a);
+	const twoWay = snapPointsLinked(a, b);
+	const remove = oneWay ? forward && !back && !twoWay : twoWay || forward || back;
+	const next = (self: string, other: string, add: (typeof LINK_FIELDS)[number] | null) => {
+		const patch: Record<string, string[] | null> = {};
+		for (const field of LINK_FIELDS) {
+			const current = points[self]?.[field];
+			const list = (current ?? []).filter((link) => link !== other);
+			if (field === add) list.push(other);
+			// an empty list is deleted rather than shipped
+			if (current || list.length) patch[field] = list.length ? list : null;
+		}
+		return patch;
 	};
 	gameStore.updateState({
-		snapPoints: { [a]: next(a, b), [b]: next(b, a) }
+		snapPoints: {
+			[a]: next(a, b, remove ? null : oneWay ? 'outLinks' : 'links'),
+			[b]: next(b, a, remove || oneWay ? null : 'links')
+		}
 	} as Parameters<typeof gameStore.updateState>[0]);
-	return !linked;
+	return !remove;
 }
 
-/** Drop every link on the table — the editor's "clear links". */
+/** Drop every link on the table, one-way ones too — the editor's "clear links". */
 function clearSnapLinks() {
 	const points = get(gameStore)?.snapPoints ?? {};
 	// `null` deletes the field — see updateSnapPoint for why the cast
 	const update: Record<string, Partial<SnapPointState>> = {};
 	for (const id in points) {
-		if (points[id]?.links) update[id] = { links: null } as unknown as Partial<SnapPointState>;
+		for (const field of LINK_FIELDS) {
+			if (points[id]?.[field]) {
+				update[id] = { ...update[id], [field]: null } as unknown as Partial<SnapPointState>;
+			}
+		}
 	}
 	if (!Object.keys(update).length) return;
 	gameStore.updateState({ snapPoints: update });

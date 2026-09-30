@@ -354,6 +354,14 @@ export type SnapPointDTO = {
 	 * carries `reach`.
 	 */
 	links?: string[];
+	/**
+	 * One-way links (tableplace-255): ids of the points this one leads to. The
+	 * edge leaves this point only — the target doesn't reach back through it.
+	 * For directed routes; everything else about `links` holds (a missing
+	 * target is ignored, inert without `reach`). A pair that is also in
+	 * `links` is simply two-way.
+	 */
+	outLinks?: string[];
 	/** free-form labels a scenario can group points by; the table reads none of them */
 	tags?: string[];
 };

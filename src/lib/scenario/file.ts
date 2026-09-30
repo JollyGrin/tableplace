@@ -145,6 +145,13 @@ export type SnapPoint = {
 	 * points a lifted piece with `reach` can get to — nothing is ever blocked.
 	 */
 	links?: string[];
+	/**
+	 * One-way links: ids (`snap:<index>`, as in `links`) of the points this one
+	 * leads to. The edge leaves this point only — the target doesn't reach back
+	 * through it — so a directed route is written on its starting end. A pair
+	 * that is also joined by `links` is two-way. Advisory, like `links`.
+	 */
+	outLinks?: string[];
 	/** free-form labels (regions, sides, anything) the table itself never reads */
 	tags?: string[];
 };
@@ -361,7 +368,7 @@ function parseSnapPoint(v: unknown, path: string): SnapPoint {
 			point.yawStep = v.yawStep;
 		}
 	}
-	for (const field of ['links', 'tags'] as const) {
+	for (const field of ['links', 'outLinks', 'tags'] as const) {
 		const list = v[field];
 		if (list === undefined) continue;
 		if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) {
