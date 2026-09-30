@@ -144,13 +144,16 @@ export type TestBridge = {
 	/**
 	 * A counter's printed dial face (CounterDial.svelte), or null when none is
 	 * drawn: what the canvas last printed, how many times it has been drawn (a
-	 * redraw only ever follows a change to name/value/max), its live pulse
+	 * redraw only ever follows a change to name/value/min/max), its live pulse
 	 * `scale`, and the world yaw its text faces (0 reads from seat 0).
 	 */
 	dial: (id: string) => {
 		name: string;
 		value: number;
 		maxValue: number | null;
+		minValue: number;
+		/** how full the rim arc is drawn, 0…1; null when there is no arc */
+		fraction: number | null;
 		redraws: number;
 		scale: number;
 		facing: number;
@@ -632,6 +635,8 @@ export function installTestBridge(handles: SceneHandles): void {
 					name: string;
 					value: number;
 					maxValue: number | null;
+					minValue: number;
+					fraction: number | null;
 					redraws: number;
 				}),
 				scale: face.parent.scale.x,

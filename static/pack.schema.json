@@ -142,6 +142,11 @@
 								"type": "number",
 								"title": "maxValue"
 							},
+							"minValue": {
+								"description": "counters only: the lowest value it can show (default 0) — a dial that\nreads 3–17 is `minValue: 3, maxValue: 17`. May be negative; never above\n`maxValue`.",
+								"type": "number",
+								"title": "minValue"
+							},
 							"sides": {
 								"description": "dice only: how many faces the die has (defaults to 6)",
 								"enum": [10, 12, 20, 4, 6, 8],
@@ -314,6 +319,11 @@
 							"description": "counters draw at this value",
 							"type": "number",
 							"title": "maxValue"
+						},
+						"minValue": {
+							"description": "counters only: the lowest value it can show (default 0)",
+							"type": "number",
+							"title": "minValue"
 						}
 					},
 					"required": ["kind", "name"]
@@ -358,7 +368,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "1.8.0",
-	"x-generated-at": "2026-09-29T21:16:47.701Z",
-	"x-tableplace-source-sha": "7605e4e3b33b75de49a67f9193b899f6647aae78-dirty"
+	"x-tableplace-spec-version": "1.9.0",
+	"x-generated-at": "2026-09-30T08:59:37.540Z",
+	"x-tableplace-source-sha": "6b8e0fa28227484e42c787f9100bf772844374cc-dirty"
 }

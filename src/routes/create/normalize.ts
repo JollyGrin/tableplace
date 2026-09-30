@@ -44,6 +44,8 @@ export type EditorBagItem = {
 	imageUrl: string;
 	radius: number;
 	maxValue: number;
+	/** counters only; 0 is the default and stays out of the file */
+	minValue: number;
 	/** card items only */
 	code: string;
 	face: string;
@@ -61,6 +63,8 @@ export type EditorPiece = Omit<
 	model: string;
 	radius: number;
 	maxValue: number;
+	/** counters only; 0 is the default and stays out of the file */
+	minValue: number;
 	states: EditorPieceState[];
 	state: number;
 	contents: EditorBagItem[];
@@ -98,6 +102,7 @@ export function withBagItemDefaults(item: PackBagItemDef): EditorBagItem {
 			imageUrl: '',
 			radius: PIECE_RADIUS.token,
 			maxValue: COUNTER_MAX_DEFAULT,
+			minValue: 0,
 			code: item.code,
 			face: item.face,
 			back: item.back ?? '',
@@ -109,7 +114,8 @@ export function withBagItemDefaults(item: PackBagItemDef): EditorBagItem {
 		color: item.color ?? PIECE_COLOR_DEFAULT,
 		imageUrl: item.imageUrl ?? '',
 		radius: item.radius ?? PIECE_RADIUS[item.kind],
-		maxValue: item.maxValue ?? COUNTER_MAX_DEFAULT
+		maxValue: item.maxValue ?? COUNTER_MAX_DEFAULT,
+		minValue: item.minValue ?? 0
 	};
 }
 
@@ -135,6 +141,7 @@ export function withEditorDefaults(pack: GamePackDef): EditorPack {
 			rotation: piece.rotation ?? 0,
 			radius: piece.radius ?? PIECE_RADIUS[piece.kind],
 			maxValue: piece.maxValue ?? COUNTER_MAX_DEFAULT,
+			minValue: piece.minValue ?? 0,
 			states: (piece.states ?? []).map((state) => ({ face: state.face, name: state.name ?? '' })),
 			state: piece.state ?? 0,
 			sides: piece.sides ?? DIE_SIDES_DEFAULT,
@@ -179,7 +186,9 @@ function cleanBagItem(item: PackBagItemDef | EditorBagItem): PackBagItemDef {
 		...(editor.radius !== undefined ? { radius: editor.radius } : {}),
 		...(item.kind === 'counter' && editor.maxValue !== undefined
 			? { maxValue: editor.maxValue }
-			: {})
+			: {}),
+		// 0 is the default, so it stays out of the file
+		...(item.kind === 'counter' && editor.minValue ? { minValue: editor.minValue } : {})
 	};
 }
 
@@ -217,6 +226,8 @@ export function cleanForExport(draft: GamePackDef): GamePackDef {
 			...(piece.kind === 'counter' && piece.maxValue !== undefined
 				? { maxValue: piece.maxValue }
 				: {}),
+			// 0 is the default, so it stays out of the file
+			...(piece.kind === 'counter' && piece.minValue ? { minValue: piece.minValue } : {}),
 			...(piece.kind === 'die' && piece.sides !== undefined ? { sides: piece.sides } : {}),
 			// bag fields ship on bags only — a token that was switched to a bag and
 			// back must not export the contents it briefly had

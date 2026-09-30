@@ -27,7 +27,10 @@ describe('tbpp round-trip', () => {
 				// the per-piece snap opt-out (tableplace-134) survives the round-trip
 				{ kind: 'token', name: 'Loose prop', snap: false, position: [3, 3] },
 				// advisory reach over snap-point links (tableplace-190)
-				{ kind: 'pawn', name: 'Walker', reach: 2, position: [4, 4] }
+				{ kind: 'pawn', name: 'Walker', reach: 2, position: [4, 4] },
+				// a counter's floor (tableplace-253), negative ones included
+				{ kind: 'counter', name: 'Dial', minValue: 3, maxValue: 17, position: [5, 5] },
+				{ kind: 'counter', name: 'Score', minValue: -10, maxValue: 10, position: [6, 6] }
 			],
 			overlays: [{ imageUrl: 'https://x/map.webp', ratio: 1.6, scale: 10 }],
 			source: 'tts'
@@ -93,6 +96,7 @@ describe('tbpp round-trip', () => {
 						{ kind: 'token', name: 'Ember', color: '#f97316', imageUrl: 'https://x/e.png' },
 						{ kind: 'pawn', name: 'Runner', radius: 0.3 },
 						{ kind: 'counter', name: 'Dial', maxValue: 5 },
+						{ kind: 'counter', name: 'Round', minValue: 1, maxValue: 12 },
 						{
 							kind: 'card',
 							code: 'omen',
@@ -106,6 +110,37 @@ describe('tbpp round-trip', () => {
 			]
 		};
 		expect(parsePackFile(serializePackFile(pack))).toEqual(pack);
+	});
+
+	it('refuses a counter minValue above its maxValue, on a piece and in a bag', () => {
+		const pack = (piece: Record<string, unknown>) =>
+			JSON.stringify({ tbpp: 1, id: 'p', name: 'P', scope: 'table', decks: [], pieces: [piece] });
+		const dial = (bounds: Record<string, unknown>) => ({
+			kind: 'counter',
+			name: 'Dial',
+			position: [0, 0],
+			...bounds
+		});
+
+		expect(() => parsePackFile(pack(dial({ minValue: 18, maxValue: 17 })))).toThrow(
+			/pieces\[0\]\.minValue must not be above maxValue \(17\)/
+		);
+		expect(() => parsePackFile(pack(dial({ minValue: '3', maxValue: 17 })))).toThrow(
+			/minValue must be a number/
+		);
+		// no maxValue is the default one the counter spawns with, not "no ceiling"
+		expect(() => parsePackFile(pack(dial({ minValue: 30 })))).toThrow(/default maxValue \(20\)/);
+		expect(parsePackFile(pack(dial({ minValue: 5 }))).pieces?.[0].minValue).toBe(5);
+		// a floor equal to the ceiling is a fixed dial, not an error
+		expect(parsePackFile(pack(dial({ minValue: 4, maxValue: 4 }))).pieces?.[0].minValue).toBe(4);
+
+		const bag = {
+			kind: 'bag',
+			name: 'Bag',
+			position: [0, 0],
+			contents: [{ kind: 'counter', name: 'Round', minValue: 13, maxValue: 12 }]
+		};
+		expect(() => parsePackFile(pack(bag))).toThrow(/contents\[0\]\.minValue must not be above/);
 	});
 
 	it('round-trips a bag with no contents and no draw mode', () => {

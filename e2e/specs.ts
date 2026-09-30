@@ -2343,6 +2343,113 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-253: a counter with a minimum. A dial that reads 3–17 stops
+		 * at 3 — real clicks (counter-input's plain-click −1) past the floor leave
+		 * the PRINTED value on it, and the rim arc is measured over the real
+		 * range: empty at the minimum, full at the maximum. A counter beside it
+		 * with no minimum still runs down to 0, as it always did.
+		 */
+		name: 'counter minimum: clicks past the floor stop on it, the arc fills over the real range',
+		run: (context) =>
+			withTable(context, 'dial-minimum', async (table) => {
+				const deck = await table.seedDeck();
+				const ranged = await table.spawn('counter', {
+					name: 'Dial',
+					minValue: 3,
+					maxValue: 17,
+					value: 5,
+					radius: 1,
+					position: ON_FELT(0)
+				});
+				const plain = await table.spawn('counter', {
+					name: 'Plain',
+					maxValue: 17,
+					value: 1,
+					radius: 1,
+					position: ON_FELT(1)
+				});
+				await table.settle(1500);
+				assertClean(table, 'with a ranged counter on the table');
+
+				const dial = (id: string) =>
+					table.page.evaluate((entityId) => window.__tableplace!.dial(entityId), id);
+				const near = (a: number | null | undefined, b: number) =>
+					a != null && Math.abs(a - b) < 1e-6;
+
+				const first = await dial(ranged);
+				ok(
+					first?.value === 5 && first.minValue === 3 && first.maxValue === 17,
+					`the dial printed the wrong thing: ${JSON.stringify(first)}`
+				);
+				// 5 is two steps into a fourteen-step range — not 5/17 of the rim
+				ok(near(first!.fraction, 2 / 14), `the arc ignores the minimum: ${first!.fraction}`);
+
+				/** One real click on the counter; resolves with what the face prints after it. */
+				const clickDown = async (id: string, expected: number) => {
+					const at = await table.locate(id);
+					ok(at, `${id} never mounted — nothing to click`);
+					await table.page.mouse.click(at!.x, at!.y);
+					// long enough for the pulse to settle, and for the next click not
+					// to read as the second half of a double click
+					await table.settle(700);
+					const face = await eventually(
+						() => dial(id),
+						(d) => d?.value === expected,
+						3000
+					);
+					ok(
+						face?.value === expected,
+						`after a click the face reads ${face?.value}, expected ${expected}`
+					);
+					return face!;
+				};
+
+				await clickDown(ranged, 4);
+				const floor = await clickDown(ranged, 3);
+				ok(floor.fraction === 0, `at the minimum the arc is not empty: ${floor.fraction}`);
+				// past the floor: the click lands, the face stays put
+				const held = await clickDown(ranged, 3);
+				await clickDown(ranged, 3);
+				ok(
+					held.redraws === floor.redraws,
+					`a click at the floor redrew the face: ${floor.redraws} → ${held.redraws}`
+				);
+				const stored = await table.page.evaluate(
+					(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
+					ranged
+				);
+				ok(stored === 3, `the store went below the minimum: ${JSON.stringify(stored)}`);
+
+				// and the ceiling: a push past the maximum stops on it, arc full
+				await table.page.evaluate(
+					(id) => window.__tableplace!.actions.incrementCounter(id, 100),
+					ranged
+				);
+				const full = await eventually(
+					() => dial(ranged),
+					(d) => d?.value === 17
+				);
+				ok(
+					full?.value === 17 && full.fraction === 1,
+					`past the maximum the face reads ${JSON.stringify(full)}`
+				);
+
+				// a counter without a minimum is untouched: it still reaches 0
+				const zero = await clickDown(plain, 0);
+				ok(
+					zero.minValue === 0 && zero.fraction === 0,
+					`the plain counter's face: ${JSON.stringify(zero)}`
+				);
+				await clickDown(plain, 0);
+
+				await assertDraggable(table, ranged, 'the ranged counter');
+				await assertDraggable(table, deck, 'deck (with a ranged counter on the table)');
+				assertClean(table, 'at the end of the counter-minimum suite');
+				await table.snap('dial-minimum');
+			})
+	},
+	{
+		/**
 		 * tableplace-161, the wheel itself: a right press that HOLDS STILL opens
 		 * the radial menu on the card under it, a flick to a wedge fires exactly
 		 * that wedge, and a release in the centre deadzone is a cancel.

@@ -19,6 +19,12 @@
 /**
  * Bump on any change to the pack schema. See docs/packs.md § Spec versioning.
  *
+ * 1.9.0 — counters (pieces and bag piece items) can carry `minValue`, the
+ * lowest value the counter can show (default 0): the value clamps to
+ * `[minValue, maxValue]` and the rim arc fills over that range
+ * (tableplace-253). The TTS importer maps a counter script's `MIN_VALUE`
+ * onto it. Additive: every earlier 1.x pack is still valid.
+ *
  * 1.8.0 — decks, pieces and overlays can carry `locked` (spawn pinned in
  * place: no drag, flip, turn or group until `L` unpins it; the TTS importer
  * maps `Locked` onto it, tableplace-189). Additive: every earlier 1.x pack is
@@ -40,7 +46,7 @@
  * 1.3.0 — added the `bag` piece kind (`contents`/`drawMode`/`infinite`),
  * additive: every earlier 1.x pack is still valid.
  */
-export const PACK_SPEC_VERSION = '1.8.0';
+export const PACK_SPEC_VERSION = '1.9.0';
 
 /**
  * The scenario spec is deliberately 0.x: it is unstable and carries no
@@ -53,6 +59,12 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * build then refuses files it could have read perfectly well. (The general
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
+ *
+ * 0.1.18 — `state.pieces` (and bag piece items) can carry `minValue`, a
+ * counter's floor (tableplace-253), because the schema is generated from
+ * `Partial<GameDTO>`. A counter `value` outside `[minValue, maxValue]` is
+ * refused: in `state.pieces` by the parser, on a placement where it meets its
+ * pack piece. One optional field — additive, so PATCH.
  *
  * 0.1.17 — top-level `coach` (boolean): `false` hides the first-run "things
  * to try" checklist on the table, seeded into the synced `state.table`
@@ -108,7 +120,7 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.17';
+export const SCENARIO_SPEC_VERSION = '0.1.18';
 
 export type Semver = { major: number; minor: number; patch: number };
 

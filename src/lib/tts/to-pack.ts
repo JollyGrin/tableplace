@@ -79,7 +79,8 @@ function toBagContents(items: ParsedBagItem[]): PackBagItemDef[] {
 				...(item.color !== undefined ? { color: item.color } : {}),
 				...(item.imageUrl !== undefined ? { imageUrl: item.imageUrl } : {}),
 				...(item.radius !== undefined ? { radius: item.radius } : {}),
-				...(item.maxValue !== undefined ? { maxValue: item.maxValue } : {})
+				...(item.maxValue !== undefined ? { maxValue: item.maxValue } : {}),
+				...(item.minValue !== undefined ? { minValue: item.minValue } : {})
 			};
 		}
 		let code = slugify(item.name, `item-${i}`);
@@ -130,6 +131,7 @@ export function ttsToPack(parsed: ParsedSavedObject, opts: TtsToPackOptions = {}
 			...(states?.length && p.state ? { state: p.state } : {}),
 			...(p.radius !== undefined ? { radius: p.radius } : {}),
 			...(p.maxValue !== undefined ? { maxValue: p.maxValue } : {}),
+			...(p.minValue !== undefined ? { minValue: p.minValue } : {}),
 			...(p.kind === 'bag'
 				? {
 						contents: toBagContents(p.contents ?? []),

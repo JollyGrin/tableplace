@@ -162,6 +162,8 @@ export type BagPieceItem = {
 	imageUrl?: string;
 	radius?: number;
 	maxValue?: number;
+	/** counters only: the lowest value it can show (default 0) */
+	minValue?: number;
 };
 
 /** A card waiting inside a bag; `code` becomes part of the drawn card's id. */
@@ -213,6 +215,8 @@ export type PieceDTO = {
 	/** counter state — also the up-face of a die (1…sides) */
 	value?: number;
 	maxValue?: number;
+	/** counters only: the lowest `value` it can show (default 0) */
+	minValue?: number;
 	/** dice only: how many faces the die has */
 	sides?: DieSides;
 	/**

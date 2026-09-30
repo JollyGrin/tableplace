@@ -19,6 +19,7 @@ import { validRotationStep } from '../utils/yaw';
 import { validHandPlayFace } from '../utils/hand';
 import { validCoach } from '../coach/table';
 import { withoutHolds } from '../utils/hold';
+import { counterRange, counterValueRefusal } from '../primitives/counter-range';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */
@@ -66,7 +67,11 @@ export type PackPlacement = {
 	 * so one scenario can hold a fixed encounter deck and a shuffled draw deck.
 	 */
 	shuffleOnLoad?: boolean;
-	/** counter pieces only */
+	/**
+	 * counter pieces only — the count it starts on. Must sit inside the pack
+	 * piece's `[minValue, maxValue]`; a value outside it is refused when the
+	 * placement meets its pack (the file alone does not know the range).
+	 */
 	value?: number;
 	/**
 	 * piece placements only — which of the pack piece's `states` it starts on
@@ -367,6 +372,21 @@ function parseSnapPoint(v: unknown, path: string): SnapPoint {
 }
 
 /**
+ * A snapshot counter carries its own range, so the file can be held to it:
+ * a `value` outside `[minValue, maxValue]` is refused here, naming both
+ * bounds. (A placement's `value` is checked where its pack piece is known —
+ * `composePackPiece`.) Only whole counters are checked: a partial override
+ * that names no `kind` inherits its range from the placement it lays over.
+ */
+function assertCounterValues(state: Partial<GameDTO>) {
+	for (const [id, piece] of Object.entries(state.pieces ?? {})) {
+		if (piece?.kind !== 'counter' || typeof piece.value !== 'number') continue;
+		const refusal = counterValueRefusal(piece.value, counterRange(piece));
+		if (refusal) fail(`state.pieces[${JSON.stringify(id)}].value ${refusal}`);
+	}
+}
+
+/**
  * Parse + validate a scenario file. Accepts v2 (pack-referencing), v1
  * (self-contained snapshot) and, as a v0 fallback, the legacy
  * `scenario-<name>.json` shape (no `tbps` field) so existing exports keep
@@ -405,6 +425,7 @@ export function parseScenarioFile(text: string): Scenario {
 		// a stray hold (tableplace-199) is live-table state, never a file's
 		state: withoutHolds((obj.state ?? {}) as Partial<GameDTO>)
 	};
+	assertCounterValues(scenario.state);
 	if (obj.packs !== undefined) {
 		if (!Array.isArray(obj.packs)) throw new Error('`packs` must be an array');
 		scenario.packs = obj.packs.map((p, i) => parsePackRef(p, `packs[${i}]`));

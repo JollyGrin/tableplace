@@ -7,7 +7,8 @@
  * Packs are templates: nothing here mutates the pack it was handed.
  */
 
-import { PIECE_REST_Y } from '../utils/constants-pieces';
+import { COUNTER_MAX_DEFAULT, PIECE_REST_Y } from '../utils/constants-pieces';
+import { counterRange, counterValueRefusal } from '../primitives/counter-range';
 import { composePiece, type Vec3 } from './piece';
 import type { GamePackDef, PackDeckDef, PackPieceDef } from '../packs/types';
 import type {
@@ -189,7 +190,8 @@ export type ComposePackPieceOptions = CommonOptions & {
 
 /**
  * Instantiate one of a pack's pieces (by index into `pack.pieces`).
- * Returns undefined — after saying so — for an index the pack doesn't have.
+ * Returns undefined — after saying so — for an index the pack doesn't have,
+ * or for a counter `value` outside the pack piece's `[minValue, maxValue]`.
  */
 export function composePackPiece(
 	pack: GamePackDef,
@@ -200,6 +202,16 @@ export function composePackPiece(
 	if (!def) {
 		console.error(`[compose] ${pack.id} has no piece[${index}]`);
 		return undefined;
+	}
+	// a saved count is only meaningful inside the counter's own range, and this
+	// is the first place the two meet: a placement names the pack piece, the
+	// pack piece owns the bounds (tableplace-253)
+	if (def.kind === 'counter' && opts.value !== undefined) {
+		const refusal = counterValueRefusal(opts.value, counterRange(def, COUNTER_MAX_DEFAULT));
+		if (refusal) {
+			console.error(`[compose] ${pack.id} piece[${index}] '${def.name}': value ${refusal}`);
+			return undefined;
+		}
 	}
 
 	// pack piece positions are authored for seat 0; mirror for the far side
@@ -218,6 +230,7 @@ export function composePackPiece(
 		state: opts.state ?? def.state,
 		radius: def.radius,
 		maxValue: def.maxValue,
+		minValue: def.minValue,
 		sides: def.sides,
 		model: def.model,
 		snap: def.snap,

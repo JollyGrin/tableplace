@@ -10,6 +10,7 @@ import {
 	slugify,
 	type PieceProps
 } from '$lib/compose/piece';
+import { clampToRange, counterRange } from '$lib/primitives/counter-range';
 import type { GameDTO, PieceKind } from '../types';
 
 // re-exported so `slugify` keeps its historical home here (bag.ts imports it)
@@ -44,12 +45,15 @@ function rotatePiece(pieceId: string, delta: number) {
 	return gameStore.updateState({ pieces: { [pieceId]: { rotation: [x, next, z] } } });
 }
 
-/** Adjust a counter piece's value, clamped to [0, maxValue] */
+/**
+ * Adjust a counter piece's value, clamped to [minValue, maxValue]. An absent
+ * `minValue` is 0, so a counter that never declared one moves as it always did.
+ */
 function incrementCounter(pieceId: string, delta: number) {
 	const piece = getPieceState(pieceId);
 	if (!piece || piece.kind !== 'counter') return;
-	const max = piece.maxValue ?? 99;
-	const value = Math.min(max, Math.max(0, (piece.value ?? max) + delta));
+	const range = counterRange(piece);
+	const value = clampToRange((piece.value ?? range.max) + delta, range);
 	return gameStore.updateState({ pieces: { [pieceId]: { value } } });
 }
 

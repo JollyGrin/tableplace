@@ -110,6 +110,48 @@ describe('parseScenarioFile errors', () => {
 		);
 	});
 
+	it('refuses a counter value outside its own range, naming both bounds', () => {
+		const withCounter = (piece: Record<string, unknown>) =>
+			JSON.stringify({
+				tbps: 1,
+				name: 'x',
+				state: { pieces: { 'piece:seat0:dial-0': { kind: 'counter', name: 'Dial', ...piece } } }
+			});
+
+		expect(() => parseScenarioFile(withCounter({ value: 2, minValue: 3, maxValue: 17 }))).toThrow(
+			'state.pieces["piece:seat0:dial-0"].value must be between 3 and 17, got 2'
+		);
+		expect(() => parseScenarioFile(withCounter({ value: 18, minValue: 3, maxValue: 17 }))).toThrow(
+			/between 3 and 17/
+		);
+		// no minValue means 0, as it always did
+		expect(() => parseScenarioFile(withCounter({ value: -1, maxValue: 17 }))).toThrow(
+			/between 0 and 17/
+		);
+		// both ends of the range are inside it
+		for (const value of [3, 17]) {
+			expect(
+				parseScenarioFile(withCounter({ value, minValue: 3, maxValue: 17 })).state.pieces
+			).toMatchObject({ 'piece:seat0:dial-0': { value, minValue: 3 } });
+		}
+	});
+
+	it('does not hold a die, or an override that names no kind, to a counter range', () => {
+		const parsed = parseScenarioFile(
+			JSON.stringify({
+				tbps: 1,
+				name: 'x',
+				state: {
+					pieces: {
+						'piece:seat0:d20-0': { kind: 'die', sides: 20, value: 20, maxValue: 6 },
+						'piece:seat0:dial-0': { value: -4 }
+					}
+				}
+			})
+		);
+		expect(Object.keys(parsed.state.pieces ?? {})).toHaveLength(2);
+	});
+
 	it('rejects files without a name or state', () => {
 		expect(() => parseScenarioFile(JSON.stringify({ state: {} }))).toThrow(/name/);
 		expect(() => parseScenarioFile(JSON.stringify({ name: 'x' }))).toThrow(/state/);

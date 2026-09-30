@@ -73,6 +73,7 @@ export type ParsedBagItem =
 			imageUrl?: string;
 			radius?: number;
 			maxValue?: number;
+			minValue?: number;
 	  }
 	| { kind: 'card'; name: string; face: SheetCell; back: SheetCell; sideways?: boolean };
 
@@ -83,6 +84,8 @@ export type ParsedPiece = {
 	imageUrl?: string;
 	radius?: number;
 	maxValue?: number;
+	/** counters only: the dial's floor, when its script declares one */
+	minValue?: number;
 	/** every face of a TTS `States` object, in state order; absent when single-state */
 	states?: ParsedPieceState[];
 	/** index into `states` the object was saved showing */
@@ -153,6 +156,19 @@ function colorToHex(color?: { r?: number; g?: number; b?: number }): string | un
 export function extractCounterMax(luaScript?: string): number | null {
 	const match = luaScript?.match(/MAX_VALUE\s*=\s*(\d+)/);
 	return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * The floor a TTS counter script declares beside its `MAX_VALUE`, or null.
+ * Signed — a counter may run below zero. A floor above the max is a script
+ * that does not mean what this reads it as, so it is dropped rather than
+ * imported as a counter with no value it could show.
+ */
+export function extractCounterMin(luaScript: string | undefined, maxValue: number): number | null {
+	const match = luaScript?.match(/MIN_VALUE\s*=\s*(-?\d+)/);
+	if (!match) return null;
+	const min = parseInt(match[1], 10);
+	return min <= maxValue ? min : null;
 }
 
 /**
@@ -266,12 +282,15 @@ function pieceFrom(obj: TtsObject, skipped: string[]): ParsedPiece | null {
 	if (type === 'Custom_Model') {
 		const maxValue = extractCounterMax(obj.LuaScript);
 		if (maxValue !== null) {
+			const minValue = extractCounterMin(obj.LuaScript, maxValue);
 			return {
 				kind: 'counter',
 				name,
 				color,
 				radius: 0.6,
 				maxValue,
+				// 0 is the default, so only a real floor is carried
+				...(minValue ? { minValue } : {}),
 				...pieceStates(obj, skipped),
 				position
 			};
@@ -369,7 +388,8 @@ function bagItemsFrom(bag: TtsObject, skipped: string[]): ParsedBagItem[] {
 				...(piece.color !== undefined ? { color: piece.color } : {}),
 				...(piece.imageUrl !== undefined ? { imageUrl: piece.imageUrl } : {}),
 				...(piece.radius !== undefined ? { radius: piece.radius } : {}),
-				...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {})
+				...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {}),
+				...(piece.minValue !== undefined ? { minValue: piece.minValue } : {})
 			});
 			continue;
 		}
