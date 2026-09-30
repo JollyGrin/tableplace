@@ -17,10 +17,11 @@
 	import { lastMoved } from '$lib/store/lastMoved';
 	import { SEAT_ROTATION_DEG } from '$lib/hud/players';
 	import { pointerTargets } from '$lib/verbs/keyboard';
+	import { hoveredTrayCard } from '$lib/HUDTray/trayHover';
 	import { isRadialOpen } from '$lib/store/radialUi';
 	import { gameActions } from './store/game/actions';
 	import { gameStore } from './store/game/gameStore.svelte';
-	import { createCameraStream } from '$lib/websocket/cameraStream';
+	import { createCameraStream, type TablePoint } from '$lib/websocket/cameraStream';
 	import { isWebSocketConnected, sendMessage } from '$lib/websocket/connection';
 	import { isTyping } from '$lib/hotkeys/is-typing';
 	import {
@@ -322,8 +323,48 @@
 		}
 		const { x, y, z } = camera.position;
 		const { x: tx, y: ty, z: tz } = controls.target;
-		cameraStream.offer([x, y, z], [tx, ty, tz], force);
+		// the cursor stays put on screen while the view moves under it, so its
+		// table point moved too — it rides this same sample
+		cameraStream.offer([x, y, z], [tx, ty, tz], force, pointerPoint());
 	}
+
+	/**
+	 * Remote pointers (tableplace-197): the table point under our cursor rides
+	 * the camera stream above — the same message, the same ~3 Hz throttle, so
+	 * pointing while orbiting costs no more than orbiting. Like the pose it
+	 * yields to a drag (the dragged thing already shows where we are) and
+	 * catches up on release.
+	 *
+	 * On threlte's wrapper `dom`, where interactivity's pointer capture sends
+	 * everything. Leaving it — for the page, or a DOM pane stacked on the
+	 * table — takes the pointer off every peer's felt.
+	 */
+	let pointerAt: { x: number; y: number } | null = null;
+
+	function pointerPoint(): TablePoint | null {
+		if (!pointerAt || !camera) return null;
+		// over our own hand, the felt behind it is not what we are pointing at
+		if (get(hoveredTrayCard)) return null;
+		const point = feltPointAt(camera, dom.getBoundingClientRect(), pointerAt.x, pointerAt.y);
+		return point ? [point.x, point.z] : null;
+	}
+
+	$effect(() => {
+		const onMove = (event: PointerEvent) => {
+			pointerAt = { x: event.clientX, y: event.clientY };
+			if (!isDragging) cameraStream.point(pointerPoint());
+		};
+		const onLeave = () => {
+			pointerAt = null;
+			if (!isDragging) cameraStream.point(null);
+		};
+		dom.addEventListener('pointermove', onMove);
+		dom.addEventListener('pointerleave', onLeave);
+		return () => {
+			dom.removeEventListener('pointermove', onMove);
+			dom.removeEventListener('pointerleave', onLeave);
+		};
+	});
 
 	// a peer just joined and missed everything we sent before they connected
 	$effect(() => {

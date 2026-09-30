@@ -7,6 +7,7 @@ import { snapActions } from './snap';
 import { bagActions } from './bag';
 import { lockActions } from './lock';
 import { rotateActions } from './rotate';
+import { coachActions } from './coach';
 
 export const gameActions = {
 	...cardActions,
@@ -17,5 +18,6 @@ export const gameActions = {
 	...snapActions,
 	...bagActions,
 	...lockActions,
-	...rotateActions
+	...rotateActions,
+	...coachActions
 };

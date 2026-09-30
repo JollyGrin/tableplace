@@ -29,6 +29,7 @@
 	import { remoteCameraActions, remoteCameraStore } from './store/remoteCameraStore.svelte';
 	import { playerColor } from './hud/players';
 	import PingRipples from './ping/PingRipples.svelte';
+	import RemotePointers from './pointers/RemotePointers.svelte';
 	import { cancelActiveDrag, commitActiveDrag } from './drop/commit';
 	import { watchFrameStalls } from '$lib/utils/frame-stall.svelte';
 	import { onMount } from 'svelte';
@@ -313,6 +314,9 @@
 {#each remoteCameras as { id, color } (id)}
 	<RemoteCameraAvatar playerId={id} {color} />
 {/each}
+
+<!-- where the other players are pointing (tableplace-197), off the camera stream -->
+<RemotePointers />
 
 <!-- pings (tableplace-198): ripples on the felt, arrows for the ones off-view -->
 <PingRipples />

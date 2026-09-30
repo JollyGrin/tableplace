@@ -8,6 +8,9 @@ import { installJournal, journal } from '$lib/journal';
 import { installPing, receivePing } from '$lib/ping';
 import { createWsMetaData } from '$lib/utils/transforms/websocket';
 import toast from 'svelte-french-toast';
+import { get } from 'svelte/store';
+import { dragStore } from '$lib/store/dragStore.svelte';
+import { releaseHoldsPatch } from '$lib/utils/hold';
 
 /**
  * Initialize websocket connection and join the given lobby
@@ -112,6 +115,18 @@ function applyPresenceToCameras(value: unknown): void {
 }
 
 /**
+ * Held-by (tableplace-199): a reload mid-drag leaves this player's holds in
+ * the lobby, and a reconnect makes them binding again for everyone else. On
+ * the sync that follows a join nothing is in this client's hand, so it lets go
+ * of them — one patch, and only when there is something to let go of.
+ */
+function releaseStaleHolds(): void {
+	if (get(dragStore).isDragging) return;
+	const patch = releaseHoldsPatch(get(gameStore), gameActions.getMyId());
+	if (patch) gameStore.updateState(patch);
+}
+
+/**
  * Set up handlers for different message types
  */
 function setupMessageHandlers(): void {
@@ -120,6 +135,7 @@ function setupMessageHandlers(): void {
 			case 'sync':
 				console.log('Received sync message, updating local state', message);
 				gameStore.updateStateSilently(message.value);
+				releaseStaleHolds();
 				// resolve all sheet refs in the synced state, then force one
 				// re-render sweep so everything repaints deterministically
 				prewarmGameState(message.value, ({ total, failed }) => {

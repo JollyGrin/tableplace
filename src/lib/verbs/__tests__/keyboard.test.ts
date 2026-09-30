@@ -28,7 +28,7 @@ const gameActions = {
 	cyclePieceState: vi.fn()
 };
 const camera = { togglePreviewHud: vi.fn(), resetView: vi.fn() };
-const toastError = vi.fn();
+const toastError = vi.hoisted(() => vi.fn());
 
 vi.mock('$lib/store/game/actions', () => ({ gameActions }));
 vi.mock('$lib/utils/transforms/camera', () => ({ cameraTransforms: camera }));

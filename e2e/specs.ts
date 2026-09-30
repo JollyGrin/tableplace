@@ -810,7 +810,7 @@ export const SPECS: Spec[] = [
 					}
 					const stuck = await table.positionOf(id);
 					throw new Error(
-						`${label} (${id}) never arrived at (${x}, ${z}) after 3 drags: ${JSON.stringify(stuck)}`
+						`${label} (${id}) never arrived at (${x}, ${z}) after the drag and 3 retries: ${JSON.stringify(stuck)}`
 					);
 				};
 
@@ -999,7 +999,7 @@ export const SPECS: Spec[] = [
 					}
 					const stuck = await table.positionOf(id);
 					throw new Error(
-						`${label} (${id}) never arrived at (${x}, ${z}) after 3 drags: ${JSON.stringify(stuck)}`
+						`${label} (${id}) never arrived at (${x}, ${z}) after the drag and 3 retries: ${JSON.stringify(stuck)}`
 					);
 				};
 
@@ -1095,17 +1095,28 @@ export const SPECS: Spec[] = [
 					);
 				};
 
-				/** as `model surface`: what is retried is pointer delivery, not the property under test */
+				/**
+				 * As `model surface`: what is retried is pointer delivery, not the
+				 * property under test — so it only drags again when the drag the
+				 * caller already made did NOT arrive (tableplace-245). Re-dragging an
+				 * entity that is already there is no drag at all: `dragTo` aims a
+				 * few pixels below its own pixel, and under these stalls those
+				 * ~5px steps land seconds apart by event time — a press held still
+				 * past the wheel's hold, then a flick. The wheel opens, as it
+				 * should, and the release fires whatever wedge sits below: a turn
+				 * on the three-wedge token wheel, Lock once Ping made it four
+				 * (#198), after which every drag is refused.
+				 */
 				const dragToArrives = async (id: string, x: number, z: number, label: string) => {
-					for (let attempt = 0; attempt < 3; attempt++) {
-						await table.dragTo(id, x, z);
+					for (let attempt = 0; attempt <= 3; attempt++) {
 						await table.settle(900);
 						const position = await table.positionOf(id);
 						if (position && Math.hypot(position[0] - x, position[2] - z) < 1.0) return position;
+						if (attempt < 3) await table.dragTo(id, x, z);
 					}
 					const stuck = await table.positionOf(id);
 					throw new Error(
-						`${label} (${id}) never arrived at (${x}, ${z}) after 3 drags: ${JSON.stringify(stuck)}`
+						`${label} (${id}) never arrived at (${x}, ${z}) after the drag and 3 retries: ${JSON.stringify(stuck)}`
 					);
 				};
 
@@ -3496,11 +3507,14 @@ export const SPECS: Spec[] = [
 
 					const isBlue = ([r, g, b]: number[]) => b! > r! + 60 && b! > g! + 40;
 					const isGreen = ([r, g, b]: number[]) => g! > r! + 60 && g! > b! + 60;
+					// the art under a counter dial's light wash (≈ [80, 95, 140]): still
+					// plainly blue, where the smeared cream corner texel reads b < r
+					const isWashedBlue = ([r, g, b]: number[]) => b! > r! + 35 && b! > g! + 25;
 
 					/**
 					 * Five points on the far half of the disc's top face (−z draws
 					 * toward the top of the screen) and the colour drawn at each. The
-					 * near half is out: a counter's value badge rides over it. All but one
+					 * near half is out: a hovered piece's label badge rides over it. All but one
 					 * must match — a stray sample is a rim or a shadow, not the art.
 					 */
 					const FACE_POINTS = [
@@ -3510,11 +3524,26 @@ export const SPECS: Spec[] = [
 						[0.2, -0.75],
 						[-0.2, -0.75]
 					];
+					/**
+					 * A counter prints its dial over the art (tableplace-191): name
+					 * above, numerals across the middle, `of max` below, all on a
+					 * light wash. Its samples sit beside the numerals instead, in the
+					 * dial's own frame (canvas px on a 256 grid, +y toward its seat)
+					 * — clear of every glyph and its halo, inside the rim arc.
+					 */
+					const DIAL_POINTS = [
+						[95, 0],
+						[-95, 0],
+						[92, -25],
+						[-92, -25],
+						[92, 25]
+					].map(([x, y]) => [(x! / 128) * 0.97, (y! / 128) * 0.97]);
 					const assertFace = async (
 						id: string,
 						label: string,
 						colour: string,
-						matches: (rgb: number[]) => boolean
+						matches: (rgb: number[]) => boolean,
+						offsets = FACE_POINTS
 					) => {
 						const drawn = await eventually(
 							async () => {
@@ -3522,12 +3551,21 @@ export const SPECS: Spec[] = [
 								ok(at, `${label} (${id}) has no position`);
 								const top = at![1]! + PIECE_THICKNESS / 2;
 								const points = await table.page.evaluate(
-									(x, y, z, offsets) =>
-										offsets.map(([dx, dz]) => window.__tableplace!.project([x + dx!, y, z + dz!])),
+									(id, x, y, z, offsets) => {
+										const bridge = window.__tableplace!;
+										// a counter's points are in its dial's frame, which turns to its
+										// seat (`facing` is that frame's world yaw); a token's are world
+										const turn = bridge.dial(id)?.facing ?? 0;
+										const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
+										return offsets.map(([dx, dz]) =>
+											bridge.project([x + dx! * cos + dz! * sin, y, z - dx! * sin + dz! * cos])
+										);
+									},
+									id,
 									at![0]!,
 									top,
 									at![2]!,
-									FACE_POINTS
+									offsets
 								);
 								ok(
 									points.every(Boolean),
@@ -3551,7 +3589,13 @@ export const SPECS: Spec[] = [
 
 					await assertFace(pieces.token, 'a token with a cross-origin imageUrl', 'blue', isBlue);
 					await assertFace(pieces.sheet, 'a token with a sheet: imageUrl', 'blue', isBlue);
-					await assertFace(pieces.counter, 'a counter with an imageUrl', 'blue', isBlue);
+					await assertFace(
+						pieces.counter,
+						'a counter with an imageUrl',
+						'blue',
+						isWashedBlue,
+						DIAL_POINTS
+					);
 					await assertFace(pieces.states, 'a two-state token (front)', 'blue', isBlue);
 
 					// the face follows the state: flip it and the other image draws
@@ -4262,7 +4306,12 @@ export const SPECS: Spec[] = [
 					(text) => text.length > 0,
 					3000
 				);
-				for (const row of ['Shuffle hovered deck', 'Flip card', 'Reset camera', 'Cancel drag']) {
+				for (const row of [
+					'Shuffle hovered deck',
+					'Flip card',
+					'Seat view (reset camera)',
+					'Cancel drag'
+				]) {
 					ok(reference.includes(row), `the ? reference does not list "${row}"`);
 				}
 				await page.keyboard.press('Escape');
@@ -4397,12 +4446,13 @@ export const SPECS: Spec[] = [
 					);
 					await page.bringToFront();
 					await pressL();
+					// `eventually` hands back the last probe, and here success is `false`
 					ok(
-						await eventually(
+						!(await eventually(
 							() => lockedOn(table),
 							(on) => !on,
 							8000
-						),
+						)),
 						`a second L did not unlock the token — under the pointer: ${JSON.stringify(
 							await page.evaluate(() => {
 								const game = window.__tableplace!.state();
@@ -4418,11 +4468,11 @@ export const SPECS: Spec[] = [
 						)}`
 					);
 					ok(
-						await eventually(
+						!(await eventually(
 							() => lockedOn(remote),
 							(on) => !on,
 							8000
-						),
+						)),
 						'the second client never saw the unlock'
 					);
 					assertClean(remote, 'on the second client after lock and unlock');
@@ -4818,7 +4868,11 @@ export const SPECS: Spec[] = [
 				// ── seat 1: the back, and not a word about the face ────────────
 				// its own browser context: its own localStorage, so its own player id
 				const elsewhere = await context.browser.createBrowserContext();
-				const remote = await openTable(elsewhere, context.servers, lobby);
+				// a context whose table never loaded must not outlive the spec (#243)
+				const remote = await openTable(elsewhere, context.servers, lobby).catch(async (error) => {
+					await elsewhere.close();
+					throw error;
+				});
 				try {
 					// a joiner is not seated anywhere in particular: take seat 1, as a
 					// player at the far side of the table would
@@ -4947,7 +5001,11 @@ export const SPECS: Spec[] = [
 				};
 
 				// ── the fan stays inside the viewport ──────────────────────────
+				// The 15-card resizes run on a stalled page (#244): a loaded CI
+				// runner starved the cards' springs, which clamp to 1/30s a tick, so
+				// the fan was still sliding in from the 1280 layout when this looked.
 				let held = 0;
+				let stalled = 0;
 				for (const size of [1, 7, 15]) {
 					await draw(size - held);
 					held = size;
@@ -4955,6 +5013,7 @@ export const SPECS: Spec[] = [
 						[1280, 800],
 						[400, 800]
 					] as const) {
+						if (size === 15) await table.stall({ ms: 800, everyMs: 20 });
 						await page.setViewport({ width, height });
 						// off the hand, so nothing is raised
 						await page.mouse.move(width / 2, 40);
@@ -4976,8 +5035,13 @@ export const SPECS: Spec[] = [
 								) +
 								` (${cards.length} drawn)`
 						);
+						if (size === 15) stalled += await table.stall(null);
 					}
 				}
+				ok(
+					stalled > 5,
+					`the stall injector only ran ${stalled} times — the 15-card fan was not tested under load`
+				);
 				await page.setViewport({ width: 1280, height: 800 });
 				await page.mouse.move(640, 40);
 				await table.settle(900);
@@ -5382,6 +5446,75 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-204: table sounds. Synthesised in the page, so what a spec
+		 * can see is which sounds STARTED (`sounds()`), not what came out of a
+		 * speaker. The gates: none before a user gesture (a programmatic move on
+		 * a fresh page is silent), the first real mouse gesture arms audio and a
+		 * drag then lifts and drops, and none while muted — and the mute is
+		 * remembered across a reload.
+		 */
+		name: 'sound: silent before a gesture and while muted, lift and drop once armed',
+		run: (context) =>
+			withTable(context, 'sound', async (table) => {
+				const { page } = table;
+				const token = await table.spawn('token', { position: ON_FELT(1) });
+				const deck = await table.seedDeck();
+				await table.settle(2500);
+				const sounds = () => page.evaluate(() => window.__tableplace!.sounds());
+				const total = (s: Record<string, number | boolean>) =>
+					Object.entries(s).reduce((n, [, v]) => n + (typeof v === 'number' ? v : 0), 0);
+
+				// no gesture yet: a raised-and-lowered token makes no sound
+				const armed = await sounds();
+				ok(
+					armed.gestured === false,
+					`audio was armed before any gesture: ${JSON.stringify(armed)}`
+				);
+				await page.evaluate((id) => {
+					const bridge = window.__tableplace!;
+					bridge.actions.movePiece(id, [0, 2, 0]);
+					bridge.actions.movePiece(id, [0, 0.1, 0]);
+				}, token);
+				await sleep(300);
+				ok(
+					total(await sounds()) === 0,
+					`sound played before a gesture: ${JSON.stringify(await sounds())}`
+				);
+
+				// the first real gesture arms audio; a drag then lifts and drops
+				await table.dragBy(token, 120, 0);
+				const heard = await eventually(sounds, (s) => (s.drop as number) > 0);
+				ok(heard.gestured === true, `the gesture did not arm audio: ${JSON.stringify(heard)}`);
+				ok(
+					(heard.lift as number) > 0 && (heard.drop as number) > 0,
+					`a drag did not lift and drop: ${JSON.stringify(heard)}`
+				);
+
+				// muted: the visible toggle silences the same drag
+				await page.click('[data-testid="sound-toggle"]');
+				ok(
+					(await page.evaluate(() => localStorage.getItem('sound:v1'))) === 'off',
+					'the mute was not remembered in localStorage'
+				);
+				const muted = total(await sounds());
+				await table.dragBy(token, -120, 0);
+				await sleep(400);
+				ok(
+					total(await sounds()) === muted,
+					`sound played while muted: ${JSON.stringify(await sounds())}`
+				);
+
+				// unmuted again: it plays
+				await page.click('[data-testid="sound-toggle"]');
+				await table.dragBy(token, 120, 0);
+				await eventually(sounds, (s) => total(s) > muted);
+
+				await assertDraggable(table, deck, 'deck (beside sound)');
+				assertClean(table, 'after playing table sounds');
+			})
+	},
+	{
+		/**
 		 * tableplace-198: ping. Two players in two browser contexts. The first
 		 * double-clicks bare felt under a real mouse; the second must draw the
 		 * ripple, in the pinger's seat colour, at that spot — and it only ever
@@ -5574,6 +5707,625 @@ export const SPECS: Spec[] = [
 
 				assertClean(table, 'after pinging');
 				assertClean(peer, 'on the second client, watching pings');
+			} finally {
+				await remote?.close();
+				await peerContext.close();
+				await table.close();
+			}
+		}
+	},
+	{
+		/**
+		 * Held-by (tableplace-199), two real clients in separate browser contexts
+		 * (two localStorages, so two player ids). Seat 0 presses a piece and
+		 * carries it without letting go. Seat 1 must see the hold arrive in the
+		 * same patches as the move, draw it in seat 0's colour, and get nowhere
+		 * with a drag of its own: a toast, and the piece stays where seat 0 has
+		 * it. Once seat 0 lets go the hold is gone for both and seat 1 can move
+		 * it. Last, a holder that disconnects mid-hold: a bare relay client takes
+		 * the piece and drops its socket, and seat 1 can move it again.
+		 */
+		name: 'held-by: seat 0 holds a piece, and seat 1 cannot drag it until it is let go',
+		run: async (context) => {
+			const lobby = nextLobby('held-by');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const peerContext = await context.browser.createBrowserContext();
+			let remote: Table | null = null;
+			let holder: Awaited<ReturnType<typeof relayPeer>> | null = null;
+			const heldBy = (t: Table, id: string) =>
+				t.page.evaluate(
+					(pieceId) => window.__tableplace!.state()?.pieces?.[pieceId]?.heldBy ?? null,
+					id
+				);
+			const marks = (t: Table) => t.page.evaluate(() => window.__tableplace!.heldMarks());
+			try {
+				const deck = await table.seedDeck();
+				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
+				await table.settle();
+				const seat0 = (await table.page.evaluate(() => window.__tableplace!.actions.getMyId()))!;
+				remote = await openTable(peerContext, context.servers, lobby);
+				const peer = remote;
+				await peer.page.evaluate(() => window.__tableplace!.actions.setSeat(1));
+				await peer.settle(1500);
+				await assertRenders(peer, piece, 'the piece (seat 1)');
+
+				// seat 0 picks the piece up and keeps the button down
+				const at = await table.locate(piece);
+				ok(at, 'the piece never mounted for seat 0');
+				await table.page.mouse.move(at!.x, at!.y);
+				await sleep(80);
+				await table.page.mouse.down();
+				await sleep(80);
+				for (let step = 1; step <= 8; step++) {
+					await table.page.mouse.move(at!.x, at!.y + step * 12);
+					await sleep(30);
+				}
+				await sleep(400);
+				ok(
+					(await table.page.evaluate(() => window.__tableplace!.drag().isDragging)) === piece,
+					'seat 0 never picked the piece up'
+				);
+				// a hand holding something is never perfectly still: keep seat 0's
+				// pointer nudging while seat 1 waits, so a loaded runner that
+				// coalesced the first frames still gets a carry patch through
+				let nudge = 0;
+				const seen = await eventually(
+					async () => {
+						nudge = 1 - nudge;
+						await table.page.mouse.move(at!.x + nudge * 3, at!.y + 96);
+						return heldBy(peer, piece);
+					},
+					(who) => who === seat0,
+					30_000
+				);
+				ok(seen === seat0, `seat 1 never learned seat 0 holds the piece (heldBy ${seen})`);
+				const drawn = await eventually(
+					() => marks(peer),
+					(m) => m.some((mark) => mark.id === piece)
+				);
+				const mark = drawn.find((m) => m.id === piece);
+				ok(
+					mark?.holder === seat0 && mark.color.toLowerCase() === '#ff6b8a',
+					`seat 1 does not draw seat 0's hold in seat 0's colour: ${JSON.stringify(drawn)}`
+				);
+				ok(
+					(await marks(table)).length === 0,
+					`seat 0 draws a hold mark on its own carry: ${JSON.stringify(await marks(table))}`
+				);
+
+				// seat 1 grabs at it: refused, and the piece stays in seat 0's hand
+				const held = (await table.positionOf(piece))!;
+				// the toast lives 1.8 s and a loaded runner's drag gesture can outlast
+				// it, so every toast seat 1 shows is recorded from before the grab
+				await peer.page.evaluate(() => {
+					const seen: string[] = [];
+					(window as unknown as { __toasts: string[] }).__toasts = seen;
+					new MutationObserver(() => {
+						for (const el of document.querySelectorAll('[role="status"]'))
+							if (el.textContent) seen.push(el.textContent);
+					}).observe(document.body, { childList: true, subtree: true, characterData: true });
+				});
+				await peer.dragBy(piece, DRAG.dx, DRAG.dy);
+				ok(
+					(await peer.page.evaluate(() => window.__tableplace!.drag().isDragging)) === null,
+					'seat 1 picked up a piece seat 0 is holding'
+				);
+				const toasts = await eventually(
+					() => peer.page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts),
+					(seen) => seen.some((text) => /is holding that/.test(text)),
+					4000
+				);
+				ok(
+					toasts.some((text) => text.includes(`${seat0} is holding that`)),
+					`seat 1's refused grab did not say who is holding the piece: ${JSON.stringify(toasts)}`
+				);
+				await sleep(600);
+				const still = (await table.positionOf(piece))!;
+				ok(
+					planarDistance(still, held) < 0.05 && (await heldBy(table, piece)) === seat0,
+					`seat 1's grab moved the held piece: ${JSON.stringify(held)} → ${JSON.stringify(still)}`
+				);
+
+				// seat 0 lets go: the hold comes off for both, and seat 1 can move it
+				await table.page.mouse.up();
+				const released = await eventually(
+					() => heldBy(peer, piece),
+					(who) => who === null
+				);
+				ok(released === null, `the hold outlived the drop on seat 1 (heldBy ${released})`);
+				ok((await heldBy(table, piece)) === null, 'the hold outlived the drop on seat 0');
+				const cleared = await eventually(
+					() => marks(peer),
+					(m) => m.length === 0
+				);
+				ok(cleared.length === 0, `seat 1 still draws a hold: ${JSON.stringify(cleared)}`);
+				await assertDraggable(peer, piece, 'the piece (seat 1, after seat 0 let go)');
+
+				// a holder who disconnects mid-hold: their hold reads as released
+				holder = await relayPeer(context.servers.relay, lobby, 'e2e-holder');
+				holder.send({
+					players: {
+						'e2e-holder': { id: 'e2e-holder', seat: 2, joinTimestamp: Date.now(), tray: {} }
+					},
+					pieces: { [piece]: { heldBy: 'e2e-holder' } }
+				});
+				const ghost = await eventually(
+					() => marks(peer),
+					(m) => m.some((mark) => mark.holder === 'e2e-holder')
+				);
+				ok(
+					ghost.some((m) => m.holder === 'e2e-holder'),
+					`seat 1 never drew the relay client's hold: ${JSON.stringify(ghost)}`
+				);
+				holder.close();
+				holder = null;
+				const gone = await eventually(
+					() => marks(peer),
+					(m) => m.length === 0
+				);
+				ok(
+					gone.length === 0,
+					`a disconnected holder's hold is still drawn: ${JSON.stringify(gone)}`
+				);
+				await assertDraggable(peer, piece, 'the piece (seat 1, after its holder disconnected)');
+
+				await assertDraggable(table, deck, 'deck (after holds came and went)');
+				assertClean(table, 'after holding a piece');
+				assertClean(peer, 'on seat 1, after a refused grab');
+				await peer.snap('held-by');
+			} finally {
+				holder?.close();
+				await remote?.close();
+				await peerContext.close();
+				await table.close();
+			}
+		}
+	},
+	{
+		/**
+		 * tableplace-206: the first-run checklist. A fresh browser (its own
+		 * context, so nothing a spec before it did is already ticked) sees the
+		 * strip with nothing done; a real F over a loose card ticks the flip
+		 * item. The strip never covers the hand, the hint bar or the log, wide
+		 * or narrow, and never takes the pointer. The × hides it for good in
+		 * this browser — a reload keeps it hidden — and `?` brings it back with
+		 * its ticks. A table whose scenario says `coach: false` hides it.
+		 */
+		name: 'checklist: F ticks the flip item, clear of hand, hint bar and log, dismissal remembered',
+		run: async (context) => {
+			const fresh = await context.browser.createBrowserContext();
+			const table = await openTable(fresh, context.servers, nextLobby('checklist')).catch(
+				async (error) => {
+					await fresh.close();
+					throw error;
+				}
+			);
+			try {
+				let page = table.page;
+				await page.setViewport({ width: 1280, height: 720 });
+				const strip = () =>
+					page.evaluate(() => {
+						const root = document.querySelector('[data-testid="coach"]');
+						if (!root) return null;
+						const items = [...root.querySelectorAll<HTMLElement>('[data-coach-item]')];
+						return {
+							items: items.map((li) => li.dataset.coachItem!),
+							done: items
+								.filter((li) => li.dataset.done === 'true')
+								.map((li) => li.dataset.coachItem!)
+						};
+					});
+
+				// ── a first visit: the strip is up, nothing ticked ─────────────
+				const first = await eventually(strip, (s) => !!s);
+				ok(first, 'the checklist strip is not on /play');
+				ok(
+					first!.items.includes('flip') && first!.items.length >= 7,
+					`the strip does not list the verbs to try: ${JSON.stringify(first)}`
+				);
+				ok(first!.done.length === 0, `a fresh browser starts with ticks: ${JSON.stringify(first)}`);
+
+				// ── F over a loose card ticks the flip item ────────────────────
+				const deck = await table.seedDeck();
+				await table.settle(1500);
+				const card = await page.evaluate(
+					(id) => window.__tableplace!.actions.drawFromTop(id, 1)[0]?.id ?? '',
+					deck
+				);
+				ok(!!card, 'nothing came off the top of the deck');
+				await table.settle(1500);
+				await table.dragTo(card, -4, 1);
+				await table.settle(900);
+				const at = await table.locate(card);
+				ok(at, 'the card is not on screen to hover');
+				await page.mouse.move(at!.x, at!.y, { steps: 6 });
+				const hovered = await eventually(
+					() => page.evaluate(() => window.__tableplace!.drag().isHovered),
+					(id) => id === card
+				);
+				ok(hovered === card, `the pointer is over ${card} but isHovered is ${hovered}`);
+				const before = await table.page.evaluate(
+					(id) => window.__tableplace!.state()?.cards?.[id]?.rotation?.[0],
+					card
+				);
+				await page.keyboard.press('KeyF');
+				const flipped = await eventually(
+					() =>
+						page.evaluate((id) => window.__tableplace!.state()?.cards?.[id]?.rotation?.[0], card),
+					(r) => r !== before
+				);
+				ok(flipped !== before, 'F did not flip the hovered card');
+				const ticked = await eventually(strip, (s) => !!s?.done.includes('flip'));
+				ok(
+					ticked?.done.includes('flip'),
+					`flipping a card did not tick the flip item: ${JSON.stringify(ticked)}`
+				);
+				ok(
+					ticked!.done.includes('move'),
+					`dragging the card did not tick the move item: ${JSON.stringify(ticked)}`
+				);
+				const count = await page.evaluate(
+					() => document.querySelector('[data-testid="coach-count"]')?.textContent ?? ''
+				);
+				ok(
+					count === `${ticked!.done.length}/${ticked!.items.length}`,
+					`the count reads "${count}" for ${JSON.stringify(ticked)}`
+				);
+
+				// ── clear of the hand, the hint bar and the log, wide and narrow
+				for (const [label, width, height] of [
+					['1280x720', 1280, 720],
+					['400w', 400, 800]
+				] as const) {
+					await page.setViewport({ width, height });
+					await page.mouse.move(width / 2, 60);
+					await table.settle(600);
+					const boxes = await page.evaluate(() => {
+						const rect = (selector: string) => {
+							const r = document.querySelector(selector)?.getBoundingClientRect();
+							return r ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null;
+						};
+						const list = document
+							.querySelector('[data-testid="coach"] ul')!
+							.getBoundingClientRect();
+						const under = document.elementFromPoint(
+							list.left + list.width / 2,
+							list.top + list.height / 2
+						);
+						return {
+							strip: rect('[data-testid="coach"]'),
+							hint: rect('[data-testid="hint-bar"]'),
+							log: rect('[data-testid="journal"]'),
+							takesPointer: !!under?.closest('[data-testid="coach"]')
+						};
+					});
+					const { strip: box, hint, log } = boxes;
+					ok(
+						box && hint && log,
+						`${label}: strip, hint bar or log missing: ${JSON.stringify(boxes)}`
+					);
+					type Box = NonNullable<typeof box>;
+					const overlaps = (a: Box, b: Box) =>
+						a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+					// HUDTrayScene: the hand is the bottom sixth of the canvas
+					ok(
+						box!.bottom <= (height * 5) / 6 && box!.top >= 0,
+						`${label}: the strip overlaps the hand: ${JSON.stringify(box)}`
+					);
+					ok(
+						!overlaps(box!, hint!),
+						`${label}: the strip covers the hint bar: ${JSON.stringify(boxes)}`
+					);
+					ok(!overlaps(box!, log!), `${label}: the strip covers the log: ${JSON.stringify(boxes)}`);
+					// the log grows upward to eight lines: where the columns share
+					// pixels, the strip must clear a full log, not just this one
+					const FULL_LOG_PX = 236;
+					ok(
+						box!.right <= log!.left || box!.bottom <= log!.bottom - FULL_LOG_PX,
+						`${label}: a full log would reach the strip: ${JSON.stringify(boxes)}`
+					);
+					ok(
+						box!.right <= width / 2,
+						`${label}: the strip reaches into the preview's half: ${JSON.stringify(box)}`
+					);
+					ok(!boxes.takesPointer, `${label}: the strip takes the pointer`);
+					await table.snap(`checklist-${label}`);
+				}
+				await page.setViewport({ width: 1280, height: 720 });
+				await table.settle(400);
+
+				// ── × hides it, and this browser remembers ──────────────────────
+				await page.click('[data-testid="coach-dismiss"]');
+				ok(
+					await eventually(
+						async () => (await strip()) === null,
+						(gone) => gone,
+						3000
+					),
+					'the × did not hide the strip'
+				);
+				const readyMs = Number(process.env.E2E_READY_MS ?? 60_000);
+				await page.reload({ waitUntil: 'networkidle2', timeout: readyMs });
+				await page.waitForFunction('window.__tableplace?.ready === true', { timeout: readyMs });
+				await table.settle(1500);
+				page = table.page;
+				ok((await strip()) === null, 'the dismissed strip came back after a reload');
+
+				// ── ? brings it back, ticks and all ─────────────────────────────
+				await page.mouse.move(640, 120);
+				await page.keyboard.down('Shift');
+				await page.keyboard.press('Slash');
+				await page.keyboard.up('Shift');
+				await page.waitForSelector('[data-testid="coach-reopen"]', { timeout: 3000 });
+				await page.click('[data-testid="coach-reopen"]');
+				const back = await eventually(strip, (s) => !!s);
+				ok(back, 'the ? reference did not bring the strip back');
+				ok(back!.done.includes('flip'), `the ticks did not survive: ${JSON.stringify(back)}`);
+				ok(
+					await page.evaluate(() => !document.querySelector('[data-testid="verb-reference"]')),
+					'the ? reference stayed open after bringing the strip back'
+				);
+
+				// ── a table that says coach: false hides it ─────────────────────
+				await page.evaluate(() => window.__tableplace!.actions.setCoach(false));
+				ok(
+					await eventually(
+						async () => (await strip()) === null,
+						(gone) => gone,
+						3000
+					),
+					'a table with coach: false still shows the strip'
+				);
+				await page.evaluate(() => window.__tableplace!.actions.setCoach(null));
+				ok(await eventually(strip, (s) => !!s), 'clearing coach: false did not bring it back');
+
+				await assertDraggable(table, deck, 'deck (beside the checklist)');
+				assertClean(table, 'after ticking, dismissing and reopening the checklist');
+			} finally {
+				await table.close();
+				await fresh.close();
+			}
+		}
+	},
+	{
+		/**
+		 * tableplace-197: remote pointers. Two players in two browser contexts.
+		 * The first moves a real mouse over the felt; the second must draw a
+		 * cursor, in the pointer's seat colour, gliding to that table point. It
+		 * only ever arrives on the ephemeral `camera` message — no new message
+		 * type — and orbiting while pointing stays inside that stream's ~3 Hz
+		 * throttle. The cursor fades once the mouse idles, goes the moment it
+		 * leaves the canvas, and the setting hides it outright.
+		 */
+		name: 'remote pointers: the other player sees my cursor on the felt, inside the camera budget',
+		run: async (context) => {
+			const lobby = nextLobby('pointers');
+			const table = await openTable(context.browser, context.servers, lobby);
+			const peerContext = await context.browser.createBrowserContext();
+			let remote: Table | null = null;
+			const pointers = (t: Table) => t.page.evaluate(() => window.__tableplace!.remotePointers());
+			const myId = (t: Table) => t.page.evaluate(() => window.__tableplace!.actions.getMyId());
+			// SEAT_COLOR in src/lib/hud/players.ts
+			const SEAT_COLOR: Record<number, string> = {
+				0: '#ff6b8a',
+				1: '#6ee7a0',
+				2: '#b98cff',
+				3: '#ff8a3d'
+			};
+			const project = (t: Table, x: number, z: number) =>
+				t.page.evaluate((w) => window.__tableplace!.project(w), [x, TABLE_TOP_Y, z] as [
+					number,
+					number,
+					number
+				]);
+			try {
+				const piece = await table.spawn('token', { name: 'Marker', position: ON_FELT(1) });
+				await table.settle();
+				remote = await openTable(peerContext, context.servers, lobby);
+				const peer = remote;
+				await peer.page.evaluate(() => window.__tableplace!.actions.setSeat(1));
+				await peer.settle(1500);
+				await assertRenders(peer, piece, 'the piece (second client)');
+				const [me, them] = [await myId(table), await myId(peer)];
+				ok(me && them && me !== them, `the two clients are not two players: ${me} / ${them}`);
+
+				// count every message the pointing client puts on the wire, by type
+				await table.page.evaluate(() => {
+					const w = window as unknown as {
+						__sends?: { type: string; at: number; data: string }[];
+					};
+					w.__sends = [];
+					const send = WebSocket.prototype.send;
+					WebSocket.prototype.send = function (data) {
+						const type = typeof data === 'string' ? /"type":"(\w+)"/.exec(data)?.[1] : null;
+						// the socket's own keepalive (a bare `{"type":"ping"}` every 30s)
+						// is not the table's traffic
+						if (data === '{"type":"ping"}') return send.call(this, data);
+						w.__sends!.push({
+							type: type ?? '?',
+							at: performance.now(),
+							data: String(data).slice(0, 160)
+						});
+						return send.call(this, data);
+					};
+				});
+				const sends = () =>
+					table.page.evaluate(
+						() =>
+							(window as unknown as { __sends: { type: string; at: number; data: string }[] })
+								.__sends
+					);
+
+				// ── point at the felt: the other player draws it there, in my colour ──
+				const spot: [number, number] = [6, 4];
+				const at = await project(table, ...spot);
+				ok(at, 'the felt spot projects off-screen');
+				ok(
+					(await table.elementAt(at!)).startsWith('canvas'),
+					`the felt spot is under a pane: ${await table.elementAt(at!)}`
+				);
+				// a real sweep in, not a teleport — the stream gates on movement
+				await table.page.mouse.move(at!.x - 120, at!.y - 60);
+				await table.page.mouse.move(at!.x, at!.y, { steps: 12 });
+				const seen = await eventually(
+					() => pointers(peer),
+					(list) =>
+						list.some(
+							(p) =>
+								p.playerId === me && p.visible && Math.hypot(p.x - spot[0], p.z - spot[1]) < 0.5
+						),
+					20_000
+				);
+				const mine = seen.find((p) => p.playerId === me);
+				ok(
+					mine?.visible,
+					`the second client never drew the first player's pointer: ${JSON.stringify(seen)}`
+				);
+				ok(
+					Math.hypot(mine!.x - spot[0], mine!.z - spot[1]) < 0.5,
+					`the pointer is drawn at ${mine!.x},${mine!.z}, not the pointed-at ${spot.join(',')}`
+				);
+				const seat = await peer.page.evaluate(
+					(pid) => window.__tableplace!.state()?.players?.[pid]?.seat,
+					me!
+				);
+				ok(
+					typeof seat === 'number'
+						? mine!.color === SEAT_COLOR[seat]
+						: Object.values(SEAT_COLOR).includes(mine!.color ?? ''),
+					`the pointer is ${mine!.color}, not the pointer's seat colour (seat ${seat})`
+				);
+				ok(
+					!(await pointers(table)).some((p) => p.playerId === me && p.visible),
+					'the first client draws its own pointer'
+				);
+				await peer.snap('remote-pointer');
+
+				// it rode the camera message: nothing but `camera` went out for it
+				const pointed = await sends();
+				ok(
+					pointed.some((m) => m.type === 'camera'),
+					`pointing sent no camera sample: ${JSON.stringify(pointed)}`
+				);
+				ok(
+					pointed.every((m) => m.type === 'camera'),
+					`pointing sent something other than camera samples: ${JSON.stringify(pointed.filter((m) => m.type !== 'camera'))}`
+				);
+				ok(
+					!(await table.page.evaluate(() => JSON.stringify(window.__tableplace!.state()))).includes(
+						'"c":['
+					),
+					'a pointer leaked into lobby state'
+				);
+
+				// ── orbiting while pointing stays inside the camera budget ──
+				await sleep(800);
+				const before = (await sends()).length;
+				const t0 = await table.page.evaluate(() => performance.now());
+				await table.page.mouse.move(at!.x, at!.y);
+				await table.page.mouse.down({ button: 'right' });
+				for (let i = 0; i < 60; i++) {
+					// right-drag orbits; the cursor sweeps the felt as it goes
+					await table.page.mouse.move(at!.x + Math.sin(i / 6) * 140, at!.y + Math.cos(i / 9) * 50);
+					await sleep(40);
+				}
+				await table.page.mouse.up({ button: 'right' });
+				await sleep(800); // the trailing sample
+				const t1 = await table.page.evaluate(() => performance.now());
+				const burst = (await sends()).slice(before);
+				ok(
+					burst.every((m) => m.type === 'camera'),
+					`orbiting while pointing sent other messages: ${JSON.stringify(burst.map((m) => m.type))}`
+				);
+				const rate = burst.length / ((t1 - t0) / 1000);
+				ok(
+					burst.length > 2 && rate <= 3.2,
+					`orbit + pointer: ${burst.length} sends in ${Math.round(t1 - t0)}ms (${rate.toFixed(2)}/s) — the camera budget is ≤ ~3/s`
+				);
+				for (let i = 1; i < burst.length; i++)
+					ok(
+						burst[i]!.at - burst[i - 1]!.at > 250,
+						`two camera samples ${Math.round(burst[i]!.at - burst[i - 1]!.at)}ms apart — the throttle is 350ms`
+					);
+				ok(await table.connected(), 'the relay dropped the pointing client');
+
+				// ── idle: the cursor fades out after ~3s without movement ──
+				// the orbit's damping tail moves the point under a still mouse; on a
+				// starved renderer it runs for seconds, so let it land first
+				await settleCamera(table);
+				const now = await project(table, ...spot);
+				await table.page.mouse.move(now!.x - 80, now!.y, { steps: 6 });
+				await table.page.mouse.move(now!.x, now!.y, { steps: 6 });
+				await eventually(
+					() => pointers(peer),
+					(list) => list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				const faded = await eventually(
+					() => pointers(peer),
+					(list) => !list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				ok(
+					!faded.some((p) => p.playerId === me && p.visible),
+					`the pointer did not fade after the mouse idled: ${JSON.stringify(faded)}`
+				);
+
+				// ── leaving the canvas takes it away at once ──
+				await table.page.mouse.move(now!.x + 60, now!.y, { steps: 6 });
+				await eventually(
+					() => pointers(peer),
+					(list) => list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				const viewport = table.page.viewport()!;
+				let off: { x: number; y: number } | null = null;
+				for (const candidate of [
+					{ x: viewport.width - 30, y: 30 },
+					{ x: 30, y: 30 },
+					{ x: viewport.width - 30, y: viewport.height - 30 },
+					{ x: 30, y: viewport.height - 30 }
+				])
+					if (!(await table.elementAt(candidate)).startsWith('canvas')) {
+						off = candidate;
+						break;
+					}
+				ok(off, 'no DOM pane over the canvas to move the mouse onto');
+				await table.page.mouse.move(off!.x, off!.y, { steps: 4 });
+				const left = await eventually(
+					() => pointers(peer),
+					(list) => !list.some((p) => p.playerId === me && p.visible),
+					// well under the idle fade: this is the leave, not the timeout
+					2_500
+				);
+				ok(
+					!left.some((p) => p.playerId === me && p.visible),
+					`the pointer stayed up after the mouse left the canvas: ${JSON.stringify(left)}`
+				);
+
+				// ── the setting hides remote pointers ──
+				await peer.page.evaluate(() => window.__tableplace!.setRemotePointers(false));
+				await table.page.mouse.move(now!.x, now!.y, { steps: 8 });
+				await sleep(1500);
+				ok(
+					!(await pointers(peer)).some((p) => p.playerId === me),
+					'the setting is off but the second client still draws the pointer'
+				);
+				await peer.page.evaluate(() => window.__tableplace!.setRemotePointers(true));
+				await table.page.mouse.move(now!.x + 40, now!.y, { steps: 8 });
+				const back = await eventually(
+					() => pointers(peer),
+					(list) => list.some((p) => p.playerId === me && p.visible),
+					10_000
+				);
+				ok(
+					back.some((p) => p.playerId === me && p.visible),
+					'the pointer did not come back with the setting'
+				);
+
+				await assertDraggable(peer, piece, 'the piece, under a remote pointer');
+				assertClean(table, 'after pointing');
+				assertClean(peer, 'on the second client, watching a pointer');
 			} finally {
 				await remote?.close();
 				await peerContext.close();

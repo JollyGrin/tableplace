@@ -45,6 +45,16 @@ export type CardDTO = {
 	 * it. Absent sorts after every numbered card.
 	 */
 	handOrder?: number;
+	/**
+	 * Player id of whoever is carrying this card right now (tableplace-199).
+	 * Written in the same patch as the first carried position and cleared
+	 * (`null`) by the patch that lands it, so it costs no message of its own.
+	 * Everyone else draws the holder's colour around it and refuses a second
+	 * grab. A hold by a player whose `connected` is false reads as released.
+	 * Live-table state only: never saved into a scenario, stripped on load.
+	 * Absent = nobody holds it.
+	 */
+	heldBy?: string;
 };
 
 /**
@@ -53,7 +63,7 @@ export type CardDTO = {
  */
 export type CardInDeck = Omit<
 	CardDTO,
-	'position' | 'rotation' | 'locked' | 'placedBy' | 'handOrder'
+	'position' | 'rotation' | 'locked' | 'placedBy' | 'handOrder' | 'heldBy'
 > & {
 	id: string;
 };
@@ -104,6 +114,8 @@ export type DeckDTO = {
 	 * draw pile.
 	 */
 	locked?: boolean;
+	/** player id of whoever is carrying the pile right now — see `CardDTO.heldBy` */
+	heldBy?: string;
 };
 
 interface SeatState {
@@ -243,6 +255,8 @@ export type PieceDTO = {
 	 * a locked bag hands things out. Absent means unlocked.
 	 */
 	locked?: boolean;
+	/** player id of whoever is carrying the piece right now — see `CardDTO.heldBy` */
+	heldBy?: string;
 	packOrigin?: PackOrigin;
 };
 
@@ -344,6 +358,12 @@ export type TableSettingsDTO = {
 	 * plays the other face.
 	 */
 	handPlayFace?: HandPlayFace;
+	/**
+	 * `false` hides the first-run "things to try" strip on this table
+	 * (tableplace-206) — for a table whose players already know it. Absent
+	 * (or `true`) shows it to anyone who has not dismissed it in their browser.
+	 */
+	coach?: boolean;
 };
 
 /** which face a card played out of a hand lands on */
@@ -361,6 +381,6 @@ export interface GameDTO {
 	pieces?: { [pieceId: string]: Partial<PieceDTO> | null };
 	/** authored placement guides, keyed `snap:<n>`. null = remove */
 	snapPoints?: { [snapId: string]: Partial<SnapPointDTO> | null };
-	/** table-wide settings (`rotationStep`, `handPlayFace`); a field set to null is removed */
+	/** table-wide settings (`rotationStep`, `handPlayFace`, `coach`); a field set to null is removed */
 	table?: TableSettingsDTO;
 }

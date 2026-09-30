@@ -301,7 +301,7 @@
 	{#each order as id (id)}
 		{@const pose = poses.get(id)}
 		{#if pose}
-			<TrayCard {id} {pose} landscape={landscapeOf(id)} />
+			<TrayCard {id} {pose} landscape={landscapeOf(id)} viewport={`${trayWidth}x${trayHeight}`} />
 		{/if}
 	{/each}
 </T.Group>

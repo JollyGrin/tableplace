@@ -54,6 +54,16 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
  *
+ * 0.1.17 — top-level `coach` (boolean): `false` hides the first-run "things
+ * to try" checklist on the table, seeded into the synced `state.table`
+ * (tableplace-206). One optional field — additive, so PATCH.
+ *
+ * 0.1.16 — `state.cards`, `state.decks` and `state.pieces` gain `heldBy`
+ * (the player carrying the entity right now, tableplace-199) because the
+ * schema is generated from `Partial<GameDTO>`. It is live-table state and
+ * never belongs in a file: save and export strip it, and a file that carries
+ * one has it stripped on import. Optional field — additive, so PATCH.
+ *
  * 0.1.15 — top-level `handPlayFace` (`"down"` | `"up"`): the face a card
  * dragged out of a hand lands on without Shift, seeded into the synced
  * `state.table`; and `state` cards in a hand can carry `handOrder`, the
@@ -98,7 +108,7 @@ export const PACK_SPEC_VERSION = '1.8.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.15';
+export const SCENARIO_SPEC_VERSION = '0.1.17';
 
 export type Semver = { major: number; minor: number; patch: number };
 
