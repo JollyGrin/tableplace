@@ -253,7 +253,13 @@ describe('a counter with a minimum (tableplace-253)', () => {
 				state: {},
 				packs: [{ id: 'dials' }],
 				placements: [
-					{ kind: 'piece', pack: 'dials', content, seat: 0, ...(value !== undefined ? { value } : {}) }
+					{
+						kind: 'piece',
+						pack: 'dials',
+						content,
+						seat: 0,
+						...(value !== undefined ? { value } : {})
+					}
 				]
 			},
 			new Map([['dials', DIALS]])
