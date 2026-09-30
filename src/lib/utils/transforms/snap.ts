@@ -1,4 +1,5 @@
 import { DEG2RAD } from 'three/src/math/MathUtils.js';
+import { turnYaw } from '$lib/utils/yaw';
 import type { GameDTO, SnapPointDTO } from '$lib/store/game/types';
 import {
 	SNAP_GRID_YAW_STEP_DEFAULT,
@@ -216,6 +217,12 @@ export type SnapRotationTarget = 'card' | 'piece' | 'deck';
  *   `[0, Math.PI, 0]`. So the authored degrees convert here; writing degrees
  *   into a deck would spin it by a factor of 57.
  *
+ * The sign differs too (tableplace-228): cards and pieces render their yaw
+ * negated, so a positive authored yaw turns them clockwise seen from above,
+ * while a deck's radians reach three.js as they are, where positive is
+ * counter-clockwise. `turnYaw` owns that flip, so the deck goes through it and
+ * one authored yaw turns all three the same way on screen.
+ *
  * Returns the input untouched when the point authored no rotation — an
  * unrotated snap point is a position guide only.
  */
@@ -232,6 +239,6 @@ export function applySnapRotation(
 		case 'piece':
 			return [x, yaw, z];
 		case 'deck':
-			return [x, yaw * DEG2RAD, z];
+			return turnYaw('deck', [x, 0, z], yaw);
 	}
 }

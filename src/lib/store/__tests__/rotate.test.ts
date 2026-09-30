@@ -285,7 +285,11 @@ describe('a snap point still wins the landing yaw', () => {
 		const at = { x: 6, z: -3 };
 		expect(resolveDrop(game(), PAWN, at)?.rotation).toEqual([0, 90, 0]);
 		expect(resolveDrop(game(), CARD, at)?.rotation).toEqual([180, 0, 90]);
-		expect(resolveDrop(game(), DECK, at)?.rotation[1]).toBeCloseTo(90 * DEG2RAD, 9);
+		// the same clockwise quarter turn, in the deck's own radians — which run
+		// the other way round (tableplace-228)
+		const deck = resolveDrop(game(), DECK, at)?.rotation;
+		expect(deck?.[1]).toBeCloseTo(270 * DEG2RAD, 9);
+		expect(yawDegrees('deck', deck)).toBe(90);
 	});
 });
 
