@@ -3456,11 +3456,14 @@ export const SPECS: Spec[] = [
 
 					const isBlue = ([r, g, b]: number[]) => b! > r! + 60 && b! > g! + 40;
 					const isGreen = ([r, g, b]: number[]) => g! > r! + 60 && g! > b! + 60;
+					// the art under a counter dial's light wash (≈ [80, 95, 140]): still
+					// plainly blue, where the smeared cream corner texel reads b < r
+					const isWashedBlue = ([r, g, b]: number[]) => b! > r! + 35 && b! > g! + 25;
 
 					/**
 					 * Five points on the far half of the disc's top face (−z draws
 					 * toward the top of the screen) and the colour drawn at each. The
-					 * near half is out: a counter's value badge rides over it. All but one
+					 * near half is out: a hovered piece's label badge rides over it. All but one
 					 * must match — a stray sample is a rim or a shadow, not the art.
 					 */
 					const FACE_POINTS = [
@@ -3470,11 +3473,26 @@ export const SPECS: Spec[] = [
 						[0.2, -0.75],
 						[-0.2, -0.75]
 					];
+					/**
+					 * A counter prints its dial over the art (tableplace-191): name
+					 * above, numerals across the middle, `of max` below, all on a
+					 * light wash. Its samples sit beside the numerals instead, in the
+					 * dial's own frame (canvas px on a 256 grid, +y toward its seat)
+					 * — clear of every glyph and its halo, inside the rim arc.
+					 */
+					const DIAL_POINTS = [
+						[95, 0],
+						[-95, 0],
+						[92, -25],
+						[-92, -25],
+						[92, 25]
+					].map(([x, y]) => [(x! / 128) * 0.97, (y! / 128) * 0.97]);
 					const assertFace = async (
 						id: string,
 						label: string,
 						colour: string,
-						matches: (rgb: number[]) => boolean
+						matches: (rgb: number[]) => boolean,
+						offsets = FACE_POINTS
 					) => {
 						const drawn = await eventually(
 							async () => {
@@ -3482,12 +3500,21 @@ export const SPECS: Spec[] = [
 								ok(at, `${label} (${id}) has no position`);
 								const top = at![1]! + PIECE_THICKNESS / 2;
 								const points = await table.page.evaluate(
-									(x, y, z, offsets) =>
-										offsets.map(([dx, dz]) => window.__tableplace!.project([x + dx!, y, z + dz!])),
+									(id, x, y, z, offsets) => {
+										const bridge = window.__tableplace!;
+										// a counter's points are in its dial's frame, which turns to its
+										// seat (`facing` is that frame's world yaw); a token's are world
+										const turn = bridge.dial(id)?.facing ?? 0;
+										const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
+										return offsets.map(([dx, dz]) =>
+											bridge.project([x + dx! * cos + dz! * sin, y, z - dx! * sin + dz! * cos])
+										);
+									},
+									id,
 									at![0]!,
 									top,
 									at![2]!,
-									FACE_POINTS
+									offsets
 								);
 								ok(
 									points.every(Boolean),
@@ -3511,7 +3538,13 @@ export const SPECS: Spec[] = [
 
 					await assertFace(pieces.token, 'a token with a cross-origin imageUrl', 'blue', isBlue);
 					await assertFace(pieces.sheet, 'a token with a sheet: imageUrl', 'blue', isBlue);
-					await assertFace(pieces.counter, 'a counter with an imageUrl', 'blue', isBlue);
+					await assertFace(
+						pieces.counter,
+						'a counter with an imageUrl',
+						'blue',
+						isWashedBlue,
+						DIAL_POINTS
+					);
 					await assertFace(pieces.states, 'a two-state token (front)', 'blue', isBlue);
 
 					// the face follows the state: flip it and the other image draws
@@ -4362,12 +4395,13 @@ export const SPECS: Spec[] = [
 					);
 					await page.bringToFront();
 					await pressL();
+					// `eventually` hands back the last probe, and here success is `false`
 					ok(
-						await eventually(
+						!(await eventually(
 							() => lockedOn(table),
 							(on) => !on,
 							8000
-						),
+						)),
 						`a second L did not unlock the token — under the pointer: ${JSON.stringify(
 							await page.evaluate(() => {
 								const game = window.__tableplace!.state();
@@ -4383,11 +4417,11 @@ export const SPECS: Spec[] = [
 						)}`
 					);
 					ok(
-						await eventually(
+						!(await eventually(
 							() => lockedOn(remote),
 							(on) => !on,
 							8000
-						),
+						)),
 						'the second client never saw the unlock'
 					);
 					assertClean(remote, 'on the second client after lock and unlock');
