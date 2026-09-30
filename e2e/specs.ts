@@ -4783,7 +4783,11 @@ export const SPECS: Spec[] = [
 				// ── seat 1: the back, and not a word about the face ────────────
 				// its own browser context: its own localStorage, so its own player id
 				const elsewhere = await context.browser.createBrowserContext();
-				const remote = await openTable(elsewhere, context.servers, lobby);
+				// a context whose table never loaded must not outlive the spec (#243)
+				const remote = await openTable(elsewhere, context.servers, lobby).catch(async (error) => {
+					await elsewhere.close();
+					throw error;
+				});
 				try {
 					// a joiner is not seated anywhere in particular: take seat 1, as a
 					// player at the far side of the table would
@@ -4912,7 +4916,11 @@ export const SPECS: Spec[] = [
 				};
 
 				// ── the fan stays inside the viewport ──────────────────────────
+				// The 15-card resizes run on a stalled page (#244): a loaded CI
+				// runner starved the cards' springs, which clamp to 1/30s a tick, so
+				// the fan was still sliding in from the 1280 layout when this looked.
 				let held = 0;
+				let stalled = 0;
 				for (const size of [1, 7, 15]) {
 					await draw(size - held);
 					held = size;
@@ -4920,6 +4928,7 @@ export const SPECS: Spec[] = [
 						[1280, 800],
 						[400, 800]
 					] as const) {
+						if (size === 15) await table.stall({ ms: 800, everyMs: 20 });
 						await page.setViewport({ width, height });
 						// off the hand, so nothing is raised
 						await page.mouse.move(width / 2, 40);
@@ -4941,8 +4950,13 @@ export const SPECS: Spec[] = [
 								) +
 								` (${cards.length} drawn)`
 						);
+						if (size === 15) stalled += await table.stall(null);
 					}
 				}
+				ok(
+					stalled > 5,
+					`the stall injector only ran ${stalled} times — the 15-card fan was not tested under load`
+				);
 				await page.setViewport({ width: 1280, height: 800 });
 				await page.mouse.move(640, 40);
 				await table.settle(900);
@@ -5795,7 +5809,12 @@ export const SPECS: Spec[] = [
 		name: 'checklist: F ticks the flip item, clear of hand, hint bar and log, dismissal remembered',
 		run: async (context) => {
 			const fresh = await context.browser.createBrowserContext();
-			const table = await openTable(fresh, context.servers, nextLobby('checklist'));
+			const table = await openTable(fresh, context.servers, nextLobby('checklist')).catch(
+				async (error) => {
+					await fresh.close();
+					throw error;
+				}
+			);
 			try {
 				let page = table.page;
 				await page.setViewport({ width: 1280, height: 720 });
