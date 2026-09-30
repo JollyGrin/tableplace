@@ -227,3 +227,55 @@ describe('extractCounterMin', () => {
 		expect(dial('MIN_VALUE = 0\nMAX_VALUE = 17').pieces[0]).not.toHaveProperty('minValue');
 	});
 });
+
+describe('Custom_Tile outline → token shape (tableplace-254)', () => {
+	const tile = (type?: number) =>
+		parseSavedObject({
+			ObjectStates: [
+				{
+					Name: 'Custom_Tile',
+					Nickname: 'Tile',
+					CustomImage: {
+						ImageURL: 'https://example.com/tile.png',
+						...(type === undefined ? {} : { CustomTile: { Type: type } })
+					}
+				}
+			]
+		});
+
+	it('imports a Box or Rounded tile as a square token, and into the pack', () => {
+		for (const type of [0, 3]) {
+			const parsed = tile(type);
+			expect(parsed.pieces[0]).toMatchObject({ kind: 'token', shape: 'square' });
+			expect(ttsToPack(parsed).pieces?.[0]).toMatchObject({ kind: 'token', shape: 'square' });
+		}
+	});
+
+	it('leaves a Circle, a Hex and an untyped tile a disc: no field invented', () => {
+		for (const type of [2, 1, undefined]) {
+			const parsed = tile(type);
+			expect(parsed.pieces[0]).not.toHaveProperty('shape');
+			expect(ttsToPack(parsed).pieces?.[0]).not.toHaveProperty('shape');
+		}
+	});
+
+	it('carries the shape of a tile inside a bag', () => {
+		const parsed = parseSavedObject({
+			ObjectStates: [
+				{
+					Name: 'Bag',
+					Nickname: 'Pool',
+					ContainedObjects: [
+						{
+							Name: 'Custom_Tile',
+							Nickname: 'Tile',
+							CustomImage: { ImageURL: 'https://example.com/tile.png', CustomTile: { Type: 0 } }
+						}
+					]
+				}
+			]
+		});
+		expect(parsed.pieces[0].contents?.[0]).toMatchObject({ kind: 'token', shape: 'square' });
+		expect(ttsToPack(parsed).pieces?.[0].contents?.[0]).toMatchObject({ shape: 'square' });
+	});
+});

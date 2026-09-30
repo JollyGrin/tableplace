@@ -155,6 +155,7 @@ export async function importTtsFile(text: string, opts: ImportOptions = {}): Pro
 					imageUrl: states?.length ? states[0].face : piece.imageUrl,
 					...(states?.length ? { states, state: piece.state ?? 0 } : {}),
 					radius: piece.radius,
+					...(piece.shape !== undefined ? { shape: piece.shape } : {}),
 					maxValue: piece.maxValue,
 					...(piece.minValue !== undefined ? { minValue: piece.minValue } : {}),
 					value: piece.maxValue,

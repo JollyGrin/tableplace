@@ -17,6 +17,7 @@
  */
 
 import { currentPieceState } from '$lib/compose/piece';
+import { tokenShape } from '$lib/primitives/token-shape';
 import { CARD_BACK_DEFAULT } from '$lib/packs';
 import type { GameDTO } from '$lib/store/game/types';
 
@@ -32,7 +33,11 @@ export type PreviewHover = {
 	piece: string | null;
 };
 
-export type PreviewShape = 'card' | 'disc';
+/**
+ * `square` is a square token's face (tableplace-254): the whole image at its
+ * own aspect, where `disc` crops to the circle the token is.
+ */
+export type PreviewShape = 'card' | 'disc' | 'square';
 
 export type PreviewTarget = {
 	/** the hovered entity's store id */
@@ -143,7 +148,7 @@ export function previewTarget(
 				return {
 					id: hover.piece,
 					face,
-					shape: 'disc',
+					shape: tokenShape(piece),
 					landscape: false,
 					caption: stateName ? (name ? `${name} — ${stateName}` : stateName) : name
 				};

@@ -22,6 +22,8 @@ import type {
 } from './types';
 import { assertReadableSpecVersion, PACK_SPEC_VERSION } from '../formats/spec-version';
 import { COUNTER_MAX_DEFAULT } from '../utils/constants-pieces';
+import { TOKEN_SHAPES } from '../primitives/token-shape';
+import type { TokenShape } from '../store/game/types';
 
 export const TBPP_VERSION = 1;
 export const PACK_SCHEMA_URL = 'https://table.place/pack.schema.json';
@@ -110,6 +112,12 @@ function orientation(v: unknown, path: string): CardOrientation {
 	return value;
 }
 
+function shape(v: unknown, path: string): TokenShape {
+	const value = v as TokenShape;
+	if (!TOKEN_SHAPES.includes(value)) fail(path, `must be one of ${TOKEN_SHAPES.join(', ')}`);
+	return value;
+}
+
 function parseCard(v: unknown, path: string): PackCardDef {
 	if (!isRecord(v)) fail(path, 'must be an object');
 	const card: PackCardDef = {
@@ -178,6 +186,7 @@ function parseBagItem(v: unknown, path: string): PackBagItemDef {
 	if (v.color !== undefined) item.color = str(v.color, `${path}.color`);
 	if (v.imageUrl !== undefined) item.imageUrl = str(v.imageUrl, `${path}.imageUrl`);
 	if (v.radius !== undefined) item.radius = num(v.radius, `${path}.radius`);
+	if (v.shape !== undefined) item.shape = shape(v.shape, `${path}.shape`);
 	if (v.maxValue !== undefined) item.maxValue = num(v.maxValue, `${path}.maxValue`);
 	if (v.minValue !== undefined) item.minValue = minValue(v.minValue, item.maxValue, path);
 	return item;
@@ -220,6 +229,9 @@ function parsePiece(v: unknown, path: string): PackPieceDef {
 		piece.state = state;
 	}
 	if (v.radius !== undefined) piece.radius = num(v.radius, `${path}.radius`);
+	// validated wherever it appears, like the bag fields below: a typo is worth
+	// naming even on a kind that would ignore the field
+	if (v.shape !== undefined) piece.shape = shape(v.shape, `${path}.shape`);
 	if (v.maxValue !== undefined) piece.maxValue = num(v.maxValue, `${path}.maxValue`);
 	if (v.minValue !== undefined) piece.minValue = minValue(v.minValue, piece.maxValue, path);
 	if (v.sides !== undefined) {

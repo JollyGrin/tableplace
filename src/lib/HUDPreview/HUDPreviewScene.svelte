@@ -9,6 +9,7 @@
 	import PreviewCard from './PreviewCard.svelte';
 	import { preview } from './previewStore';
 	import { registerHud } from '$lib/dev/hud-registry';
+	import { imageAspect, imageAspects } from '$lib/utils/image-aspect';
 
 	// No interactivity() — the preview pane is display-only. If it ever gains a
 	// pointer handler it needs its own call, not the parent's: this HUD has its
@@ -35,6 +36,13 @@
 	// unscaled on-screen footprint of the art
 	const box = $derived.by((): [number, number] => {
 		if ($preview?.shape === 'disc') return [CARD_W, CARD_W];
+		if ($preview?.shape === 'square') {
+			// the whole image at its own aspect: as wide as a disc, unless that
+			// would make it taller than a card
+			const aspect = imageAspect(url, $imageAspects);
+			const fit = Math.min(1, (CARD_H * aspect) / CARD_W);
+			return [CARD_W * fit, (CARD_W * fit) / aspect];
+		}
 		return $preview?.landscape ? [CARD_H, CARD_W] : [CARD_W, CARD_H];
 	});
 	const layout = $derived.by(() => {
@@ -91,6 +99,11 @@
 			<!-- PieceFace lies flat for the table camera; stand it up for this one -->
 			<T.Group rotation.x={Math.PI / 2}>
 				<PieceFace {url} radius={(CARD_W / 2) * layout.scale} segments={64} position={[0, 0, 0]} />
+			</T.Group>
+		{:else if $preview.shape === 'square'}
+			<!-- uncropped: the plane is the image's own aspect (see `box`) -->
+			<T.Group rotation.x={Math.PI / 2}>
+				<PieceFace {url} w={box[0] * layout.scale} h={box[1] * layout.scale} position={[0, 0, 0]} />
 			</T.Group>
 		{:else}
 			<PreviewCard {url} landscape={$preview.landscape} scale={layout.scale} />

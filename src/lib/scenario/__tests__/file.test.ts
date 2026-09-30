@@ -136,6 +136,23 @@ describe('parseScenarioFile errors', () => {
 		}
 	});
 
+	it('refuses a piece shape that is not a token shape, in a bag too', () => {
+		const withPiece = (piece: Record<string, unknown>) =>
+			JSON.stringify({ tbps: 1, name: 'x', state: { pieces: { 'piece:seat0:plaque-0': piece } } });
+
+		expect(() => parseScenarioFile(withPiece({ kind: 'token', shape: 'hex' }))).toThrow(
+			'state.pieces["piece:seat0:plaque-0"].shape must be one of disc, square'
+		);
+		expect(() =>
+			parseScenarioFile(
+				withPiece({ kind: 'bag', contents: [{ kind: 'token', name: 'Plaque', shape: 'round' }] })
+			)
+		).toThrow('state.pieces["piece:seat0:plaque-0"].contents[0].shape must be one of');
+		expect(
+			parseScenarioFile(withPiece({ kind: 'token', shape: 'square' })).state.pieces
+		).toMatchObject({ 'piece:seat0:plaque-0': { shape: 'square' } });
+	});
+
 	it('does not hold a die, or an override that names no kind, to a counter range', () => {
 		const parsed = parseScenarioFile(
 			JSON.stringify({

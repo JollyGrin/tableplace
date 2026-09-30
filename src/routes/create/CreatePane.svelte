@@ -62,7 +62,7 @@
 		DIE_SIDES_DEFAULT,
 		PIECE_RADIUS
 	} from '$lib/utils/constants-pieces';
-	import type { DieSides } from '$lib/store/game/types';
+	import type { DieSides, TokenShape } from '$lib/store/game/types';
 	import {
 		withEditorDefaults,
 		cleanForExport,
@@ -360,6 +360,7 @@
 	);
 	let newPieceKind: PackPieceKind = $state('token');
 
+	const shapeOptions: Record<string, TokenShape> = { Disc: 'disc', Square: 'square' };
 	const drawModeOptions: Record<string, PackBagDrawMode> = {
 		'Random — blind draw': 'random',
 		'LIFO — last in, first out': 'lifo',
@@ -383,6 +384,7 @@
 			imageUrl: '',
 			model: '',
 			radius: PIECE_RADIUS[newPieceKind],
+			shape: 'disc',
 			maxValue: COUNTER_MAX_DEFAULT,
 			minValue: 0,
 			states: [],
@@ -1124,6 +1126,11 @@
 							{/if}
 						</Folder>
 						<AutoValue label="Radius" bind:value={piece.radius} />
+						{#if piece.kind === 'token'}
+							<!-- a square keeps the corners of its art: `Radius` is then its
+							     half-width, and an image that is not 1:1 makes it a rectangle -->
+							<List label="Shape" bind:value={piece.shape} options={shapeOptions} />
+						{/if}
 						<!-- the per-piece snap opt-out (unticked = drops as if Alt were
 						     held): a room section snaps to a grid, a loose prop doesn't -->
 						<Checkbox label="Snaps to points" bind:value={piece.snap} />
@@ -1162,6 +1169,9 @@
 									{/if}
 									{#if bagItem.kind !== 'card'}
 										<Text label="Item image" bind:value={bagItem.imageUrl} />
+									{/if}
+									{#if bagItem.kind === 'token'}
+										<List label="Item shape" bind:value={bagItem.shape} options={shapeOptions} />
 									{/if}
 									{#if bagItem.kind === 'counter'}
 										<Stepper label="Item max" bind:value={bagItem.maxValue} step={1} />

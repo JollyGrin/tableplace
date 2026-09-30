@@ -245,6 +245,30 @@ describe('previewTarget', () => {
 		});
 	});
 
+	it('a square token previews as a square — the uncropped image — not a disc', () => {
+		const withSquare = {
+			...game,
+			pieces: {
+				...game.pieces,
+				'piece:p1:token': { ...game.pieces!['piece:p1:token'], shape: 'square' as const },
+				// a counter's dial art stays a disc whatever `shape` it was handed
+				'piece:p1:dial': {
+					...game.pieces!['piece:p1:token'],
+					kind: 'counter' as const,
+					shape: 'square' as const
+				}
+			}
+		};
+		expect(previewTarget(withSquare, 'p1', { ...none, piece: 'piece:p1:token' })).toMatchObject({
+			face: 'https://x/token.png',
+			shape: 'square',
+			caption: 'Marker'
+		});
+		expect(previewTarget(withSquare, 'p1', { ...none, piece: 'piece:p1:dial' })?.shape).toBe(
+			'disc'
+		);
+	});
+
 	it('a multi-state piece previews its current face and state name', () => {
 		expect(previewTarget(game, 'p1', { ...none, piece: 'piece:p1:states' })).toMatchObject({
 			face: 'https://x/s1.png',

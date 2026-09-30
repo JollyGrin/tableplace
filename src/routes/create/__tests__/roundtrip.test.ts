@@ -55,6 +55,7 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 		imageUrl: '',
 		model: '',
 		radius: 0.75,
+		shape: 'disc',
 		maxValue: 20,
 		minValue: 0,
 		states: [],
@@ -83,7 +84,16 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 			color: '#3366ff',
 			radius: 0.3,
 			reach: 3,
+			// a pawn that was a square token a moment ago: the outline must not ship
+			shape: 'square',
 			position: [2, -1]
+		}),
+		editorPiece({
+			kind: 'token',
+			name: 'Plaque',
+			imageUrl: 'https://example.com/plaque.png',
+			shape: 'square',
+			position: [4, 1]
 		}),
 		editorPiece({
 			kind: 'counter',
@@ -233,6 +243,11 @@ describe('/create round-trip (tts-clonetroopers.json)', () => {
 		// a counter's floor ships; the editor's 0 (the default) never does
 		expect(pack.pieces?.find((p) => p.name === 'HP')?.minValue).toBe(2);
 		expect(pawn?.minValue).toBeUndefined();
+		// a square token ships its outline; the default disc never does, and
+		// neither does a stray one on a kind that has no outline (tableplace-254)
+		expect(pack.pieces?.find((p) => p.name === 'Plaque')?.shape).toBe('square');
+		expect(pack.pieces?.find((p) => p.name === 'Objective')).not.toHaveProperty('shape');
+		expect(pawn).not.toHaveProperty('shape');
 		// bag fields are bags-only, and the flat editor item narrows back down
 		expect(pawn?.contents).toBeUndefined();
 		expect(pawn?.drawMode).toBeUndefined();

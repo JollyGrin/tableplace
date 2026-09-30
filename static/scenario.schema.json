@@ -806,6 +806,12 @@
 					"type": "number",
 					"title": "radius"
 				},
+				"shape": {
+					"description": "Tokens only (tableplace-254): `'square'` draws a flat tile whose\nhalf-width is `radius` — a rectangle of the image's aspect when that is\nnot 1:1 — with the image uncropped on top. Absent = `'disc'`.",
+					"enum": ["disc", "square"],
+					"type": "string",
+					"title": "shape"
+				},
 				"model": {
 					"description": "`kind: 'model'` only — a `model:<kit>/<name>` catalog ref (tableplace-135),\nresolved through the static manifest exactly the way face refs resolve\nthrough their schemes: the tiny ref string is all that syncs, never\ngeometry. An unresolvable ref renders as a placeholder, not an error.",
 					"type": "string",
@@ -927,6 +933,12 @@
 						"radius": {
 							"type": "number",
 							"title": "radius"
+						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
 						},
 						"maxValue": {
 							"type": "number",
@@ -1060,7 +1072,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.18",
-	"x-generated-at": "2026-09-30T08:59:37.540Z",
-	"x-tableplace-source-sha": "6b8e0fa28227484e42c787f9100bf772844374cc-dirty"
+	"x-tableplace-spec-version": "0.1.19",
+	"x-generated-at": "2026-09-30T09:20:49.887Z",
+	"x-tableplace-source-sha": "8afcbc3a05d1ac2c75dc57276260135d60d1b8e0-dirty"
 }

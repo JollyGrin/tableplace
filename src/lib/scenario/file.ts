@@ -20,6 +20,7 @@ import { validHandPlayFace } from '../utils/hand';
 import { validCoach } from '../coach/table';
 import { withoutHolds } from '../utils/hold';
 import { counterRange, counterValueRefusal } from '../primitives/counter-range';
+import { TOKEN_SHAPES } from '../primitives/token-shape';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */
@@ -387,6 +388,26 @@ function assertCounterValues(state: Partial<GameDTO>) {
 }
 
 /**
+ * A snapshot piece's `shape` is one of the token shapes or absent — a typo
+ * would otherwise load as a silent disc.
+ */
+function assertTokenShapes(state: Partial<GameDTO>) {
+	const known: readonly unknown[] = TOKEN_SHAPES;
+	const check = (shape: unknown, path: string) => {
+		if (shape !== undefined && !known.includes(shape)) {
+			fail(`${path}.shape must be one of ${TOKEN_SHAPES.join(', ')}`);
+		}
+	};
+	for (const [id, piece] of Object.entries(state.pieces ?? {})) {
+		const path = `state.pieces[${JSON.stringify(id)}]`;
+		check(piece?.shape, path);
+		(piece?.contents ?? []).forEach((item, i) => {
+			if (item?.kind !== 'card') check(item?.shape, `${path}.contents[${i}]`);
+		});
+	}
+}
+
+/**
  * Parse + validate a scenario file. Accepts v2 (pack-referencing), v1
  * (self-contained snapshot) and, as a v0 fallback, the legacy
  * `scenario-<name>.json` shape (no `tbps` field) so existing exports keep
@@ -426,6 +447,7 @@ export function parseScenarioFile(text: string): Scenario {
 		state: withoutHolds((obj.state ?? {}) as Partial<GameDTO>)
 	};
 	assertCounterValues(scenario.state);
+	assertTokenShapes(scenario.state);
 	if (obj.packs !== undefined) {
 		if (!Array.isArray(obj.packs)) throw new Error('`packs` must be an array');
 		scenario.packs = obj.packs.map((p, i) => parsePackRef(p, `packs[${i}]`));

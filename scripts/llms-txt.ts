@@ -47,6 +47,7 @@ import {
 	BAG_DRAW_MODES,
 	CARD_ORIENTATIONS
 } from '../src/lib/packs/file';
+import { TOKEN_SHAPES } from '../src/lib/primitives/token-shape';
 import { TBPS_VERSION, TBPS_SUPPORTED, SCENARIO_SCHEMA_URL } from '../src/lib/scenario/file';
 import { PACK_SPEC_VERSION, SCENARIO_SPEC_VERSION } from '../src/lib/formats/spec-version';
 
@@ -146,6 +147,7 @@ export function renderLlmsTxt(packSchemaJson: string, scenarioSchemaJson: string
 		PACK_SCHEMA_URL,
 		SCENARIO_SCHEMA_URL,
 		PIECE_KINDS: enumProse(PIECE_KINDS),
+		TOKEN_SHAPES: enumProse(TOKEN_SHAPES, { disc: 'the default' }),
 		CARD_ORIENTATIONS: enumProse(CARD_ORIENTATIONS, { portrait: 'default' }),
 		BAG_PIECE_ITEM_KINDS: enumProse(BAG_ITEM_KINDS.filter((k) => k !== 'card')),
 		BAG_DRAW_MODES: enumProse(BAG_DRAW_MODES, {

@@ -79,6 +79,7 @@ function toBagContents(items: ParsedBagItem[]): PackBagItemDef[] {
 				...(item.color !== undefined ? { color: item.color } : {}),
 				...(item.imageUrl !== undefined ? { imageUrl: item.imageUrl } : {}),
 				...(item.radius !== undefined ? { radius: item.radius } : {}),
+				...(item.shape !== undefined ? { shape: item.shape } : {}),
 				...(item.maxValue !== undefined ? { maxValue: item.maxValue } : {}),
 				...(item.minValue !== undefined ? { minValue: item.minValue } : {})
 			};
@@ -130,6 +131,7 @@ export function ttsToPack(parsed: ParsedSavedObject, opts: TtsToPackOptions = {}
 			// the state the mod was saved in — recovered from the missing 1..N key
 			...(states?.length && p.state ? { state: p.state } : {}),
 			...(p.radius !== undefined ? { radius: p.radius } : {}),
+			...(p.shape !== undefined ? { shape: p.shape } : {}),
 			...(p.maxValue !== undefined ? { maxValue: p.maxValue } : {}),
 			...(p.minValue !== undefined ? { minValue: p.minValue } : {}),
 			...(p.kind === 'bag'

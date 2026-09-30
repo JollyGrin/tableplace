@@ -151,6 +151,12 @@ export type PieceKind = 'token' | 'pawn' | 'counter' | 'die' | 'bag' | 'model';
 /** Face count of a die piece — the shapes the primitive library can build. */
 export type DieSides = 4 | 6 | 8 | 10 | 12 | 20;
 
+/**
+ * A token's outline (tableplace-254): the default round `disc`, or a `square`
+ * tile that shows its image uncropped, corners included.
+ */
+export type TokenShape = 'disc' | 'square';
+
 /** Order a bag hands its contents out in (TTS analog: the container's Order). */
 export type BagDrawMode = 'random' | 'lifo' | 'fifo';
 
@@ -161,6 +167,8 @@ export type BagPieceItem = {
 	color?: string;
 	imageUrl?: string;
 	radius?: number;
+	/** tokens only: `'square'` draws a tile instead of a disc (default `'disc'`) */
+	shape?: TokenShape;
 	maxValue?: number;
 	/** counters only: the lowest value it can show (default 0) */
 	minValue?: number;
@@ -205,6 +213,12 @@ export type PieceDTO = {
 	state?: number;
 	/** world radius of the piece footprint */
 	radius?: number;
+	/**
+	 * Tokens only (tableplace-254): `'square'` draws a flat tile whose
+	 * half-width is `radius` — a rectangle of the image's aspect when that is
+	 * not 1:1 — with the image uncropped on top. Absent = `'disc'`.
+	 */
+	shape?: TokenShape;
 	/**
 	 * `kind: 'model'` only — a `model:<kit>/<name>` catalog ref (tableplace-135),
 	 * resolved through the static manifest exactly the way face refs resolve

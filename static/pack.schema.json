@@ -137,6 +137,12 @@
 								"type": "number",
 								"title": "radius"
 							},
+							"shape": {
+								"description": "tokens only: the token's outline (default `'disc'`). `'square'` is a flat\ntile whose half-width is `radius`, as thick as a disc; the image covers\nits top uncropped, so an image that is not 1:1 makes it a rectangle of\nthat aspect (width stays `2 × radius`). The rim and base keep `color`.",
+								"enum": ["disc", "square"],
+								"type": "string",
+								"title": "shape"
+							},
 							"maxValue": {
 								"description": "counters start at this value",
 								"type": "number",
@@ -315,6 +321,12 @@
 							"type": "number",
 							"title": "radius"
 						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
+						},
 						"maxValue": {
 							"description": "counters draw at this value",
 							"type": "number",
@@ -368,7 +380,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "1.9.0",
-	"x-generated-at": "2026-09-30T08:59:37.540Z",
-	"x-tableplace-source-sha": "6b8e0fa28227484e42c787f9100bf772844374cc-dirty"
+	"x-tableplace-spec-version": "1.10.0",
+	"x-generated-at": "2026-09-30T09:20:49.887Z",
+	"x-tableplace-source-sha": "8afcbc3a05d1ac2c75dc57276260135d60d1b8e0-dirty"
 }
