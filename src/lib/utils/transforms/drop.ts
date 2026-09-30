@@ -185,10 +185,11 @@ export function resolveDrop(
 	const [x, z] = clampToTable(rawPoint?.x ?? ex, rawPoint?.z ?? ez);
 	const rotation = (entity.rotation ?? [0, 0, 0]) as [number, number, number];
 
-	// the entity's current table yaw in DEGREES, whatever unit and slot its
-	// kind stores it in — a grid cell's yaw stepping rounds this
+	// the entity's current table yaw in DEGREES clockwise, whatever unit, slot
+	// and sign its kind stores it in — a grid cell's yaw stepping rounds this.
+	// A deck's radians run the other way round (see `turnYaw`), hence the flip.
 	const entityYaw = isDeck
-		? (rotation[1] ?? 0) / DEG2RAD
+		? -(rotation[1] ?? 0) / DEG2RAD
 		: isPiece
 			? (rotation[1] ?? 0)
 			: (rotation[2] ?? 0);
@@ -278,8 +279,8 @@ export function resolveDrop(
 	//
 	// A snap only ever moves the deck in XZ and turns it: `restY` stays its own
 	// half-height, because a deck landing on an occupied point still doesn't
-	// stack. And the yaw goes in as radians here, unlike a card's — see
-	// applySnapRotation.
+	// stack. And the yaw goes in as radians of the opposite sign here, unlike a
+	// card's — see applySnapRotation.
 	if (isDeck) {
 		const count = ('cards' in entity ? entity.cards : undefined)?.length ?? 0;
 		const [dx, dz] = snap ? [snap.x, snap.z] : [x, z];

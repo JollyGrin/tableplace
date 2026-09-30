@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { DEG2RAD } from 'three/src/math/MathUtils.js';
 import { clampToTable, resolveDrop } from '../drop';
 import type { GameDTO } from '$lib/store/game/types';
 import {
@@ -484,12 +485,13 @@ describe('resolveDrop', () => {
 				});
 			});
 
-			it('takes the authored yaw in RADIANS, unlike a card', () => {
+			it('takes the authored yaw in RADIANS of the opposite sign, unlike a card', () => {
 				const s = withSnap({ decks: { 'deck:me:main': deck(20) } });
-				// snap:0 authors 90°, and a deck's rotation triple is radians
+				// snap:0 authors 90° clockwise. A deck's rotation triple is radians
+				// and counter-clockwise, so that is -π/2 — stored wrapped, as 3π/2
 				const [rx, ry, rz] = resolveDrop(s, 'deck:me:main', { x: 4, z: 2 })!.rotation;
 				expect([rx, rz]).toEqual([0, 0]);
-				expect(ry).toBeCloseTo(Math.PI / 2);
+				expect(ry).toBeCloseTo((3 * Math.PI) / 2);
 			});
 
 			it('keeps its facing when the point authored no rotation', () => {
@@ -540,6 +542,44 @@ describe('resolveDrop', () => {
 				rotation: [0, 90, 0],
 				footprint: { shape: 'circle', r: PIECE_DEFAULT_RADIUS }
 			});
+		});
+
+		/**
+		 * One authored yaw, one turn on screen (tableplace-228). The three kinds
+		 * store a yaw in different slots, units and signs, so the only place
+		 * they can be compared is where the renderers put them: the three.js
+		 * `rotation.y` each component binds. A 90° point is the case that tells
+		 * the two directions apart — 0° and 180° look the same either way.
+		 */
+		it('turns a card, a deck and a pawn the same way on screen', () => {
+			const s = withSnap({
+				cards: { a: card(0, 2, 0) },
+				decks: {
+					'deck:me:main': {
+						id: 'deck:me:main',
+						position: [0, CARD_DRAG_Y, 0],
+						rotation: [0, 0, 0],
+						cards: [{ id: 'c0', faceImageUrl: 'f.png' }]
+					}
+				},
+				pieces: { 'piece:me:p': { position: [0, 1.2, 0], rotation: [0, 0, 0], kind: 'pawn' } }
+			});
+			const landed = (id: string) => resolveDrop(s, id, { x: 4, z: 2 })!.rotation;
+
+			// what each renderer hands three.js, in radians about +y
+			const rendered = {
+				card: -landed('a')[2] * DEG2RAD, // Card.svelte: rotation.y = -z°
+				piece: -landed('piece:me:p')[1] * DEG2RAD, // Piece.svelte: -y°
+				deck: landed('deck:me:main')[1] // Deck.svelte: y, as stored
+			};
+			// compared as headings, so whole turns apart are the same facing
+			const heading = (yaw: number) => [Math.sin(yaw), Math.cos(yaw)];
+			const clockwiseQuarter = heading(-Math.PI / 2);
+			for (const yaw of Object.values(rendered)) {
+				const [sin, cos] = heading(yaw);
+				expect(sin).toBeCloseTo(clockwiseQuarter[0]);
+				expect(cos).toBeCloseTo(clockwiseQuarter[1]);
+			}
 		});
 
 		it('does nothing to a drop outside every radius', () => {
@@ -747,9 +787,9 @@ describe('resolveDrop', () => {
 		});
 
 		it('steps a deck yaw in RADIANS — the deck rotation convention', () => {
-			// the deck carries ~100° as radians; the nearest 90° multiple is 90°,
-			// and it must go back in as radians, not degrees (a degree write
-			// would spin the pile ~57×)
+			// the deck carries 100° counter-clockwise as radians; the nearest 90°
+			// multiple is 90° counter-clockwise, and it must go back in as
+			// radians, not degrees (a degree write would spin the pile ~57×)
 			const s = withGrid({
 				decks: {
 					'deck:me:main': {
@@ -765,6 +805,44 @@ describe('resolveDrop', () => {
 			const [rx, ry, rz] = drop!.rotation;
 			expect([rx, rz]).toEqual([0, 0]);
 			expect(ry).toBeCloseTo(Math.PI / 2);
+		});
+
+		it('steps a deck onto the same yawed lattice as a card (tableplace-228)', () => {
+			// a grid turned 30° has cells at 30°, 120°, … clockwise. A quarter-turn
+			// lattice from 0° reads the same in both directions, so only a yawed
+			// grid shows a deck stepped — or written back — with the wrong sign.
+			const yawed = (over: Partial<GameDTO>) =>
+				state({
+					snapPoints: {
+						'snap:0': {
+							id: 'snap:0',
+							position: [10, 2],
+							kind: 'grid',
+							pitch: 2,
+							cols: 3,
+							rows: 3,
+							rotation: 30
+						}
+					},
+					...over
+				});
+			// both carried at 40° clockwise: z = 40 on the card, -40° in radians on the deck
+			const s = yawed({
+				cards: { a: card(0, 2, 0, [0, 0, 40]) },
+				decks: {
+					'deck:me:main': {
+						id: 'deck:me:main',
+						position: [0, CARD_DRAG_Y, 0],
+						rotation: [0, -40 * DEG2RAD, 0],
+						cards: [{ id: 'c0', faceImageUrl: 'f.png' }]
+					}
+				}
+			});
+			expect(resolveDrop(s, 'a', { x: 10, z: 2 })?.rotation).toEqual([0, 0, 30]);
+			const [rx, ry, rz] = resolveDrop(s, 'deck:me:main', { x: 10, z: 2 })!.rotation;
+			expect([rx, rz]).toEqual([0, 0]);
+			// 30° clockwise is 330° counter-clockwise, the deck's stored direction
+			expect(ry).toBeCloseTo(330 * DEG2RAD);
 		});
 
 		it('is opted out of by Alt like any snap', () => {
