@@ -4806,7 +4806,11 @@ export const SPECS: Spec[] = [
 				// ── seat 1: the back, and not a word about the face ────────────
 				// its own browser context: its own localStorage, so its own player id
 				const elsewhere = await context.browser.createBrowserContext();
-				const remote = await openTable(elsewhere, context.servers, lobby);
+				// a context whose table never loaded must not outlive the spec (#243)
+				const remote = await openTable(elsewhere, context.servers, lobby).catch(async (error) => {
+					await elsewhere.close();
+					throw error;
+				});
 				try {
 					// a joiner is not seated anywhere in particular: take seat 1, as a
 					// player at the far side of the table would
@@ -5828,7 +5832,12 @@ export const SPECS: Spec[] = [
 		name: 'checklist: F ticks the flip item, clear of hand, hint bar and log, dismissal remembered',
 		run: async (context) => {
 			const fresh = await context.browser.createBrowserContext();
-			const table = await openTable(fresh, context.servers, nextLobby('checklist'));
+			const table = await openTable(fresh, context.servers, nextLobby('checklist')).catch(
+				async (error) => {
+					await fresh.close();
+					throw error;
+				}
+			);
 			try {
 				let page = table.page;
 				await page.setViewport({ width: 1280, height: 720 });

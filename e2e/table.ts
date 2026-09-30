@@ -8,7 +8,7 @@
  * build.
  */
 
-import type { Browser, BrowserContext, ConsoleMessage, Page } from 'puppeteer-core';
+import type { Browser, BrowserContext, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core';
 import { mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -120,6 +120,123 @@ const SUITS = ['S', 'H', 'D', 'C'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
 /**
+ * Hold every other open page's `requestAnimationFrame` until the returned
+ * release runs. The page's JS, timers and sockets keep running. Only drawing
+ * stops, and the release hands every held callback to the real rAF.
+ *
+ * Why (#243): every page shares one GPU process, and under SwiftShader that
+ * process is a CPU rasteriser. A table that is already open draws a frame on
+ * every rAF, because background throttling is off (see `browser.ts`). A second
+ * seat in a fresh `BrowserContext` starts with a cold shader-program cache, and
+ * its synchronous compiles queue behind those frames. On a 16 GB VPS the
+ * seat-1 load in that state never reached networkidle2, even with 180 s. With
+ * seat 0 not drawing, it loaded in 34 s, and a lone fresh context took 48 s.
+ * The load was blocked by the other page, so a longer timeout would not fix it.
+ *
+ * Not CDP's `Page.setWebLifecycleState: frozen`. Chrome treats a frozen page as
+ * one entering the Back-Forward Cache: it closes the page's sockets (the relay
+ * and vite's HMR) and logs that as a console error.
+ */
+async function holdOthers(page: Page): Promise<() => Promise<void>> {
+	const others = (await page.browser().pages()).filter((other) => other !== page);
+	const held: Page[] = [];
+	for (const other of others) {
+		const holding = await other
+			.evaluate(() => {
+				const w = window as unknown as { __e2eReleaseFrames?: () => void };
+				if (w.__e2eReleaseFrames) return false;
+				const raf = window.requestAnimationFrame;
+				const caf = window.cancelAnimationFrame;
+				const queued = new Map<number, FrameRequestCallback>();
+				// negative ids never collide with the real rAF's positive ones
+				let next = 0;
+				window.requestAnimationFrame = (callback) => {
+					queued.set(--next, callback);
+					return next;
+				};
+				window.cancelAnimationFrame = (id) => {
+					if (!queued.delete(id)) caf.call(window, id);
+				};
+				w.__e2eReleaseFrames = () => {
+					window.requestAnimationFrame = raf;
+					window.cancelAnimationFrame = caf;
+					delete w.__e2eReleaseFrames;
+					for (const callback of queued.values()) raf.call(window, callback);
+					queued.clear();
+				};
+				return true;
+			})
+			// a page closing underneath us has nothing left to draw
+			.catch(() => false);
+		if (holding) held.push(other);
+	}
+	return async () => {
+		for (const other of held) {
+			await other
+				.evaluate(() =>
+					(window as unknown as { __e2eReleaseFrames?: () => void }).__e2eReleaseFrames?.()
+				)
+				.catch(() => {});
+		}
+	};
+}
+
+/**
+ * Navigate to the table and wait for the bridge. Other pages draw nothing for the
+ * whole load (see `holdOthers`). If the load fails, close the page before
+ * throwing.
+ *
+ * The close matters. A `goto` that times out does not stop the page: it keeps
+ * loading, mounts the table and then renders it without end. CI run 36628906362
+ * shows the cascade: peek's second seat timed out, and then weight, journal and
+ * ping each failed their *first* `goto` at exactly 60 s. Weight opens only one
+ * page.
+ *
+ * The error names the phase, how long it took and which requests were still
+ * open, so a slow host and a request that never finishes look different. A
+ * request can also show as open only because the renderer's main thread is
+ * blocked and has not handled the response yet.
+ */
+async function load(page: Page, url: string): Promise<void> {
+	const readyMs = Number(process.env.E2E_READY_MS ?? 60_000);
+	const open = new Set<HTTPRequest>();
+	const track = (request: HTTPRequest) => open.add(request);
+	const settle = (request: HTTPRequest) => open.delete(request);
+	page.on('request', track);
+	page.on('requestfinished', settle);
+	page.on('requestfailed', settle);
+
+	const release = await holdOthers(page);
+	const started = Date.now();
+	let phase = 'goto (networkidle2)';
+	try {
+		await page.goto(url, { waitUntil: 'networkidle2', timeout: readyMs });
+		const loaded = Date.now() - started;
+		phase = 'window.__tableplace.ready';
+		// the bridge mounts inside the Canvas, which mounts only once the socket is
+		// open — so waiting on it is also the connection assertion
+		await page.waitForFunction('window.__tableplace?.ready === true', { timeout: readyMs });
+		if (process.env.E2E_VERBOSE === '1') {
+			console.log(`    load: goto ${loaded}ms, ready ${Date.now() - started}ms`);
+		}
+	} catch (error) {
+		const pending = [...open].map((request) => request.url().replace(/^https?:\/\/[^/]+/, ''));
+		await page.close().catch(() => {});
+		throw new Error(
+			`table load stalled in ${phase} after ${Date.now() - started}ms ` +
+				`(E2E_READY_MS=${readyMs}); ${pending.length} request(s) still open` +
+				(pending.length ? `:\n  ${pending.slice(0, 20).join('\n  ')}` : ''),
+			{ cause: error }
+		);
+	} finally {
+		await release();
+		page.off('request', track);
+		page.off('requestfinished', settle);
+		page.off('requestfailed', settle);
+	}
+}
+
+/**
  * Pages opened on the same `Browser` share one localStorage — and so one
  * `myPlayerId`: they are the same player looking twice. Pass a fresh
  * `BrowserContext` to seat a genuinely different player.
@@ -171,18 +288,7 @@ export async function openTable(
 	const url =
 		`${servers.web}/play?lobby=${encodeURIComponent(lobby)}` +
 		`&server=${encodeURIComponent(servers.relay)}`;
-	// a fresh BrowserContext has no module cache: vite dev serves every module
-	// again, so a slow host gets the same allowance as the ready wait below
-	await page.goto(url, {
-		waitUntil: 'networkidle2',
-		timeout: Number(process.env.E2E_READY_MS ?? 60_000)
-	});
-
-	// the bridge mounts inside the Canvas, which mounts only once the socket is
-	// open — so waiting on it is also the connection assertion
-	await page.waitForFunction('window.__tableplace?.ready === true', {
-		timeout: Number(process.env.E2E_READY_MS ?? 60_000)
-	});
+	await load(page, url);
 
 	const settle = (ms = 700) => sleep(ms);
 	await settle(600);
