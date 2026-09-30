@@ -1,7 +1,7 @@
 /**
  * The printed top face of a counter (tableplace-191): its name, its value in
  * large numerals, `of max` when it has one, and — with a max — an arc round
- * the rim showing value/max. Drawn onto a canvas that becomes the face's
+ * the rim showing where the value sits in `[minValue, maxValue]`. Drawn onto a canvas that becomes the face's
  * texture, so the counter reads from the seat without a floating pill.
  *
  * Pure rendering of the counter's existing fields; nothing here knows what the
@@ -18,14 +18,24 @@ export type DialFace = {
 	name: string;
 	value: number;
 	maxValue?: number;
+	/** the value the arc is empty at (default 0) */
+	minValue?: number;
 	/** an image sits under the face: draw a scrim, not an opaque plate */
 	overImage?: boolean;
 };
 
-/** value/max clamped to 0…1, or null for a counter with no (usable) max */
-export function dialFraction(value: number, maxValue: number | undefined): number | null {
-	if (maxValue == null || !(maxValue > 0)) return null;
-	return Math.min(1, Math.max(0, value / maxValue));
+/**
+ * How far `value` sits through the counter's real range, clamped to 0…1: empty
+ * at `minValue`, full at `maxValue`. Null for a counter with no max, or whose
+ * range has no width to draw an arc over.
+ */
+export function dialFraction(
+	value: number,
+	maxValue: number | undefined,
+	minValue: number = 0
+): number | null {
+	if (maxValue == null || !(maxValue > minValue)) return null;
+	return Math.min(1, Math.max(0, (value - minValue) / (maxValue - minValue)));
 }
 
 /** The arc shifts colour at half and at a quarter */
@@ -40,7 +50,13 @@ export function dialArcColor(fraction: number): string {
  * changes, never per frame.
  */
 export function dialKey(face: DialFace): string {
-	return JSON.stringify([face.name, face.value, face.maxValue ?? null, !!face.overImage]);
+	return JSON.stringify([
+		face.name,
+		face.value,
+		face.maxValue ?? null,
+		!!face.overImage,
+		face.minValue ?? 0
+	]);
 }
 
 /** Largest font (px, ≤ `max`) at which `text` fits in `width` */
@@ -82,7 +98,7 @@ export function drawCounterDial(context: CanvasRenderingContext2D, size: number,
 	disc(127, face.overImage ? 'rgba(22,19,15,0.55)' : '#16130f');
 	disc(106, face.overImage ? 'rgba(251,248,238,0.25)' : '#fbf8ee');
 
-	const fraction = dialFraction(face.value, face.maxValue);
+	const fraction = dialFraction(face.value, face.maxValue, face.minValue);
 	if (fraction != null && fraction > 0) {
 		context.beginPath();
 		context.arc(c, c, 116.5 * u, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fraction);

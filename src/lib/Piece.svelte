@@ -458,6 +458,7 @@
 						name={piece.name ?? ''}
 						value={counterValue}
 						maxValue={piece.maxValue}
+						minValue={piece.minValue}
 						overImage={!!imageUrl}
 						radius={radius * 0.97}
 						y={THICKNESS / 2 + 0.004}

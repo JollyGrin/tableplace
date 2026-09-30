@@ -62,6 +62,8 @@ export type PackBagPieceItem = {
 	radius?: number;
 	/** counters draw at this value */
 	maxValue?: number;
+	/** counters only: the lowest value it can show (default 0) */
+	minValue?: number;
 };
 
 /** A card inside a bag: the same face-ref grammar cards use, plus its own back. */
@@ -121,6 +123,12 @@ export type PackPieceDef = {
 	radius?: number;
 	/** counters start at this value */
 	maxValue?: number;
+	/**
+	 * counters only: the lowest value it can show (default 0) — a dial that
+	 * reads 3–17 is `minValue: 3, maxValue: 17`. May be negative; never above
+	 * `maxValue`.
+	 */
+	minValue?: number;
 	/** dice only: how many faces the die has (defaults to 6) */
 	sides?: DieSides;
 	/**

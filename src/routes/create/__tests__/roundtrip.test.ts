@@ -56,6 +56,7 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 		model: '',
 		radius: 0.75,
 		maxValue: 20,
+		minValue: 0,
 		states: [],
 		state: 0,
 		contents: [],
@@ -90,6 +91,7 @@ function importEditExport(): { draft: EditorPack; exported: string } {
 			color: '#b3202e',
 			radius: 0.6,
 			maxValue: 12,
+			minValue: 2,
 			position: [3, 0]
 		}),
 		// a multi-state token: three faces, one per face-ref scheme, spawning
@@ -228,6 +230,9 @@ describe('/create round-trip (tts-clonetroopers.json)', () => {
 		expect(pawn?.imageUrl).toBeUndefined(); // empty image URL never ships
 		expect(pawn?.maxValue).toBeUndefined(); // maxValue is counters-only
 		expect(pack.pieces?.find((p) => p.name === 'HP')?.maxValue).toBe(12);
+		// a counter's floor ships; the editor's 0 (the default) never does
+		expect(pack.pieces?.find((p) => p.name === 'HP')?.minValue).toBe(2);
+		expect(pawn?.minValue).toBeUndefined();
 		// bag fields are bags-only, and the flat editor item narrows back down
 		expect(pawn?.contents).toBeUndefined();
 		expect(pawn?.drawMode).toBeUndefined();

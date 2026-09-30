@@ -129,6 +129,7 @@ function drawFromBag(bagId: string): BagDraw | null {
 			imageUrl: item.imageUrl,
 			radius: item.radius,
 			maxValue: item.maxValue,
+			minValue: item.minValue,
 			position: drawPosition(state, bag, PIECE_REST_Y)
 		});
 		if (!built) return null;
@@ -176,7 +177,8 @@ function returnToBag(bagId: string, entityId: string): boolean {
 			...(piece.color ? { color: piece.color } : {}),
 			...(piece.imageUrl ? { imageUrl: piece.imageUrl } : {}),
 			...(piece.radius !== undefined ? { radius: piece.radius } : {}),
-			...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {})
+			...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {}),
+			...(piece.minValue !== undefined ? { minValue: piece.minValue } : {})
 		};
 		update.pieces[entityId] = null;
 	} else {

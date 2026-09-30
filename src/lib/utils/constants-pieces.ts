@@ -36,6 +36,9 @@ export const PIECE_RADIUS = {
 /** Starting max for a hand-spawned health dial */
 export const COUNTER_MAX_DEFAULT = 20;
 
+/** Ceiling a live counter runs to when it carries no `maxValue` at all */
+export const COUNTER_MAX_UNSET = 99;
+
 /** Die shapes the primitive library can build, in spawn-menu order */
 export const DIE_SIDES: readonly DieSides[] = [4, 6, 8, 10, 12, 20];
 

@@ -119,7 +119,7 @@
 								"title": "shuffleOnLoad"
 							},
 							"value": {
-								"description": "counter pieces only",
+								"description": "counter pieces only — the count it starts on. Must sit inside the pack\npiece's `[minValue, maxValue]`; a value outside it is refused when the\nplacement meets its pack (the file alone does not know the range).",
 								"type": "number",
 								"title": "value"
 							},
@@ -820,6 +820,11 @@
 					"type": "number",
 					"title": "maxValue"
 				},
+				"minValue": {
+					"description": "counters only: the lowest `value` it can show (default 0)",
+					"type": "number",
+					"title": "minValue"
+				},
 				"sides": {
 					"description": "dice only: how many faces the die has",
 					"enum": [10, 12, 20, 4, 6, 8],
@@ -926,6 +931,11 @@
 						"maxValue": {
 							"type": "number",
 							"title": "maxValue"
+						},
+						"minValue": {
+							"description": "counters only: the lowest value it can show (default 0)",
+							"type": "number",
+							"title": "minValue"
 						}
 					},
 					"required": ["kind", "name"]
@@ -1050,7 +1060,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.17",
-	"x-generated-at": "2026-09-29T21:16:47.701Z",
-	"x-tableplace-source-sha": "7605e4e3b33b75de49a67f9193b899f6647aae78-dirty"
+	"x-tableplace-spec-version": "0.1.18",
+	"x-generated-at": "2026-09-30T08:59:37.540Z",
+	"x-tableplace-source-sha": "6b8e0fa28227484e42c787f9100bf772844374cc-dirty"
 }

@@ -253,6 +253,7 @@ describe('CreatePane', () => {
 		await untilPreviewed(() => expect(Object.values(get(gameStore).pieces ?? {})).toHaveLength(1));
 
 		expect(labels(container)).toContain('Max value'); // counter-only control
+		expect(labels(container)).toContain('Min value');
 		const pieces = Object.values(get(gameStore).pieces ?? {});
 		expect(pieces).toHaveLength(1);
 		expect(pieces[0]).toMatchObject({ kind: 'counter', value: 20, maxValue: 20 });

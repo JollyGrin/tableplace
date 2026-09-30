@@ -21,6 +21,7 @@ import type {
 	PackOverlayDef
 } from './types';
 import { assertReadableSpecVersion, PACK_SPEC_VERSION } from '../formats/spec-version';
+import { COUNTER_MAX_DEFAULT } from '../utils/constants-pieces';
 
 export const TBPP_VERSION = 1;
 export const PACK_SCHEMA_URL = 'https://table.place/pack.schema.json';
@@ -72,6 +73,25 @@ function str(v: unknown, path: string): string {
 function num(v: unknown, path: string): number {
 	if (typeof v !== 'number' || !Number.isFinite(v)) fail(path, 'must be a number');
 	return v;
+}
+
+/**
+ * A counter's floor. It may be negative, but a floor above the ceiling leaves
+ * the counter no value it could show — and an absent `maxValue` is the default
+ * one the piece will spawn with, not "no ceiling".
+ */
+function minValue(v: unknown, maxValue: number | undefined, path: string): number {
+	const min = num(v, `${path}.minValue`);
+	const max = maxValue ?? COUNTER_MAX_DEFAULT;
+	if (min > max) {
+		fail(
+			`${path}.minValue`,
+			maxValue === undefined
+				? `must not be above the default maxValue (${max}) — set maxValue too`
+				: `must not be above maxValue (${max})`
+		);
+	}
+	return min;
 }
 
 function arr(v: unknown, path: string): unknown[] {
@@ -159,6 +179,7 @@ function parseBagItem(v: unknown, path: string): PackBagItemDef {
 	if (v.imageUrl !== undefined) item.imageUrl = str(v.imageUrl, `${path}.imageUrl`);
 	if (v.radius !== undefined) item.radius = num(v.radius, `${path}.radius`);
 	if (v.maxValue !== undefined) item.maxValue = num(v.maxValue, `${path}.maxValue`);
+	if (v.minValue !== undefined) item.minValue = minValue(v.minValue, item.maxValue, path);
 	return item;
 }
 
@@ -200,6 +221,7 @@ function parsePiece(v: unknown, path: string): PackPieceDef {
 	}
 	if (v.radius !== undefined) piece.radius = num(v.radius, `${path}.radius`);
 	if (v.maxValue !== undefined) piece.maxValue = num(v.maxValue, `${path}.maxValue`);
+	if (v.minValue !== undefined) piece.minValue = minValue(v.minValue, piece.maxValue, path);
 	if (v.sides !== undefined) {
 		const sides = num(v.sides, `${path}.sides`) as PackPieceDef['sides'];
 		if (!DIE_SIDES.includes(sides as (typeof DIE_SIDES)[number])) {

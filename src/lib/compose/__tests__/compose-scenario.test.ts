@@ -234,6 +234,62 @@ describe('composeScenario — order and shuffling', () => {
 	});
 });
 
+describe('a counter with a minimum (tableplace-253)', () => {
+	const DIALS: GamePackDef = {
+		id: 'dials',
+		name: 'Dials',
+		scope: 'player',
+		decks: [],
+		pieces: [
+			{ kind: 'counter', name: 'Dial', minValue: 3, maxValue: 17, position: [0, 3] },
+			{ kind: 'counter', name: 'Plain', maxValue: 17, position: [2, 3] }
+		]
+	};
+	const compose = (content: string, value?: number) =>
+		composeScenario(
+			{
+				name: 'dials',
+				createdAt: 0,
+				state: {},
+				packs: [{ id: 'dials' }],
+				placements: [
+					{ kind: 'piece', pack: 'dials', content, seat: 0, ...(value !== undefined ? { value } : {}) }
+				]
+			},
+			new Map([['dials', DIALS]])
+		).pieces ?? {};
+
+	it('carries the pack piece minValue onto the table, and nothing onto a counter without one', () => {
+		expect(compose('0')['piece:seat0:dial-0']).toMatchObject({
+			value: 17,
+			minValue: 3,
+			maxValue: 17
+		});
+		expect(compose('0', 3)['piece:seat0:dial-0']).toMatchObject({ value: 3, minValue: 3 });
+		expect(compose('1')['piece:seat0:plain-0']).not.toHaveProperty('minValue');
+	});
+
+	it('refuses a placement value outside the range, with a message naming both bounds', () => {
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			expect(compose('0', 2)).toEqual({});
+			expect(error).toHaveBeenLastCalledWith(
+				"[compose] dials piece[0] 'Dial': value must be between 3 and 17, got 2"
+			);
+			expect(compose('0', 18)).toEqual({});
+			expect(error).toHaveBeenLastCalledWith(expect.stringContaining('between 3 and 17, got 18'));
+			// a counter without minValue keeps 0 as its floor
+			expect(compose('1', -1)).toEqual({});
+			expect(error).toHaveBeenLastCalledWith(expect.stringContaining('between 0 and 17, got -1'));
+			expect(error).toHaveBeenCalledTimes(3);
+			expect(compose('1', 0)['piece:seat0:plain-0']).toMatchObject({ value: 0 });
+			expect(error).toHaveBeenCalledTimes(3);
+		} finally {
+			error.mockRestore();
+		}
+	});
+});
+
 describe('headless and in-browser composition agree', () => {
 	it('produces the identical table applyScenario puts in the store', async () => {
 		emptyTable();

@@ -156,6 +156,7 @@ export async function importTtsFile(text: string, opts: ImportOptions = {}): Pro
 					...(states?.length ? { states, state: piece.state ?? 0 } : {}),
 					radius: piece.radius,
 					maxValue: piece.maxValue,
+					...(piece.minValue !== undefined ? { minValue: piece.minValue } : {}),
 					value: piece.maxValue,
 					position: [(piece.position[0] + offsetX) * m, PIECE_REST_Y, piece.position[1] * m],
 					rotation: [0, 0, 0]

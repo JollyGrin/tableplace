@@ -384,6 +384,7 @@
 			model: '',
 			radius: PIECE_RADIUS[newPieceKind],
 			maxValue: COUNTER_MAX_DEFAULT,
+			minValue: 0,
 			states: [],
 			state: 0,
 			sides: DIE_SIDES_DEFAULT,
@@ -1134,6 +1135,9 @@
 						<Checkbox label="Locked" bind:value={piece.locked} />
 						{#if piece.kind === 'counter'}
 							<AutoValue label="Max value" bind:value={piece.maxValue} />
+							<!-- the lowest value the counter can show: a dial that reads
+							     3–17 is min 3, max 17 -->
+							<AutoValue label="Min value" bind:value={piece.minValue} />
 						{/if}
 						{#if piece.kind === 'die'}
 							<List label="Sides" bind:value={piece.sides} options={sidesOptions} />
@@ -1161,6 +1165,7 @@
 									{/if}
 									{#if bagItem.kind === 'counter'}
 										<Stepper label="Item max" bind:value={bagItem.maxValue} step={1} />
+										<Stepper label="Item min" bind:value={bagItem.minValue} step={1} />
 									{/if}
 									{#if bagItem.kind === 'card'}
 										<!-- keyed on the cursor, like the deck's card face: a fresh

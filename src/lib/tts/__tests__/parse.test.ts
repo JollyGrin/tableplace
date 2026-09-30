@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseSavedObject, normalizeAssetUrl, decodeCardId, extractCounterMax } from '../parse';
+import {
+	parseSavedObject,
+	normalizeAssetUrl,
+	decodeCardId,
+	extractCounterMax,
+	extractCounterMin
+} from '../parse';
+import { ttsToPack } from '../to-pack';
 
 // Real the-unmatched.club exports committed as fixtures
 const fixture = JSON.parse(
@@ -195,5 +202,28 @@ describe('extractCounterMax', () => {
 		expect(extractCounterMax('CONFIG = {\r\n MIN_VALUE = 0,\r\n MAX_VALUE = 18,')).toBe(18);
 		expect(extractCounterMax('no counter here')).toBeNull();
 		expect(extractCounterMax(undefined)).toBeNull();
+	});
+});
+
+describe('extractCounterMin', () => {
+	it('parses a signed MIN_VALUE, and drops one above the max', () => {
+		expect(extractCounterMin('CONFIG = {\r\n MIN_VALUE = 3,\r\n MAX_VALUE = 18,', 18)).toBe(3);
+		expect(extractCounterMin('MIN_VALUE = -10\nMAX_VALUE = 10', 10)).toBe(-10);
+		expect(extractCounterMin('MIN_VALUE = 0', 18)).toBe(0);
+		expect(extractCounterMin('MIN_VALUE = 30', 18)).toBeNull();
+		expect(extractCounterMin('no counter here', 18)).toBeNull();
+		expect(extractCounterMin(undefined, 18)).toBeNull();
+	});
+
+	it('imports the floor of a scripted counter, and into the pack', () => {
+		const dial = (script: string) =>
+			parseSavedObject({
+				ObjectStates: [{ Name: 'Custom_Model', Nickname: 'Dial', LuaScript: script }]
+			});
+		const parsed = dial('MIN_VALUE = 3\nMAX_VALUE = 17');
+		expect(parsed.pieces[0]).toMatchObject({ kind: 'counter', minValue: 3, maxValue: 17 });
+		expect(ttsToPack(parsed).pieces?.[0]).toMatchObject({ minValue: 3, maxValue: 17 });
+		// a floor of 0 is the default: no field invented
+		expect(dial('MIN_VALUE = 0\nMAX_VALUE = 17').pieces[0]).not.toHaveProperty('minValue');
 	});
 });

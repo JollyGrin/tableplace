@@ -81,6 +81,8 @@ export type PieceProps = {
 	radius?: number;
 	/** counters only; the piece spawns full (`value = maxValue`) unless `value` says otherwise */
 	maxValue?: number;
+	/** counters only; the lowest value it can show (default 0) */
+	minValue?: number;
 	/** counters only; restores a saved count (scenario loads) instead of spawning full */
 	value?: number;
 	/** dice only; how many faces (defaults to a d6) */
@@ -160,6 +162,8 @@ export function composePiece(
 	if (kind === 'counter') {
 		const maxValue = opts.maxValue ?? COUNTER_MAX_DEFAULT;
 		piece.maxValue = maxValue;
+		// only a declared floor is carried: absent already means 0
+		if (opts.minValue !== undefined) piece.minValue = opts.minValue;
 		piece.value = opts.value ?? maxValue;
 	}
 	if (kind === 'die') {
