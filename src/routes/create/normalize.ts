@@ -15,6 +15,7 @@ import type {
 	PackOverlayDef,
 	PackPieceDef
 } from '$lib/packs/types';
+import type { TokenShape } from '$lib/store/game/types';
 import { PIECE_RADIUS, COUNTER_MAX_DEFAULT, DIE_SIDES_DEFAULT } from '$lib/utils/constants-pieces';
 import { CARD_BACK_DEFAULT } from '$lib/packs/standard52';
 
@@ -43,7 +44,11 @@ export type EditorBagItem = {
 	color: string;
 	imageUrl: string;
 	radius: number;
+	/** tokens only; 'disc' is the default and stays out of the file */
+	shape: TokenShape;
 	maxValue: number;
+	/** counters only; 0 is the default and stays out of the file */
+	minValue: number;
 	/** card items only */
 	code: string;
 	face: string;
@@ -60,7 +65,11 @@ export type EditorPiece = Omit<
 	/** models only — the `model:<kit>/<name>` catalog ref */
 	model: string;
 	radius: number;
+	/** tokens only; 'disc' is the default and stays out of the file */
+	shape: TokenShape;
 	maxValue: number;
+	/** counters only; 0 is the default and stays out of the file */
+	minValue: number;
 	states: EditorPieceState[];
 	state: number;
 	contents: EditorBagItem[];
@@ -97,7 +106,9 @@ export function withBagItemDefaults(item: PackBagItemDef): EditorBagItem {
 			color: PIECE_COLOR_DEFAULT,
 			imageUrl: '',
 			radius: PIECE_RADIUS.token,
+			shape: 'disc',
 			maxValue: COUNTER_MAX_DEFAULT,
+			minValue: 0,
 			code: item.code,
 			face: item.face,
 			back: item.back ?? '',
@@ -109,7 +120,9 @@ export function withBagItemDefaults(item: PackBagItemDef): EditorBagItem {
 		color: item.color ?? PIECE_COLOR_DEFAULT,
 		imageUrl: item.imageUrl ?? '',
 		radius: item.radius ?? PIECE_RADIUS[item.kind],
-		maxValue: item.maxValue ?? COUNTER_MAX_DEFAULT
+		shape: item.shape ?? 'disc',
+		maxValue: item.maxValue ?? COUNTER_MAX_DEFAULT,
+		minValue: item.minValue ?? 0
 	};
 }
 
@@ -134,7 +147,9 @@ export function withEditorDefaults(pack: GamePackDef): EditorPack {
 			model: piece.model ?? '',
 			rotation: piece.rotation ?? 0,
 			radius: piece.radius ?? PIECE_RADIUS[piece.kind],
+			shape: piece.shape ?? 'disc',
 			maxValue: piece.maxValue ?? COUNTER_MAX_DEFAULT,
+			minValue: piece.minValue ?? 0,
 			states: (piece.states ?? []).map((state) => ({ face: state.face, name: state.name ?? '' })),
 			state: piece.state ?? 0,
 			sides: piece.sides ?? DIE_SIDES_DEFAULT,
@@ -177,9 +192,13 @@ function cleanBagItem(item: PackBagItemDef | EditorBagItem): PackBagItemDef {
 		...(editor.color ? { color: editor.color } : {}),
 		...(editor.imageUrl ? { imageUrl: editor.imageUrl } : {}),
 		...(editor.radius !== undefined ? { radius: editor.radius } : {}),
+		// tokens only, and 'disc' is the default, so only a square ships
+		...(item.kind === 'token' && editor.shape === 'square' ? { shape: 'square' as const } : {}),
 		...(item.kind === 'counter' && editor.maxValue !== undefined
 			? { maxValue: editor.maxValue }
-			: {})
+			: {}),
+		// 0 is the default, so it stays out of the file
+		...(item.kind === 'counter' && editor.minValue ? { minValue: editor.minValue } : {})
 	};
 }
 
@@ -214,9 +233,14 @@ export function cleanForExport(draft: GamePackDef): GamePackDef {
 			// 0 is the default, so it stays out of the file
 			...(states.length && piece.state ? { state: piece.state } : {}),
 			...(piece.radius !== undefined ? { radius: piece.radius } : {}),
+			// tokens only, and 'disc' is the default, so only a square ships — a
+			// token switched to a pawn must not export the outline it briefly had
+			...(piece.kind === 'token' && piece.shape === 'square' ? { shape: 'square' as const } : {}),
 			...(piece.kind === 'counter' && piece.maxValue !== undefined
 				? { maxValue: piece.maxValue }
 				: {}),
+			// 0 is the default, so it stays out of the file
+			...(piece.kind === 'counter' && piece.minValue ? { minValue: piece.minValue } : {}),
 			...(piece.kind === 'die' && piece.sides !== undefined ? { sides: piece.sides } : {}),
 			// bag fields ship on bags only — a token that was switched to a bag and
 			// back must not export the contents it briefly had

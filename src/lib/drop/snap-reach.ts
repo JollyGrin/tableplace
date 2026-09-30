@@ -4,8 +4,9 @@ import { resolveSnap, snapRadius } from '$lib/utils/transforms/snap';
 /**
  * Snap point links and reach (tableplace-190), as pure graph arithmetic.
  *
- * Snap points may carry `links` — ids of the points they connect to — and a
- * piece may carry `reach`, how many links it usually travels. Lift that piece
+ * Snap points may carry `links` — ids of the points they connect to — and
+ * `outLinks`, the one-way kind (tableplace-255), and a piece may carry
+ * `reach`, how many links it usually travels. Lift that piece
  * off a linked point and `SnapGuides` draws the points within `reach` links
  * brighter than the rest. Advisory only: nothing here feeds `resolveDrop`, so
  * every point still catches exactly as it did, and a scenario without links
@@ -15,25 +16,36 @@ import { resolveSnap, snapRadius } from '$lib/utils/transforms/snap';
 type SnapPoints = GameDTO['snapPoints'];
 
 /**
- * The link graph as adjacency, undirected: a link authored on either end
- * joins both, so a hand-written file needn't repeat itself. Links to points
- * that don't exist (or were removed), self links and non-string entries are
- * ignored rather than trusted.
+ * The link graph as adjacency: each point mapped to the points one link away
+ * *from* it.
+ *
+ * `links` are undirected — a link authored on either end joins both, so a
+ * hand-written file needn't repeat itself. `outLinks` are one-way: the edge
+ * leaves the point it is written on, and its target gets no way back through
+ * it. The target is still a key (with nothing to walk to, if that edge is all
+ * it has): it is on the board, so lifting from it lights what it can reach —
+ * itself — rather than falling back to ordinary guides.
+ *
+ * Links to points that don't exist (or were removed), self links and
+ * non-string entries are ignored rather than trusted.
  */
 export function snapLinkGraph(snapPoints: SnapPoints | undefined | null): Map<string, Set<string>> {
 	const graph = new Map<string, Set<string>>();
-	const join = (a: string, b: string) => {
-		let set = graph.get(a);
-		if (!set) graph.set(a, (set = new Set()));
-		set.add(b);
+	const node = (id: string) => {
+		let set = graph.get(id);
+		if (!set) graph.set(id, (set = new Set()));
+		return set;
 	};
 	for (const id in snapPoints ?? {}) {
-		const links = snapPoints?.[id]?.links;
-		if (!Array.isArray(links)) continue;
-		for (const target of links) {
-			if (typeof target !== 'string' || target === id || !snapPoints?.[target]) continue;
-			join(id, target);
-			join(target, id);
+		for (const field of ['links', 'outLinks'] as const) {
+			const links = snapPoints?.[id]?.[field];
+			if (!Array.isArray(links)) continue;
+			for (const target of links) {
+				if (typeof target !== 'string' || target === id || !snapPoints?.[target]) continue;
+				node(id).add(target);
+				const back = node(target);
+				if (field === 'links') back.add(id);
+			}
 		}
 	}
 	return graph;
@@ -41,7 +53,8 @@ export function snapLinkGraph(snapPoints: SnapPoints | undefined | null): Map<st
 
 /**
  * Breadth-first: every point within `reach` links of `from`, mapped to its
- * link distance (`from` itself is 0). Cycles are walked once — a point keeps
+ * link distance (`from` itself is 0). One-way links are followed the way they
+ * point, since the graph only holds the edges leaving each point. Cycles are walked once — a point keeps
  * the distance it was first reached at, which BFS guarantees is the shortest.
  * A negative or non-finite reach yields an empty map. Every point is
  * passable: occupancy only removes a point from the landing set afterwards.
@@ -112,7 +125,7 @@ export function occupiedSnapPoints(
  * the linked snap point it was lifted off. Null — no bright set, every ring
  * drawn as usual — unless all of that holds: the entity is a piece with a
  * reach, it left from a table position (`origin`) caught by a discrete point,
- * and that point has links.
+ * and that point is on the link graph (it has a link, or one leads to it).
  *
  * The origin point is in the set (staying put is always a move). Occupied
  * points are left out of it but stay passable, so a piece can still reach

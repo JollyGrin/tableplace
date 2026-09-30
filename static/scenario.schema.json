@@ -119,7 +119,7 @@
 								"title": "shuffleOnLoad"
 							},
 							"value": {
-								"description": "counter pieces only",
+								"description": "counter pieces only — the count it starts on. Must sit inside the pack\npiece's `[minValue, maxValue]`; a value outside it is refused when the\nplacement meets its pack (the file alone does not know the range).",
 								"type": "number",
 								"title": "value"
 							},
@@ -213,6 +213,14 @@
 									"type": "string"
 								},
 								"title": "links"
+							},
+							"outLinks": {
+								"description": "One-way links: ids (`snap:<index>`, as in `links`) of the points this one\nleads to. The edge leaves this point only — the target doesn't reach back\nthrough it — so a directed route is written on its starting end. A pair\nthat is also joined by `links` is two-way. Advisory, like `links`.",
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"title": "outLinks"
 							},
 							"tags": {
 								"description": "free-form labels (regions, sides, anything) the table itself never reads",
@@ -806,6 +814,12 @@
 					"type": "number",
 					"title": "radius"
 				},
+				"shape": {
+					"description": "Tokens only (tableplace-254): `'square'` draws a flat tile whose\nhalf-width is `radius` — a rectangle of the image's aspect when that is\nnot 1:1 — with the image uncropped on top. Absent = `'disc'`.",
+					"enum": ["disc", "square"],
+					"type": "string",
+					"title": "shape"
+				},
 				"model": {
 					"description": "`kind: 'model'` only — a `model:<kit>/<name>` catalog ref (tableplace-135),\nresolved through the static manifest exactly the way face refs resolve\nthrough their schemes: the tiny ref string is all that syncs, never\ngeometry. An unresolvable ref renders as a placeholder, not an error.",
 					"type": "string",
@@ -819,6 +833,11 @@
 				"maxValue": {
 					"type": "number",
 					"title": "maxValue"
+				},
+				"minValue": {
+					"description": "counters only: the lowest `value` it can show (default 0)",
+					"type": "number",
+					"title": "minValue"
 				},
 				"sides": {
 					"description": "dice only: how many faces the die has",
@@ -923,9 +942,20 @@
 							"type": "number",
 							"title": "radius"
 						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
+						},
 						"maxValue": {
 							"type": "number",
 							"title": "maxValue"
+						},
+						"minValue": {
+							"description": "counters only: the lowest value it can show (default 0)",
+							"type": "number",
+							"title": "minValue"
 						}
 					},
 					"required": ["kind", "name"]
@@ -1038,6 +1068,14 @@
 					},
 					"title": "links"
 				},
+				"outLinks": {
+					"description": "One-way links (tableplace-255): ids of the points this one leads to. The\nedge leaves this point only — the target doesn't reach back through it.\nFor directed routes; everything else about `links` holds (a missing\ntarget is ignored, inert without `reach`). A pair that is also in\n`links` is simply two-way.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"title": "outLinks"
+				},
 				"tags": {
 					"description": "free-form labels a scenario can group points by; the table reads none of them",
 					"type": "array",
@@ -1050,7 +1088,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.17",
-	"x-generated-at": "2026-09-29T21:16:47.701Z",
-	"x-tableplace-source-sha": "7605e4e3b33b75de49a67f9193b899f6647aae78-dirty"
+	"x-tableplace-spec-version": "0.1.20",
+	"x-generated-at": "2026-09-30T10:36:09.376Z",
+	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
 }

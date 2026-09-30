@@ -158,6 +158,58 @@ describe('incrementCounter', () => {
 		gameActions.incrementCounter(id, 2);
 		expect(get(gameStore).pieces?.[id]?.value).toBe(2);
 	});
+
+	const valueOf = (id: string) => get(gameStore).pieces?.[id]?.value;
+
+	it('holds a counter with a minimum inside [minValue, maxValue]', () => {
+		const id = gameActions.addPiece('counter', { ownerId: OWNER, minValue: 3, maxValue: 17 });
+		// spawns full, and carries the floor
+		expect(get(gameStore).pieces?.[id]).toMatchObject({ value: 17, minValue: 3, maxValue: 17 });
+
+		gameActions.incrementCounter(id, 1);
+		expect(valueOf(id)).toBe(17);
+		gameActions.incrementCounter(id, -13);
+		expect(valueOf(id)).toBe(4);
+		// one step at a time, the way the wheel, a click and the hotkeys arrive
+		for (let i = 0; i < 5; i++) gameActions.incrementCounter(id, -1);
+		expect(valueOf(id)).toBe(3);
+		gameActions.incrementCounter(id, -100);
+		expect(valueOf(id)).toBe(3);
+		gameActions.incrementCounter(id, 100);
+		expect(valueOf(id)).toBe(17);
+	});
+
+	it('lets a counter with a negative minimum run below zero', () => {
+		const id = gameActions.addPiece('counter', { ownerId: OWNER, minValue: -5, maxValue: 5 });
+		gameActions.incrementCounter(id, -8);
+		expect(valueOf(id)).toBe(-3);
+		gameActions.incrementCounter(id, -8);
+		expect(valueOf(id)).toBe(-5);
+	});
+
+	it('leaves a counter without minValue exactly as it was: floor 0, no field invented', () => {
+		const id = gameActions.addPiece('counter', { ownerId: OWNER, maxValue: 17 });
+		expect(get(gameStore).pieces?.[id]).not.toHaveProperty('minValue');
+		gameActions.incrementCounter(id, -100);
+		expect(valueOf(id)).toBe(0);
+		gameActions.incrementCounter(id, 100);
+		expect(valueOf(id)).toBe(17);
+	});
+
+	it('resets to maxValue, whatever the minimum', () => {
+		const id = gameActions.addPiece('counter', { ownerId: OWNER, minValue: 3, maxValue: 17 });
+		gameActions.incrementCounter(id, -100);
+		gameActions.resetCounter(id);
+		expect(valueOf(id)).toBe(17);
+	});
+
+	it('a synced counter with no maxValue still runs to the open-ended ceiling', () => {
+		gameStore.set({ pieces: { 'piece:a:dial-0': { kind: 'counter', value: 98, minValue: 90 } } });
+		gameActions.incrementCounter('piece:a:dial-0', 5);
+		expect(valueOf('piece:a:dial-0')).toBe(99);
+		gameActions.incrementCounter('piece:a:dial-0', -50);
+		expect(valueOf('piece:a:dial-0')).toBe(90);
+	});
 });
 
 describe('dice', () => {

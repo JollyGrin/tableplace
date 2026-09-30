@@ -25,7 +25,9 @@ export function previewDrop(
 		| 'noSnap'
 		| 'group'
 	>,
-	hand: boolean
+	hand: boolean,
+	/** the dragged piece's image aspect — see `DropOptions.faceAspect` */
+	faceAspect = 1
 ): DropTarget | null {
 	const id = drag.isDragging;
 	if (!id) return null;
@@ -36,7 +38,7 @@ export function previewDrop(
 			id,
 			drag.intersectionPoint,
 			{},
-			{ noSnap: drag.noSnap, hand, surfaceYAt: modelSurfaceYAt(carried) }
+			{ noSnap: drag.noSnap, hand, surfaceYAt: modelSurfaceYAt(carried), faceAspect }
 		);
 	}
 	return resolveDrop(
@@ -44,6 +46,6 @@ export function previewDrop(
 		id,
 		drag.intersectionPoint,
 		{ deckId: drag.isDeckHovered, bagId: drag.isBagHovered, tray: drag.isTrayHovered },
-		{ noSnap: drag.noSnap, hand, surfaceYAt: modelSurfaceYAt(id) }
+		{ noSnap: drag.noSnap, hand, surfaceYAt: modelSurfaceYAt(id), faceAspect }
 	);
 }

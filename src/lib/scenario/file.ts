@@ -19,6 +19,8 @@ import { validRotationStep } from '../utils/yaw';
 import { validHandPlayFace } from '../utils/hand';
 import { validCoach } from '../coach/table';
 import { withoutHolds } from '../utils/hold';
+import { counterRange, counterValueRefusal } from '../primitives/counter-range';
+import { TOKEN_SHAPES } from '../primitives/token-shape';
 
 export const TBPS_VERSION = 2;
 /** versions this app can read */
@@ -66,7 +68,11 @@ export type PackPlacement = {
 	 * so one scenario can hold a fixed encounter deck and a shuffled draw deck.
 	 */
 	shuffleOnLoad?: boolean;
-	/** counter pieces only */
+	/**
+	 * counter pieces only — the count it starts on. Must sit inside the pack
+	 * piece's `[minValue, maxValue]`; a value outside it is refused when the
+	 * placement meets its pack (the file alone does not know the range).
+	 */
 	value?: number;
 	/**
 	 * piece placements only — which of the pack piece's `states` it starts on
@@ -139,6 +145,13 @@ export type SnapPoint = {
 	 * points a lifted piece with `reach` can get to — nothing is ever blocked.
 	 */
 	links?: string[];
+	/**
+	 * One-way links: ids (`snap:<index>`, as in `links`) of the points this one
+	 * leads to. The edge leaves this point only — the target doesn't reach back
+	 * through it — so a directed route is written on its starting end. A pair
+	 * that is also joined by `links` is two-way. Advisory, like `links`.
+	 */
+	outLinks?: string[];
 	/** free-form labels (regions, sides, anything) the table itself never reads */
 	tags?: string[];
 };
@@ -355,7 +368,7 @@ function parseSnapPoint(v: unknown, path: string): SnapPoint {
 			point.yawStep = v.yawStep;
 		}
 	}
-	for (const field of ['links', 'tags'] as const) {
+	for (const field of ['links', 'outLinks', 'tags'] as const) {
 		const list = v[field];
 		if (list === undefined) continue;
 		if (!Array.isArray(list) || list.some((item) => typeof item !== 'string')) {
@@ -364,6 +377,41 @@ function parseSnapPoint(v: unknown, path: string): SnapPoint {
 		if (list.length) point[field] = [...(list as string[])];
 	}
 	return point;
+}
+
+/**
+ * A snapshot counter carries its own range, so the file can be held to it:
+ * a `value` outside `[minValue, maxValue]` is refused here, naming both
+ * bounds. (A placement's `value` is checked where its pack piece is known —
+ * `composePackPiece`.) Only whole counters are checked: a partial override
+ * that names no `kind` inherits its range from the placement it lays over.
+ */
+function assertCounterValues(state: Partial<GameDTO>) {
+	for (const [id, piece] of Object.entries(state.pieces ?? {})) {
+		if (piece?.kind !== 'counter' || typeof piece.value !== 'number') continue;
+		const refusal = counterValueRefusal(piece.value, counterRange(piece));
+		if (refusal) fail(`state.pieces[${JSON.stringify(id)}].value ${refusal}`);
+	}
+}
+
+/**
+ * A snapshot piece's `shape` is one of the token shapes or absent — a typo
+ * would otherwise load as a silent disc.
+ */
+function assertTokenShapes(state: Partial<GameDTO>) {
+	const known: readonly unknown[] = TOKEN_SHAPES;
+	const check = (shape: unknown, path: string) => {
+		if (shape !== undefined && !known.includes(shape)) {
+			fail(`${path}.shape must be one of ${TOKEN_SHAPES.join(', ')}`);
+		}
+	};
+	for (const [id, piece] of Object.entries(state.pieces ?? {})) {
+		const path = `state.pieces[${JSON.stringify(id)}]`;
+		check(piece?.shape, path);
+		(piece?.contents ?? []).forEach((item, i) => {
+			if (item?.kind !== 'card') check(item?.shape, `${path}.contents[${i}]`);
+		});
+	}
 }
 
 /**
@@ -405,6 +453,8 @@ export function parseScenarioFile(text: string): Scenario {
 		// a stray hold (tableplace-199) is live-table state, never a file's
 		state: withoutHolds((obj.state ?? {}) as Partial<GameDTO>)
 	};
+	assertCounterValues(scenario.state);
+	assertTokenShapes(scenario.state);
 	if (obj.packs !== undefined) {
 		if (!Array.isArray(obj.packs)) throw new Error('`packs` must be an array');
 		scenario.packs = obj.packs.map((p, i) => parsePackRef(p, `packs[${i}]`));

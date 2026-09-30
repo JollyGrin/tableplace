@@ -45,6 +45,31 @@ describe('snapLinkGraph', () => {
 		expect(graph.has('snap:2')).toBe(false);
 	});
 
+	it('follows an outLink one way: it leaves the point it is written on', () => {
+		const points = row({}, 2);
+		points['snap:0']!.outLinks = ['snap:1'];
+		const graph = snapLinkGraph(points);
+		expect([...graph.get('snap:0')!]).toEqual(['snap:1']);
+		// the target is on the graph, with no way back
+		expect([...graph.get('snap:1')!]).toEqual([]);
+	});
+
+	it('holds outLinks to the same rules as links: missing, self and junk targets are ignored', () => {
+		const points = row({}, 3);
+		(points['snap:0'] as { outLinks: unknown }).outLinks = ['snap:99', 'snap:0', 7, 'snap:2'];
+		points['snap:2'] = null;
+		(points['snap:1'] as { outLinks: unknown }).outLinks = 'snap:0';
+		expect(snapLinkGraph(points).size).toBe(0);
+	});
+
+	it('is two-way where a pair is joined by both a link and an outLink', () => {
+		const points = row({ 1: [0] }, 2);
+		points['snap:0']!.outLinks = ['snap:1'];
+		const graph = snapLinkGraph(points);
+		expect([...graph.get('snap:0')!]).toEqual(['snap:1']);
+		expect([...graph.get('snap:1')!]).toEqual(['snap:0']);
+	});
+
 	it('is empty for a scenario without links', () => {
 		expect(snapLinkGraph(row({})).size).toBe(0);
 		expect(snapLinkGraph(undefined).size).toBe(0);
@@ -83,6 +108,31 @@ describe('snapPointsWithinReach (breadth-first)', () => {
 	it('walks past a missing link target as if it were not there', () => {
 		const points = row({ 0: ['snap:77', 'snap:1'], 1: ['snap:missing', 'snap:2'] }, 3);
 		expect(within(points, 'snap:0', 2)).toEqual({ 'snap:0': 0, 'snap:1': 1, 'snap:2': 2 });
+	});
+
+	it('walks a one-way link forwards only (tableplace-255)', () => {
+		// A → B one-way
+		const points = row({}, 2);
+		points['snap:0']!.outLinks = ['snap:1'];
+		expect(within(points, 'snap:0', 1)).toEqual({ 'snap:0': 0, 'snap:1': 1 });
+		expect(within(points, 'snap:1', 1)).toEqual({ 'snap:1': 0 });
+		expect(within(points, 'snap:1', 50)).toEqual({ 'snap:1': 0 });
+	});
+
+	it('mixes one-way and undirected links on one board', () => {
+		// 0 — 1 → 2 — 3, and a one-way loop back 3 → 0
+		const points = row({ 0: [1], 2: [3] }, 4);
+		points['snap:1']!.outLinks = ['snap:2'];
+		points['snap:3']!.outLinks = ['snap:0'];
+		expect(within(points, 'snap:0', 3)).toEqual({
+			'snap:0': 0,
+			'snap:1': 1,
+			'snap:2': 2,
+			'snap:3': 3
+		});
+		// from 2 the one-way edge back to 1 is shut: 1 is three links round, not one
+		expect(within(points, 'snap:2', 2)).toEqual({ 'snap:2': 0, 'snap:3': 1, 'snap:0': 2 });
+		expect(within(points, 'snap:2', 3)['snap:1']).toBe(3);
 	});
 
 	it('reach 0 is just the origin; a nonsense reach is nothing', () => {
@@ -164,6 +214,18 @@ describe('liftReachSet', () => {
 		expect(liftReachSet(base(), lifted, undefined)).toBeNull();
 		expect(liftReachSet(base(), lifted, [1.5, 0.2, 9])).toBeNull();
 		expect(liftReachSet(base(), null, origin)).toBeNull();
+	});
+
+	it('lights the target of a one-way link from its start, and not the start from its target', () => {
+		// A (snap:0) → B (snap:1), reach 1
+		const points = row({}, 3);
+		points['snap:0']!.outLinks = ['snap:1'];
+		const state = { ...base({}, 1), snapPoints: points };
+		expect([...liftReachSet(state, lifted, [0, 0.2, 0])!].sort()).toEqual(['snap:0', 'snap:1']);
+		// lifted from B: B alone — a bright set, so A reads as out of reach
+		expect([...liftReachSet(state, lifted, [3, 0.2, 0])!]).toEqual(['snap:1']);
+		// a point no link touches is still off the board: ordinary guides
+		expect(liftReachSet(state, lifted, [6, 0.2, 0])).toBeNull();
 	});
 
 	it('is null when the origin point itself has no links', () => {

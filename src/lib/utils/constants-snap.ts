@@ -41,6 +41,10 @@ export const SNAP_MARKER_Y = TABLE_TOP_Y + 0.0015;
 export const SNAP_MARKER_COLOR = '#a78bfa';
 export const SNAP_MARKER_COLOR_ACTIVE = '#f0abfc';
 
+/** A one-way link's arrowhead in the editor: its size, and how far along the line it sits. */
+export const SNAP_LINK_ARROW_SIZE = 0.2;
+export const SNAP_LINK_ARROW_AT = 0.6;
+
 /** Color the drop preview uses when a drop is caught by a snap point. */
 export const SNAP_DROP_COLOR = '#c4b5fd';
 

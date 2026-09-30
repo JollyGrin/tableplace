@@ -28,7 +28,11 @@ type TtsObject = {
 	States?: Record<string, TtsObject>;
 	Transform?: { posX?: number; posY?: number; posZ?: number; scaleX?: number };
 	ColorDiffuse?: { r?: number; g?: number; b?: number };
-	CustomImage?: { ImageURL?: string };
+	CustomImage?: {
+		ImageURL?: string;
+		/** `Custom_Tile` only; `Type` is the tile's outline — see `TILE_SQUARE_TYPES` */
+		CustomTile?: { Type?: number };
+	};
 	LuaScript?: string;
 	/** container settings; `Order` is the LIFO/FIFO/Random draw order */
 	Bag?: { Order?: number };
@@ -72,7 +76,9 @@ export type ParsedBagItem =
 			color?: string;
 			imageUrl?: string;
 			radius?: number;
+			shape?: 'square';
 			maxValue?: number;
+			minValue?: number;
 	  }
 	| { kind: 'card'; name: string; face: SheetCell; back: SheetCell; sideways?: boolean };
 
@@ -82,7 +88,11 @@ export type ParsedPiece = {
 	color?: string;
 	imageUrl?: string;
 	radius?: number;
+	/** tokens only: set for a tile TTS draws with corners; absent = a disc */
+	shape?: 'square';
 	maxValue?: number;
+	/** counters only: the dial's floor, when its script declares one */
+	minValue?: number;
 	/** every face of a TTS `States` object, in state order; absent when single-state */
 	states?: ParsedPieceState[];
 	/** index into `states` the object was saved showing */
@@ -153,6 +163,19 @@ function colorToHex(color?: { r?: number; g?: number; b?: number }): string | un
 export function extractCounterMax(luaScript?: string): number | null {
 	const match = luaScript?.match(/MAX_VALUE\s*=\s*(\d+)/);
 	return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * The floor a TTS counter script declares beside its `MAX_VALUE`, or null.
+ * Signed — a counter may run below zero. A floor above the max is a script
+ * that does not mean what this reads it as, so it is dropped rather than
+ * imported as a counter with no value it could show.
+ */
+export function extractCounterMin(luaScript: string | undefined, maxValue: number): number | null {
+	const match = luaScript?.match(/MIN_VALUE\s*=\s*(-?\d+)/);
+	if (!match) return null;
+	const min = parseInt(match[1], 10);
+	return min <= maxValue ? min : null;
 }
 
 /**
@@ -232,6 +255,15 @@ function pieceStates(
 	return states.length > 1 ? { states, state } : {};
 }
 
+/**
+ * `CustomImage.CustomTile.Type` values that are a tile with corners: 0 is
+ * Box, 3 is Rounded (a box with eased corners). Those import as a square
+ * token, so the art keeps its corners (tableplace-254). 2 is Circle — a disc —
+ * and 1 is Hex, which has no analog yet and stays a disc, as does a tile that
+ * carries no type at all.
+ */
+const TILE_SQUARE_TYPES = new Set([0, 3]);
+
 function pieceFrom(obj: TtsObject, skipped: string[]): ParsedPiece | null {
 	const type = obj.Name ?? '';
 	const name = obj.Nickname || type;
@@ -249,6 +281,9 @@ function pieceFrom(obj: TtsObject, skipped: string[]): ParsedPiece | null {
 			color,
 			imageUrl,
 			radius: Math.max(0.4, scale),
+			...(TILE_SQUARE_TYPES.has(obj.CustomImage?.CustomTile?.Type ?? -1)
+				? { shape: 'square' as const }
+				: {}),
 			...pieceStates(obj, skipped),
 			position
 		};
@@ -266,12 +301,15 @@ function pieceFrom(obj: TtsObject, skipped: string[]): ParsedPiece | null {
 	if (type === 'Custom_Model') {
 		const maxValue = extractCounterMax(obj.LuaScript);
 		if (maxValue !== null) {
+			const minValue = extractCounterMin(obj.LuaScript, maxValue);
 			return {
 				kind: 'counter',
 				name,
 				color,
 				radius: 0.6,
 				maxValue,
+				// 0 is the default, so only a real floor is carried
+				...(minValue ? { minValue } : {}),
 				...pieceStates(obj, skipped),
 				position
 			};
@@ -369,7 +407,9 @@ function bagItemsFrom(bag: TtsObject, skipped: string[]): ParsedBagItem[] {
 				...(piece.color !== undefined ? { color: piece.color } : {}),
 				...(piece.imageUrl !== undefined ? { imageUrl: piece.imageUrl } : {}),
 				...(piece.radius !== undefined ? { radius: piece.radius } : {}),
-				...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {})
+				...(piece.shape !== undefined ? { shape: piece.shape } : {}),
+				...(piece.maxValue !== undefined ? { maxValue: piece.maxValue } : {}),
+				...(piece.minValue !== undefined ? { minValue: piece.minValue } : {})
 			});
 			continue;
 		}

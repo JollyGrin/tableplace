@@ -137,10 +137,21 @@
 								"type": "number",
 								"title": "radius"
 							},
+							"shape": {
+								"description": "tokens only: the token's outline (default `'disc'`). `'square'` is a flat\ntile whose half-width is `radius`, as thick as a disc; the image covers\nits top uncropped, so an image that is not 1:1 makes it a rectangle of\nthat aspect (width stays `2 × radius`). The rim and base keep `color`.",
+								"enum": ["disc", "square"],
+								"type": "string",
+								"title": "shape"
+							},
 							"maxValue": {
 								"description": "counters start at this value",
 								"type": "number",
 								"title": "maxValue"
+							},
+							"minValue": {
+								"description": "counters only: the lowest value it can show (default 0) — a dial that\nreads 3–17 is `minValue: 3, maxValue: 17`. May be negative; never above\n`maxValue`.",
+								"type": "number",
+								"title": "minValue"
 							},
 							"sides": {
 								"description": "dice only: how many faces the die has (defaults to 6)",
@@ -310,10 +321,21 @@
 							"type": "number",
 							"title": "radius"
 						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
+						},
 						"maxValue": {
 							"description": "counters draw at this value",
 							"type": "number",
 							"title": "maxValue"
+						},
+						"minValue": {
+							"description": "counters only: the lowest value it can show (default 0)",
+							"type": "number",
+							"title": "minValue"
 						}
 					},
 					"required": ["kind", "name"]
@@ -358,7 +380,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "1.8.0",
-	"x-generated-at": "2026-09-29T21:16:47.701Z",
-	"x-tableplace-source-sha": "7605e4e3b33b75de49a67f9193b899f6647aae78-dirty"
+	"x-tableplace-spec-version": "1.10.0",
+	"x-generated-at": "2026-09-30T10:36:09.376Z",
+	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
 }

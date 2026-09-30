@@ -2,7 +2,12 @@
 	import * as THREE from 'three';
 	import { untrack } from 'svelte';
 	import { T } from '@threlte/core';
-	import { DIAL_TEXTURE_PX, dialKey, drawCounterDial } from '$lib/primitives/counter-dial';
+	import {
+		DIAL_TEXTURE_PX,
+		dialFraction,
+		dialKey,
+		drawCounterDial
+	} from '$lib/primitives/counter-dial';
 
 	/**
 	 * A counter's printed face (tableplace-191): name, value, `of max` and the
@@ -17,6 +22,7 @@
 		name,
 		value,
 		maxValue,
+		minValue,
 		overImage = false,
 		radius,
 		y,
@@ -26,6 +32,8 @@
 		name: string;
 		value: number;
 		maxValue?: number;
+		/** the value the rim arc is empty at (default 0) */
+		minValue?: number;
 		/** an image face sits under the dial: draw a scrim instead of a plate */
 		overImage?: boolean;
 		radius: number;
@@ -48,9 +56,17 @@
 
 	// mutated in place, never reassigned: Threlte hands the object to the mesh
 	// once, and the harness reads it back off the scene graph
-	const info = { name: '', value: 0, maxValue: null as number | null, redraws: 0 };
+	const info = {
+		name: '',
+		value: 0,
+		maxValue: null as number | null,
+		minValue: 0,
+		/** how full the rim arc was drawn, 0…1; null when no arc is drawn */
+		fraction: null as number | null,
+		redraws: 0
+	};
 
-	const face = $derived({ name, value, maxValue, overImage });
+	const face = $derived({ name, value, maxValue, minValue, overImage });
 	const key = $derived(dialKey(face));
 
 	$effect(() => {
@@ -62,6 +78,8 @@
 		info.name = printed.name;
 		info.value = printed.value;
 		info.maxValue = printed.maxValue ?? null;
+		info.minValue = printed.minValue ?? 0;
+		info.fraction = dialFraction(printed.value, printed.maxValue, printed.minValue);
 		info.redraws++;
 	});
 

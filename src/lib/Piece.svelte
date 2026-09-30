@@ -36,6 +36,8 @@
 	import { LOCK_BADGE_TEXT } from '$lib/utils/constants-lock';
 	import Model from './models/Model.svelte';
 	import PieceFace from './PieceFace.svelte';
+	import { discBodyArgs, squareBodyArgs, tokenFootprint } from '$lib/primitives/token-shape';
+	import { imageAspect, imageAspects } from '$lib/utils/image-aspect';
 	import DropFootprint from './drop/DropFootprint.svelte';
 	import {
 		BAG_HEIGHT,
@@ -70,6 +72,15 @@
 	const stateIndex = $derived(gameActions.currentPieceState(piece));
 	const faceRef = $derived(states.length ? states[stateIndex]?.face : piece?.imageUrl);
 	const imageUrl = $derived(resolveCardImage(faceRef, $sheetRefCache));
+
+	// The piece's outline on the table (tableplace-254): a circle, or — for a
+	// square token — the rectangle of its art's aspect. The body mesh, the face,
+	// and the selection and held-by rings are all cut from this one value; the
+	// aspect is 1 until the image has loaded, so a square tile draws square first.
+	const footprint = $derived(tokenFootprint(piece, imageAspect(imageUrl, $imageAspects)));
+	const rectW = $derived(footprint.shape === 'rect' ? footprint.w : 0);
+	const rectH = $derived(footprint.shape === 'rect' ? footprint.h : 0);
+
 	// carried: grabbed, or riding along with a selected entity (tableplace-202)
 	const isDragging = $derived(isCarried($dragStore, id));
 	const isSelected = $derived($selectedIds.includes(id));
@@ -439,10 +450,21 @@
 					<T.SphereGeometry args={[radius * 0.32, 20, 16]} />
 					<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
 				</T.Mesh>
+			{:else if footprint.shape === 'rect'}
+				<!-- square token: a flat tile as thick as a disc. The box is what the
+			     raycaster picks, so its corners grab; the image covers the whole top
+			     uncropped, and the rim and base stay the piece's colour. -->
+				<T.Mesh castShadow>
+					<T.BoxGeometry args={squareBodyArgs(rectW, rectH)} />
+					<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
+				</T.Mesh>
+				{#if imageUrl}
+					<PieceFace url={imageUrl} w={rectW} h={rectH} position={[0, THICKNESS / 2 + 0.002, 0]} />
+				{/if}
 			{:else}
 				<!-- token / counter: flat disc, image or color on top -->
 				<T.Mesh castShadow>
-					<T.CylinderGeometry args={[radius, radius, THICKNESS, 36]} />
+					<T.CylinderGeometry args={discBodyArgs(radius)} />
 					<T.MeshStandardMaterial {color} roughness={PIECE_CHIP_ROUGHNESS} />
 				</T.Mesh>
 				{#if imageUrl}
@@ -458,6 +480,7 @@
 						name={piece.name ?? ''}
 						value={counterValue}
 						maxValue={piece.maxValue}
+						minValue={piece.minValue}
 						overImage={!!imageUrl}
 						radius={radius * 0.97}
 						y={THICKNESS / 2 + 0.004}
@@ -494,8 +517,11 @@
      group: a child would be raycast as part of the piece and widen its grab. -->
 {#if piece && isSelected}
 	<SelectionRing
-		shape="circle"
+		shape={footprint.shape}
+		w={rectW}
+		h={rectH}
 		r={radius}
+		{yaw}
 		position={[position[0], position[1] - THICKNESS / 2 + 0.01, position[2]]}
 	/>
 {/if}
@@ -505,8 +531,11 @@
 	<HeldMark
 		{id}
 		heldBy={piece.heldBy}
-		shape="circle"
+		shape={footprint.shape}
+		w={rectW}
+		h={rectH}
 		r={radius}
+		{yaw}
 		position={[position[0], position[1] - THICKNESS / 2 + 0.01, position[2]]}
 	/>
 {/if}

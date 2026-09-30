@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applySnapRotation, compareSnapIds, resolveSnap, snapRadius } from '../snap';
 import { SNAP_RADIUS_DEFAULT, SNAP_RADIUS_MAX, SNAP_RADIUS_MIN } from '$lib/utils/constants-snap';
+import { yawDegrees } from '$lib/utils/yaw';
 import type { GameDTO, SnapPointDTO } from '$lib/store/game/types';
 
 const points = (
@@ -211,5 +212,22 @@ describe('applySnapRotation', () => {
 		const [x, y, z] = applySnapRotation([0, 0, 0], 180, 'deck');
 		expect([x, z]).toEqual([0, 0]);
 		expect(y).toBeCloseTo(Math.PI);
+	});
+
+	it('turns a deck the other way round in storage, so it turns the same way on screen', () => {
+		// a card's and a piece's degrees render negated (clockwise from above);
+		// a deck's radians render as stored (counter-clockwise), so the same
+		// authored 90° is -π/2 there — wrapped into one turn, like every turn
+		const [x, y, z] = applySnapRotation([0, Math.PI, 0], 90, 'deck');
+		expect([x, z]).toEqual([0, 0]);
+		expect(y).toBeCloseTo((3 * Math.PI) / 2);
+		// and the three agree once read back as a clockwise table yaw
+		expect(yawDegrees('deck', [x, y, z])).toBe(90);
+		expect(yawDegrees('card', applySnapRotation([0, 0, 0], 90, 'card'))).toBe(90);
+		expect(yawDegrees('piece', applySnapRotation([0, 0, 0], 90, 'piece'))).toBe(90);
+	});
+
+	it('writes an unturned deck as exactly 0, never -0', () => {
+		expect(Object.is(applySnapRotation([0, Math.PI, 0], 0, 'deck')[1], 0)).toBe(true);
 	});
 });

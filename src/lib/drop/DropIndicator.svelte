@@ -8,6 +8,9 @@
 	import { previewDrop } from './preview';
 	import { SNAP_DROP_COLOR } from '$lib/utils/constants-snap';
 	import { resolveCardImage, sheetRefCache } from '$lib/packs';
+	import { currentPieceState } from '$lib/compose/piece';
+	import { tokenShape } from '$lib/primitives/token-shape';
+	import { imageAspect, imageAspects } from '$lib/utils/image-aspect';
 	import DropFootprint from './DropFootprint.svelte';
 	import SnapGuides from './SnapGuides.svelte';
 
@@ -30,7 +33,18 @@
 	// live: pressing or releasing Alt mid-drag redraws the preview. Same
 	// resolution the commit makes — a group drag previews its lead as the
 	// group commit lands it (see drop/preview.ts).
-	const drop = $derived(previewDrop($gameStore, $dragStore, $tableFeatures.hand));
+	//
+	// A square token lands as the rectangle its art makes it (tableplace-254),
+	// which only the loaded image knows — so the aspect is read here, where the
+	// image is, and handed to the resolution.
+	const piece = $derived(dragId?.startsWith('piece:') ? $gameStore?.pieces?.[dragId] : undefined);
+	const faceAspect = $derived.by(() => {
+		if (!piece || tokenShape(piece) !== 'square') return 1;
+		const states = piece.states ?? [];
+		const face = states.length ? states[currentPieceState(piece)]?.face : piece.imageUrl;
+		return imageAspect(resolveCardImage(face, $sheetRefCache), $imageAspects);
+	});
+	const drop = $derived(previewDrop($gameStore, $dragStore, $tableFeatures.hand, faceAspect));
 
 	// the deck / bag / tray highlights are the cue for those targets — a table
 	// footprint there would promise a landing that isn't going to happen
@@ -59,8 +73,10 @@
 	const posZ = $derived(drop?.position[2] ?? 0);
 	const surfaceY = $derived((drop?.footprintY ?? 0) + SURFACE_CLEARANCE);
 	// Card.svelte yaws the card by -rotation[2]; match it so a tapped card
-	// previews sideways instead of upright
-	const yaw = $derived(-(drop?.rotation[2] ?? 0) * DEG2RAD);
+	// previews sideways instead of upright. A piece keeps its yaw in rotation[1]
+	// (Piece.svelte draws -rotation[1]) — it never mattered while every piece
+	// landed as a circle, and a square token's rectangle has to turn with it.
+	const yaw = $derived(-(drop?.rotation[piece ? 1 : 2] ?? 0) * DEG2RAD);
 
 	const card = $derived(
 		dragId && !dragId.startsWith('piece:') ? $gameStore?.cards?.[dragId] : undefined

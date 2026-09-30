@@ -1,5 +1,5 @@
 import { DEG2RAD } from 'three/src/math/MathUtils.js';
-import type { GameDTO } from '$lib/store/game/types';
+import type { GameDTO, PieceDTO } from '$lib/store/game/types';
 import { TABLE_FEATURES_DEFAULT, type TableFeatures } from '$lib/store/tableFeatures';
 import {
 	CARD_WIDTH,
@@ -9,6 +9,7 @@ import {
 } from '$lib/utils/constants-cards';
 import { PIECE_DEFAULT_RADIUS, PIECE_REST_Y } from '$lib/utils/constants-pieces';
 import { EDGE_MARGIN, TABLE_HALF_X, TABLE_HALF_Z, TABLE_TOP_Y } from '$lib/utils/constants-table';
+import { tokenFootprint } from '$lib/primitives/token-shape';
 import { resolveStack } from './stacking';
 import { applySnapRotation, resolveSnap, type SnapResolution } from './snap';
 
@@ -95,6 +96,14 @@ export interface DropOptions {
 	 * the precedence rules.
 	 */
 	surfaceYAt?: (x: number, z: number) => number | undefined;
+	/**
+	 * Width / height of the dragged piece's face image, when the caller has it
+	 * loaded (tableplace-254): a square token whose art is not 1:1 is a
+	 * rectangle of that aspect, and its footprint follows. Only the preview
+	 * passes it — the commit writes a position and a rotation, never a
+	 * footprint — and it defaults to 1.
+	 */
+	faceAspect?: number;
 }
 
 /** What the caught drop reports back about the point that caught it. */
@@ -185,10 +194,11 @@ export function resolveDrop(
 	const [x, z] = clampToTable(rawPoint?.x ?? ex, rawPoint?.z ?? ez);
 	const rotation = (entity.rotation ?? [0, 0, 0]) as [number, number, number];
 
-	// the entity's current table yaw in DEGREES, whatever unit and slot its
-	// kind stores it in — a grid cell's yaw stepping rounds this
+	// the entity's current table yaw in DEGREES clockwise, whatever unit, slot
+	// and sign its kind stores it in — a grid cell's yaw stepping rounds this.
+	// A deck's radians run the other way round (see `turnYaw`), hence the flip.
 	const entityYaw = isDeck
-		? (rotation[1] ?? 0) / DEG2RAD
+		? -(rotation[1] ?? 0) / DEG2RAD
 		: isPiece
 			? (rotation[1] ?? 0)
 			: (rotation[2] ?? 0);
@@ -258,14 +268,14 @@ export function resolveDrop(
 
 	// pieces don't stack, join decks, or enter the tray — they just settle
 	if (isPiece) {
-		const r = ('radius' in entity ? entity.radius : undefined) ?? PIECE_DEFAULT_RADIUS;
 		const [px, pz] = snap ? [snap.x, snap.z] : [x, z];
 		const floor = floorAt(px, pz, snap?.y);
 		return {
 			kind: snap ? 'snap' : 'table',
 			position: [px, floor + (PIECE_REST_Y - TABLE_TOP_Y), pz],
 			rotation: applySnapRotation(rotation, snap?.rotation, 'piece'),
-			footprint: { shape: 'circle', r },
+			// a square token lands as the rectangle it is, not as a circle round it
+			footprint: tokenFootprint(entity as Partial<PieceDTO>, options.faceAspect),
 			footprintY: floor,
 			...(snap ? { snap: snapInfo(snap) } : {})
 		};
@@ -278,8 +288,8 @@ export function resolveDrop(
 	//
 	// A snap only ever moves the deck in XZ and turns it: `restY` stays its own
 	// half-height, because a deck landing on an occupied point still doesn't
-	// stack. And the yaw goes in as radians here, unlike a card's — see
-	// applySnapRotation.
+	// stack. And the yaw goes in as radians of the opposite sign here, unlike a
+	// card's — see applySnapRotation.
 	if (isDeck) {
 		const count = ('cards' in entity ? entity.cards : undefined)?.length ?? 0;
 		const [dx, dz] = snap ? [snap.x, snap.z] : [x, z];

@@ -780,6 +780,110 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-255: one-way links. Three snap points, snap:0 → snap:1 one
+		 * way (`outLinks`) and snap:1 — snap:2 both ways (`links`). A piece with
+		 * `reach: 2` lifted off snap:1 lights snap:2 but not snap:0 — the edge
+		 * doesn't run back — and, advisory as ever, still lands on snap:0 when
+		 * dropped there. Lifted off snap:0 it then lights all three.
+		 */
+		name: 'one-way links: reach rings follow an outLink forwards only',
+		run: (context) =>
+			withTable(context, 'one-way-links', async (table) => {
+				const { page } = table;
+				const spots: [number, number][] = [
+					[-5, -1],
+					[0, 1],
+					[5, -1]
+				];
+				const ids = await page.evaluate(
+					(batch) => batch.map((p) => window.__tableplace!.actions.addSnapPoint(p as never)),
+					[
+						{ position: spots[0], radius: 1.2, outLinks: ['snap:1', 'snap:99'] },
+						{ position: spots[1], radius: 1.2, links: ['snap:2'] },
+						{ position: spots[2], radius: 1.2 }
+					]
+				);
+				ok(ids.join() === 'snap:0,snap:1,snap:2', `the board seeded unexpected ids: ${ids.join()}`);
+				await sleep(700);
+				const runner = await table.spawn('token', {
+					position: [spots[1]![0], PIECE_REST_Y, spots[1]![1]],
+					reach: 2
+				});
+				await table.settle();
+
+				const guides = () => page.evaluate(() => window.__tableplace!.snapGuides());
+				const at = (x: number, z: number) =>
+					page.evaluate((wx, wz) => window.__tableplace!.project([wx, 0.26, wz]), x, z);
+
+				/** lift the runner, carry it over `spot`, check the bright set, drop it there */
+				const carry = async (spot: number, expected: string[], ordinary: number) => {
+					const from = await table.locate(runner);
+					const to = await at(spots[spot]![0], spots[spot]![1]);
+					ok(from && to, 'cannot place the gesture on screen');
+					await page.mouse.move(from!.x, from!.y);
+					await sleep(80);
+					await page.mouse.down();
+					await sleep(80);
+					for (let step = 1; step <= 12; step++) {
+						await page.mouse.move(
+							from!.x + ((to!.x - from!.x) * step) / 12,
+							from!.y + ((to!.y - from!.y) * step) / 12
+						);
+						await sleep(20);
+					}
+					try {
+						const lifted = await eventually(guides, (g) => g.reach > 0 && g.target !== null);
+						const dragging = await page.evaluate(() => window.__tableplace!.drag().isDragging);
+						ok(dragging === runner, `the runner was never lifted (dragging: ${dragging})`);
+						ok(
+							JSON.stringify(lifted.reachIds) === JSON.stringify(expected),
+							`bright set is ${JSON.stringify(lifted.reachIds)}, expected ${JSON.stringify(expected)}`
+						);
+						ok(
+							lifted.reach === expected.length && lifted.rings === ordinary,
+							`expected ${expected.length} bright + ${ordinary} ordinary rings: ${JSON.stringify(lifted)}`
+						);
+						ok(
+							lifted.target === `snap:${spot}`,
+							`the drop should be caught by snap:${spot}: ${lifted.target}`
+						);
+						await table.snap(`one-way-links-to-${spot}`);
+					} finally {
+						await page.mouse.up();
+					}
+					const dropped = await eventually(guides, (g) => g.reach === 0 && g.rings === 0);
+					ok(
+						dropped.reach === 0 && dropped.reachIds.length === 0,
+						`reach rings still draw after the drop: ${JSON.stringify(dropped)}`
+					);
+					const landed = await eventually(
+						() => table.positionOf(runner),
+						(p) =>
+							!!p &&
+							Math.abs(p[0] - spots[spot]![0]) < 0.01 &&
+							Math.abs(p[2] - spots[spot]![1]) < 0.01
+					);
+					ok(
+						landed &&
+							Math.abs(landed[0] - spots[spot]![0]) < 0.01 &&
+							Math.abs(landed[2] - spots[spot]![1]) < 0.01,
+						`the drop on snap:${spot} was blocked or moved: ${JSON.stringify(landed)}`
+					);
+					await table.settle();
+				};
+
+				// off snap:1, against the one-way link: snap:0 is an ordinary ring,
+				// and the drop on it lands all the same
+				await carry(0, ['snap:1', 'snap:2'], 1);
+				// off snap:0, along it: the whole board is within two links
+				await carry(2, ['snap:0', 'snap:1', 'snap:2'], 0);
+
+				await assertDraggable(table, runner, 'the runner (after one-way links)');
+				assertClean(table, 'with one-way links');
+			})
+	},
+	{
+		/**
 		 * tableplace-145: Alt opts out of the XZ square-up, not of resting on
 		 * top. An Alt-drop overlapping a resting card must land at the pointer's
 		 * XZ (no pull onto the pile) but one card thickness ABOVE the card under
@@ -2394,6 +2498,113 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-253: a counter with a minimum. A dial that reads 3–17 stops
+		 * at 3 — real clicks (counter-input's plain-click −1) past the floor leave
+		 * the PRINTED value on it, and the rim arc is measured over the real
+		 * range: empty at the minimum, full at the maximum. A counter beside it
+		 * with no minimum still runs down to 0, as it always did.
+		 */
+		name: 'counter minimum: clicks past the floor stop on it, the arc fills over the real range',
+		run: (context) =>
+			withTable(context, 'dial-minimum', async (table) => {
+				const deck = await table.seedDeck();
+				const ranged = await table.spawn('counter', {
+					name: 'Dial',
+					minValue: 3,
+					maxValue: 17,
+					value: 5,
+					radius: 1,
+					position: ON_FELT(0)
+				});
+				const plain = await table.spawn('counter', {
+					name: 'Plain',
+					maxValue: 17,
+					value: 1,
+					radius: 1,
+					position: ON_FELT(1)
+				});
+				await table.settle(1500);
+				assertClean(table, 'with a ranged counter on the table');
+
+				const dial = (id: string) =>
+					table.page.evaluate((entityId) => window.__tableplace!.dial(entityId), id);
+				const near = (a: number | null | undefined, b: number) =>
+					a != null && Math.abs(a - b) < 1e-6;
+
+				const first = await dial(ranged);
+				ok(
+					first?.value === 5 && first.minValue === 3 && first.maxValue === 17,
+					`the dial printed the wrong thing: ${JSON.stringify(first)}`
+				);
+				// 5 is two steps into a fourteen-step range — not 5/17 of the rim
+				ok(near(first!.fraction, 2 / 14), `the arc ignores the minimum: ${first!.fraction}`);
+
+				/** One real click on the counter; resolves with what the face prints after it. */
+				const clickDown = async (id: string, expected: number) => {
+					const at = await table.locate(id);
+					ok(at, `${id} never mounted — nothing to click`);
+					await table.page.mouse.click(at!.x, at!.y);
+					// long enough for the pulse to settle, and for the next click not
+					// to read as the second half of a double click
+					await table.settle(700);
+					const face = await eventually(
+						() => dial(id),
+						(d) => d?.value === expected,
+						3000
+					);
+					ok(
+						face?.value === expected,
+						`after a click the face reads ${face?.value}, expected ${expected}`
+					);
+					return face!;
+				};
+
+				await clickDown(ranged, 4);
+				const floor = await clickDown(ranged, 3);
+				ok(floor.fraction === 0, `at the minimum the arc is not empty: ${floor.fraction}`);
+				// past the floor: the click lands, the face stays put
+				const held = await clickDown(ranged, 3);
+				await clickDown(ranged, 3);
+				ok(
+					held.redraws === floor.redraws,
+					`a click at the floor redrew the face: ${floor.redraws} → ${held.redraws}`
+				);
+				const stored = await table.page.evaluate(
+					(id) => window.__tableplace!.state()?.pieces?.[id]?.value ?? null,
+					ranged
+				);
+				ok(stored === 3, `the store went below the minimum: ${JSON.stringify(stored)}`);
+
+				// and the ceiling: a push past the maximum stops on it, arc full
+				await table.page.evaluate(
+					(id) => window.__tableplace!.actions.incrementCounter(id, 100),
+					ranged
+				);
+				const full = await eventually(
+					() => dial(ranged),
+					(d) => d?.value === 17
+				);
+				ok(
+					full?.value === 17 && full.fraction === 1,
+					`past the maximum the face reads ${JSON.stringify(full)}`
+				);
+
+				// a counter without a minimum is untouched: it still reaches 0
+				const zero = await clickDown(plain, 0);
+				ok(
+					zero.minValue === 0 && zero.fraction === 0,
+					`the plain counter's face: ${JSON.stringify(zero)}`
+				);
+				await clickDown(plain, 0);
+
+				await assertDraggable(table, ranged, 'the ranged counter');
+				await assertDraggable(table, deck, 'deck (with a ranged counter on the table)');
+				assertClean(table, 'at the end of the counter-minimum suite');
+				await table.snap('dial-minimum');
+			})
+	},
+	{
+		/**
 		 * tableplace-161, the wheel itself: a right press that HOLDS STILL opens
 		 * the radial menu on the card under it, a flick to a wedge fires exactly
 		 * that wedge, and a release in the centre deadzone is a cancel.
@@ -3616,6 +3827,307 @@ export const SPECS: Spec[] = [
 	},
 	{
 		/**
+		 * tableplace-254: a token can be a square tile. Its image covers the whole
+		 * top face — corners included — where a disc crops the same image to the
+		 * circle it is, and an image that is not 1:1 makes the tile a rectangle of
+		 * that aspect. The tile is grabbed by its own bounds, so a press in its
+		 * corner lifts it; the same offset from a disc is bare felt.
+		 *
+		 * The art is a blue medallion on a red field, so red is what only the
+		 * corners carry: red drawn at a corner is the uncropped image, and nothing
+		 * else on the table (felt, the cream chip, a shadow) is red.
+		 */
+		name: 'square token: a tile draws its whole image, corners included, and is grabbed by its corner',
+		run: (context) =>
+			withTable(context, 'square-token', async (table) => {
+				const art = await table.page.evaluate(() => {
+					const draw = (width: number, height: number) => {
+						const canvas = document.createElement('canvas');
+						canvas.width = width;
+						canvas.height = height;
+						const context = canvas.getContext('2d')!;
+						context.fillStyle = 'rgb(225, 30, 40)';
+						context.fillRect(0, 0, width, height);
+						context.fillStyle = 'rgb(30, 80, 235)';
+						context.beginPath();
+						context.ellipse(width / 2, height / 2, width * 0.42, height * 0.42, 0, 0, Math.PI * 2);
+						context.fill();
+						return canvas.toDataURL('image/webp').split(',')[1]!;
+					};
+					return { even: draw(1200, 1200), wide: draw(1200, 600) };
+				});
+				// a real cross-origin host, as in the piece-art spec above
+				const host = createServer((request, response) => {
+					const name = (request.url ?? '').replace(/^\/|\.webp$/g, '');
+					const body = name in art ? art[name as keyof typeof art] : null;
+					response.writeHead(body ? 200 : 404, {
+						'access-control-allow-origin': '*',
+						'content-type': 'image/webp'
+					});
+					response.end(body ? Buffer.from(body, 'base64') : undefined);
+				});
+				await new Promise<void>((resolve) => host.listen(0, '127.0.0.1', resolve));
+				const ART = `http://127.0.0.1:${(host.address() as AddressInfo).port}/`;
+				try {
+					const even = `${ART}even.webp`;
+					const wide = `${ART}wide.webp`;
+					const RADIUS = 1;
+					const pieces = {
+						square: await table.spawn('token', {
+							name: 'Tile',
+							position: ON_FELT(0),
+							radius: RADIUS,
+							imageUrl: even,
+							shape: 'square'
+						}),
+						// no `shape` at all: exactly what every token was before
+						disc: await table.spawn('token', {
+							name: 'Chip',
+							position: ON_FELT(1),
+							radius: RADIUS,
+							imageUrl: even
+						}),
+						wide: await table.spawn('token', {
+							name: 'Plaque',
+							position: ON_FELT(2),
+							radius: RADIUS,
+							imageUrl: wide,
+							shape: 'square'
+						}),
+						counter: await table.spawn('counter', { position: ON_FELT(3), maxValue: 10 })
+					};
+					await table.settle(2000);
+					assertClean(table, 'after spawning square and disc tokens');
+
+					const stored = await table.page.evaluate(
+						(ids) => {
+							const all = window.__tableplace!.state()?.pieces ?? {};
+							return {
+								square: all[ids.square]?.shape,
+								hasDiscShape: 'shape' in (all[ids.disc] ?? {})
+							};
+						},
+						{ square: pieces.square, disc: pieces.disc }
+					);
+					ok(stored.square === 'square', `the square token stores shape ${stored.square}`);
+					ok(!stored.hasDiscShape, 'a token spawned without a shape was given one');
+
+					// ── the bodies: a 2×2 tile, a 2×2 disc, and a 2×1 plaque ──────────
+					const near = (a: number, b: number) => Math.abs(a - b) < 0.12;
+					const sizeOf = async (id: string) => (await table.describe(id))?.size ?? [0, 0, 0];
+					const squareSize = await sizeOf(pieces.square);
+					ok(
+						near(squareSize[0], 2) && near(squareSize[2], 2),
+						`a square token of radius 1 with 1:1 art measures ${JSON.stringify(squareSize)}, not 2 × 2`
+					);
+					// the plaque starts square and takes its art's aspect once that loads
+					const wideSize = await eventually(
+						() => sizeOf(pieces.wide),
+						(size) => near(size[0], 2) && near(size[2], 1)
+					);
+					ok(
+						near(wideSize[0], 2) && near(wideSize[2], 1),
+						`a square token with 2:1 art measures ${JSON.stringify(wideSize)}, not 2 wide × 1 deep`
+					);
+
+					// ── the pixels: red at the tile's corners, none at the disc's ──────
+					const isRed = ([r, g, b]: number[]) => r! > g! + 80 && r! > b! + 80;
+					const isBlue = ([r, g, b]: number[]) => b! > r! + 60 && b! > g! + 40;
+					/** screen points for table offsets from a piece's centre, at its top face */
+					const onTop = async (id: string, offsets: number[][]) => {
+						const at = await table.positionOf(id);
+						ok(at, `${id} has no position`);
+						const points = await table.page.evaluate(
+							(x, y, z, offsets) =>
+								offsets.map(([dx, dz]) => window.__tableplace!.project([x + dx!, y, z + dz!])),
+							at![0]!,
+							at![1]! + PIECE_THICKNESS / 2,
+							at![2]!,
+							offsets
+						);
+						ok(points.every(Boolean), `${id} projects off-screen — move it into the camera frame`);
+						return points as { x: number; y: number }[];
+					};
+					const coloursAt = async (id: string, offsets: number[][]) => {
+						const samples = await table.pixels(await onTop(id, offsets));
+						ok(
+							samples.every((sample) => sample.onCanvas),
+							`${id} is covered by a HUD pane where it is sampled — move it clear`
+						);
+						return samples.map((sample) => sample.rgb);
+					};
+					// inside the 2×2 square, outside the circle of radius 1
+					const CORNERS = [
+						[0.84, -0.84],
+						[-0.84, -0.84],
+						[0.84, 0.84],
+						[-0.84, 0.84]
+					];
+					const CENTRE = [[0, 0]];
+
+					const squareCorners = await eventually(
+						() => coloursAt(pieces.square, CORNERS),
+						(colours) => colours.every(isRed)
+					);
+					ok(
+						squareCorners.every(isRed),
+						`a square token does not draw its image to the corners — they show ${JSON.stringify(squareCorners)} (red is the art's corner)`
+					);
+					const squareCentre = await coloursAt(pieces.square, CENTRE);
+					ok(
+						isBlue(squareCentre[0]!),
+						`a square token's centre shows ${JSON.stringify(squareCentre)}`
+					);
+
+					const discCentre = await eventually(
+						() => coloursAt(pieces.disc, CENTRE),
+						(colours) => isBlue(colours[0]!)
+					);
+					ok(isBlue(discCentre[0]!), `the disc token's centre shows ${JSON.stringify(discCentre)}`);
+					const discCorners = await coloursAt(pieces.disc, CORNERS);
+					ok(
+						!discCorners.some(isRed),
+						`a token with no shape draws outside its disc — its corners show ${JSON.stringify(discCorners)}`
+					);
+
+					// the plaque: red in the corners of a 2×1 rectangle, and felt — not
+					// tile — where a 2×2 square would have reached
+					const PLAQUE_CORNERS = [
+						[0.86, -0.4],
+						[-0.86, -0.4],
+						[0.86, 0.4],
+						[-0.86, 0.4]
+					];
+					const plaqueCorners = await eventually(
+						() => coloursAt(pieces.wide, PLAQUE_CORNERS),
+						(colours) => colours.every(isRed)
+					);
+					ok(
+						plaqueCorners.every(isRed),
+						`a 2:1 square token does not draw its image to the corners — they show ${JSON.stringify(plaqueCorners)}`
+					);
+					const beyondPlaque = await coloursAt(pieces.wide, [
+						[0.84, -0.84],
+						[-0.84, -0.84]
+					]);
+					ok(
+						!beyondPlaque.some((rgb) => isRed(rgb) || isBlue(rgb)),
+						`a 2:1 square token draws past its rectangle: ${JSON.stringify(beyondPlaque)}`
+					);
+					await table.snap('square-token');
+
+					// ── the raycast: the far corner picks the tile, and misses the disc ─
+					// (the far one: past a near corner the pointer ray runs on under the
+					// piece, which says nothing about the top face)
+					const FAR_CORNER = [[0.84, -0.84]];
+					const [squareCorner] = await onTop(pieces.square, FAR_CORNER);
+					const [discCorner] = await onTop(pieces.disc, FAR_CORNER);
+					const squareHits = await table.hits(squareCorner!);
+					ok(
+						squareHits[0] === pieces.square,
+						`a press in a square token's corner reaches ${squareHits.join(', ') || 'nothing'}, not the token`
+					);
+					const discHits = await table.hits(discCorner!);
+					ok(
+						!discHits.includes(pieces.disc),
+						`a press at the same offset from a disc token picks it: ${discHits.join(', ')}`
+					);
+
+					// and a real mouse agrees: grab the tile BY that corner and carry it
+					const before = await table.positionOf(pieces.square);
+					await table.page.mouse.move(squareCorner!.x, squareCorner!.y);
+					await sleep(80);
+					await table.page.mouse.down();
+					await sleep(80);
+					for (let step = 1; step <= 12; step++) {
+						await table.page.mouse.move(squareCorner!.x, squareCorner!.y + (DRAG.dy * step) / 12);
+						await sleep(20);
+					}
+					await sleep(150);
+					await table.page.mouse.up();
+					await table.settle(900);
+					const after = await table.positionOf(pieces.square);
+					ok(
+						planarDistance(before, after) > 0.5,
+						`a square token grabbed by its corner did not move: ${JSON.stringify(before)} → ${JSON.stringify(after)}`
+					);
+
+					// ── the zoomed preview: the whole image, at its own aspect ─────────
+					const preview = () => table.page.evaluate(() => window.__tableplace!.preview());
+					const zoom = async (id: string, label: string) => {
+						const at = await table.locate(id);
+						ok(at, `${label} (${id}) never mounted`);
+						await table.page.mouse.move(at!.x, at!.y, { steps: 8 });
+						await sleep(300);
+						await table.page.keyboard.down('Space');
+						const shown = await eventually(
+							preview,
+							(p) => p?.id === id && !!p.shown && p.shown === p.url && !!p.bounds
+						);
+						ok(
+							shown?.id === id && shown.shown === shown.url && shown.bounds,
+							`Space over ${label} previews ${JSON.stringify(shown)}`
+						);
+						await table.settle(400);
+						const { left, right, top, bottom } = shown!.bounds!;
+						const [w, h] = [right - left, bottom - top];
+						const samples = await table.pixels([
+							{ x: left + w * 0.06, y: top + h * 0.06 },
+							{ x: right - w * 0.06, y: top + h * 0.06 },
+							{ x: left + w * 0.06, y: bottom - h * 0.06 },
+							{ x: right - w * 0.06, y: bottom - h * 0.06 },
+							{ x: (left + right) / 2, y: (top + bottom) / 2 }
+						]);
+						return { geometry: shown!.geometry, aspect: w / h, colours: samples.map((s) => s.rgb) };
+					};
+					const close = async () => {
+						await table.page.keyboard.up('Space');
+						await eventually(preview, (p) => p === null);
+					};
+
+					const zoomedSquare = await zoom(pieces.square, 'a square token');
+					ok(
+						zoomedSquare.geometry === 'PlaneGeometry' && near(zoomedSquare.aspect, 1),
+						`a square token previews on a ${zoomedSquare.geometry} of aspect ${zoomedSquare.aspect.toFixed(2)}`
+					);
+					ok(
+						zoomedSquare.colours.slice(0, 4).every(isRed) && isBlue(zoomedSquare.colours[4]!),
+						`a square token's preview crops its image — corners and centre show ${JSON.stringify(zoomedSquare.colours)}`
+					);
+					await table.snap('square-token-preview');
+					await close();
+
+					const zoomedWide = await zoom(pieces.wide, 'a 2:1 square token');
+					ok(
+						zoomedWide.geometry === 'PlaneGeometry' && Math.abs(zoomedWide.aspect - 2) < 0.2,
+						`a 2:1 square token previews on a ${zoomedWide.geometry} of aspect ${zoomedWide.aspect.toFixed(2)}, not 2`
+					);
+					ok(
+						zoomedWide.colours.slice(0, 4).every(isRed) && isBlue(zoomedWide.colours[4]!),
+						`a 2:1 square token's preview crops its image — corners and centre show ${JSON.stringify(zoomedWide.colours)}`
+					);
+					await close();
+
+					const zoomedDisc = await zoom(pieces.disc, 'a disc token');
+					ok(
+						zoomedDisc.geometry === 'CircleGeometry' && !zoomedDisc.colours.slice(0, 4).some(isRed),
+						`a disc token's preview is no longer a disc: ${JSON.stringify(zoomedDisc)}`
+					);
+					await table.snap('disc-token-preview');
+					await close();
+
+					// ── and everything else on the table still works ──────────────────
+					await assertDraggable(table, pieces.disc, 'a disc token beside square ones');
+					await assertDraggable(table, pieces.wide, 'a 2:1 square token');
+					await assertDraggable(table, pieces.counter, 'a counter beside square tokens');
+					assertClean(table, 'at the end of the square-token table');
+				} finally {
+					host.close();
+				}
+			})
+	},
+	{
+		/**
 		 * tableplace-155, the material finish: tokens, counters and pawns are
 		 * lacquered chips rather than three.js's dead-matte default (bags stay
 		 * cloth), and every image texture — card faces, a map overlay — filters
@@ -4433,12 +4945,19 @@ export const SPECS: Spec[] = [
 				// ── the pin syncs, both ways ────────────────────────────────────
 				// the second client only watches: every real-mouse step runs while
 				// the table is the one foreground page, so a backgrounded tab's
-				// throttled frames can't pass for a refused drag
-				const remote = await openTable(context.browser, context.servers, lobby);
+				// throttled frames can't pass for a refused drag.
+				// A second PLAYER, in their own context (tableplace-257): a page on
+				// the same browser shares `myPlayerId`, and the relay never echoes a
+				// patch to its sender's id — that tab gets the lock from its join
+				// sync and then no patch at all, so it could never see the unlock
+				const peerContext = await context.browser.createBrowserContext();
+				let remote: Table | null = null;
 				try {
+					remote = await openTable(peerContext, context.servers, lobby);
+					const peer = remote;
 					ok(
 						await eventually(
-							() => lockedOn(remote),
+							() => lockedOn(peer),
 							(on) => on,
 							8000
 						),
@@ -4469,15 +4988,16 @@ export const SPECS: Spec[] = [
 					);
 					ok(
 						!(await eventually(
-							() => lockedOn(remote),
+							() => lockedOn(peer),
 							(on) => !on,
 							8000
 						)),
 						'the second client never saw the unlock'
 					);
-					assertClean(remote, 'on the second client after lock and unlock');
+					assertClean(peer, 'on the second client after lock and unlock');
 				} finally {
-					await remote.close();
+					await remote?.close();
+					await peerContext.close();
 				}
 
 				// ── unpinned, it drags like any other piece ─────────────────────
