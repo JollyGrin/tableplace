@@ -4901,7 +4901,11 @@ export const SPECS: Spec[] = [
 				};
 
 				// ── the fan stays inside the viewport ──────────────────────────
+				// The 15-card resizes run on a stalled page (#244): a loaded CI
+				// runner starved the cards' springs, which clamp to 1/30s a tick, so
+				// the fan was still sliding in from the 1280 layout when this looked.
 				let held = 0;
+				let stalled = 0;
 				for (const size of [1, 7, 15]) {
 					await draw(size - held);
 					held = size;
@@ -4909,6 +4913,7 @@ export const SPECS: Spec[] = [
 						[1280, 800],
 						[400, 800]
 					] as const) {
+						if (size === 15) await table.stall({ ms: 800, everyMs: 20 });
 						await page.setViewport({ width, height });
 						// off the hand, so nothing is raised
 						await page.mouse.move(width / 2, 40);
@@ -4930,8 +4935,13 @@ export const SPECS: Spec[] = [
 								) +
 								` (${cards.length} drawn)`
 						);
+						if (size === 15) stalled += await table.stall(null);
 					}
 				}
+				ok(
+					stalled > 5,
+					`the stall injector only ran ${stalled} times — the 15-card fan was not tested under load`
+				);
 				await page.setViewport({ width: 1280, height: 800 });
 				await page.mouse.move(640, 40);
 				await table.settle(900);
