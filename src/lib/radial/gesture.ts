@@ -68,6 +68,20 @@ export const RADIAL_MOVE_CANCEL_PX = 5;
 const PENDING_MOVE_EVENTS = ['pointerrawupdate', 'pointermove'];
 const WHEEL_MOVE_EVENTS = ['pointermove'];
 
+/**
+ * How late the hold timer may fire and still be believed. A timer that runs
+ * well past its deadline ran behind a busy main thread, and whatever the
+ * pointer did during that stall is still QUEUED — raw updates included, since
+ * they wait for the thread like any other task. Opening then decides the
+ * gesture on input the page has not been handed yet: the wheel opens, the
+ * entity abandons its lift (`onOpen`), and the travel that arrives a moment
+ * later can only veto the wheel, not give the drag back (tableplace-245).
+ * A late timer waits one frame instead: Blink dispatches queued pointer input
+ * at the start of a frame, before its animation callbacks, so by then any
+ * travel has reached `onPendingMove` and dropped the press.
+ */
+const HOLD_LATE_MS = 50;
+
 type Pending = {
 	target: RadialTarget;
 	button: number;
@@ -78,6 +92,8 @@ type Pending = {
 	holdMs: number;
 	onOpen?: () => void;
 	timer: ReturnType<typeof setTimeout> | null;
+	/** the frame a late hold timer waits for before deciding (see HOLD_LATE_MS) */
+	frame: number | null;
 };
 
 let pending: Pending | null = null;
@@ -120,6 +136,7 @@ function stopDragWatch() {
 
 function clearPending() {
 	if (pending?.timer) clearTimeout(pending.timer);
+	if (pending?.frame) cancelAnimationFrame(pending.frame);
 	pending = null;
 	for (const name of PENDING_MOVE_EVENTS)
 		window.removeEventListener(name, onPendingMove as EventListener);
@@ -296,14 +313,23 @@ export function armRadialPress(options: {
 		pressedAt: event.timeStamp,
 		holdMs,
 		onOpen,
-		timer: null
+		timer: null,
+		frame: null
 	};
-	press.timer = setTimeout(() => {
-		press.timer = null;
+	const decide = () => {
+		press.frame = null;
 		if (pending !== press) return;
 		const allowed = canOpen(press);
 		clearPending();
 		if (allowed) open(press, 'flick');
+	};
+	const armedAt = performance.now();
+	press.timer = setTimeout(() => {
+		press.timer = null;
+		if (pending !== press) return;
+		if (performance.now() - armedAt - holdMs > HOLD_LATE_MS)
+			press.frame = requestAnimationFrame(decide);
+		else decide();
 	}, holdMs);
 	pending = press;
 	for (const name of PENDING_MOVE_EVENTS)
