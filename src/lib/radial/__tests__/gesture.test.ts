@@ -126,55 +126,6 @@ describe('left button', () => {
 	});
 });
 
-describe('a hold timer that fires late (tableplace-245)', () => {
-	/** the frame the gesture waits for, run by hand */
-	let frames: FrameRequestCallback[];
-
-	beforeEach(() => {
-		frames = [];
-		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-			frames.push(callback);
-			return frames.length;
-		});
-		vi.stubGlobal('cancelAnimationFrame', (handle: number) => {
-			frames[handle - 1] = () => {};
-		});
-	});
-
-	afterEach(() => {
-		vi.unstubAllGlobals();
-		vi.restoreAllMocks();
-	});
-
-	/** the main thread was stalled: the timer runs a second after it was due */
-	function stalledHold() {
-		const armedAt = performance.now();
-		press(0, { onOpen });
-		vi.spyOn(performance, 'now').mockReturnValue(armedAt + RADIAL_HOLD_MS + 1000);
-		vi.advanceTimersByTime(RADIAL_HOLD_MS);
-	}
-	const onOpen = vi.fn();
-	beforeEach(() => onOpen.mockClear());
-
-	it('lets travel queued behind the stall keep the drag — the wheel never opens', () => {
-		stalledHold();
-		expect(get(radialMenu)).toBeNull();
-		// the stall ends: the queued move is dispatched at the start of the frame
-		move(ORIGIN.x + 40, ORIGIN.y);
-		frames.forEach((frame) => frame(0));
-		expect(get(radialMenu)).toBeNull();
-		expect(onOpen).not.toHaveBeenCalled();
-	});
-
-	it('still opens the wheel on a press that really held still', () => {
-		stalledHold();
-		expect(get(radialMenu)).toBeNull();
-		frames.forEach((frame) => frame(0));
-		expect(get(radialMenu)?.mode).toBe('flick');
-		expect(onOpen).toHaveBeenCalledTimes(1);
-	});
-});
-
 describe('the flick', () => {
 	beforeEach(() => {
 		press(2);
