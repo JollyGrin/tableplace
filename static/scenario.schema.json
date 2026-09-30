@@ -118,6 +118,11 @@
 								"type": "boolean",
 								"title": "shuffleOnLoad"
 							},
+							"loose": {
+								"description": "decks only — lay the deck's cards down as loose cards instead of a pile:\nwhat placing the pile and pressing `Shift+G` on it leaves, with no pile\never on the table. The cards stack at the placement's XZ, the pile's top\ncard on top, and `isFaceUp`, `rotation`, `order`, `shuffleOnLoad` and\n`locked` apply to each card. How a single reference card arrives as a card\nrather than a one-card pile. Refused on a piece or overlay, and for a deck\nof more than 40 cards (`UNGROUP_MAX_CARDS`, the `Shift+G` limit). Omitted\nor `false`: a pile.",
+								"type": "boolean",
+								"title": "loose"
+							},
 							"value": {
 								"description": "counter pieces only — the count it starts on. Must sit inside the pack\npiece's `[minValue, maxValue]`; a value outside it is refused when the\nplacement meets its pack (the file alone does not know the range).",
 								"type": "number",
@@ -1088,7 +1093,7 @@
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.20",
-	"x-generated-at": "2026-09-30T10:36:09.376Z",
-	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
+	"x-tableplace-spec-version": "0.1.21",
+	"x-generated-at": "2026-09-30T15:13:54.556Z",
+	"x-tableplace-source-sha": "fe0d6451f3b696e567b0cb199203b2ccec526cf0-dirty"
 }

@@ -69,6 +69,17 @@ export type PackPlacement = {
 	 */
 	shuffleOnLoad?: boolean;
 	/**
+	 * decks only — lay the deck's cards down as loose cards instead of a pile:
+	 * what placing the pile and pressing `Shift+G` on it leaves, with no pile
+	 * ever on the table. The cards stack at the placement's XZ, the pile's top
+	 * card on top, and `isFaceUp`, `rotation`, `order`, `shuffleOnLoad` and
+	 * `locked` apply to each card. How a single reference card arrives as a card
+	 * rather than a one-card pile. Refused on a piece or overlay, and for a deck
+	 * of more than 40 cards (`UNGROUP_MAX_CARDS`, the `Shift+G` limit). Omitted
+	 * or `false`: a pile.
+	 */
+	loose?: boolean;
+	/**
 	 * counter pieces only — the count it starts on. Must sit inside the pack
 	 * piece's `[minValue, maxValue]`; a value outside it is refused when the
 	 * placement meets its pack (the file alone does not know the range).
@@ -298,6 +309,16 @@ function parsePlacement(v: unknown, path: string): PackPlacement {
 		placement.order = v.order as string[];
 	}
 	if (v.shuffleOnLoad !== undefined) placement.shuffleOnLoad = Boolean(v.shuffleOnLoad);
+	if (v.loose !== undefined) {
+		if (typeof v.loose !== 'boolean') fail(`${path}.loose must be true or false`);
+		if (v.loose && kind !== 'deck') {
+			fail(
+				`${path}.loose is for deck placements only — ${kind === 'overlay' ? 'an' : 'a'} ${kind} can't be placed loose`
+			);
+		}
+		// `false` on a piece or overlay says nothing, so it is not kept
+		if (kind === 'deck') placement.loose = v.loose;
+	}
 	if (v.value !== undefined) {
 		if (typeof v.value !== 'number') fail(`${path}.value must be a number`);
 		placement.value = v.value;

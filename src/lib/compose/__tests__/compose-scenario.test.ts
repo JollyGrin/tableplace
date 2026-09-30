@@ -14,11 +14,15 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { gameStore } from '$lib/store/game/gameStore.svelte';
+import { gameActions } from '$lib/store/game/actions';
+import { CARD_REST_Y, CARD_THICKNESS } from '$lib/utils/constants-cards';
+import { UNGROUP_MAX_CARDS } from '$lib/utils/transforms/ungroup';
 import { STANDARD_52 } from '$lib/packs/standard52';
 import { applyScenario } from '$lib/scenario/scenario';
-import { composeScenario, placedCount } from '../scenario';
+import { composeScenario, placedCount, type ShuffleFn } from '../scenario';
 import type { GamePackDef } from '$lib/packs/types';
 import type { Scenario } from '$lib/scenario/file';
+import type { GameDTO } from '$lib/store/game/types';
 
 const STACKED = ['7H', 'AS', '2C', 'KD', '10S'];
 
@@ -69,14 +73,25 @@ describe('composeScenario — a multi-seat scenario, composed headlessly', () =>
 		// asserted on the source, not on behaviour: the moment one of these
 		// sneaks in, `bun run seed-lobby` stops booting and the failure shows up
 		// a long way from the import that caused it
-		for (const file of ['scenario.ts', 'pack.ts', 'piece.ts']) {
-			const source = readFileSync(join(process.cwd(), 'src/lib/compose', file), 'utf8');
+		// the composer's own modules, and the shared ungroup it lays `loose`
+		// placements down with (and the card numbers that one reads)
+		for (const file of [
+			'compose/scenario.ts',
+			'compose/pack.ts',
+			'compose/piece.ts',
+			'utils/transforms/ungroup.ts',
+			'utils/constants-card-rest.ts'
+		]) {
+			const source = readFileSync(join(process.cwd(), 'src/lib', file), 'utf8');
 			const imports = [...source.matchAll(/^import\s+(type\s+)?[^;]*?from\s+'([^']+)'/gm)];
 			const runtime = imports.filter(([, isType]) => !isType).map(([, , from]) => from);
 			expect(runtime).not.toContain('svelte');
 			expect(runtime).not.toContain('svelte/store');
 			expect(runtime.filter((from) => from.includes('store/'))).toEqual([]);
 			expect(runtime.filter((from) => from.startsWith('$lib'))).toEqual([]);
+			// the renderer: `constants-cards.ts` builds geometry on import
+			expect(runtime).not.toContain('three');
+			expect(runtime.filter((from) => from.endsWith('constants-cards'))).toEqual([]);
 			// comments stripped: the prose above these functions is allowed to say
 			// the word `localStorage`, the code is not allowed to reach for it
 			const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
@@ -293,6 +308,201 @@ describe('a counter with a minimum (tableplace-253)', () => {
 		} finally {
 			error.mockRestore();
 		}
+	});
+});
+
+describe('a deck placed loose (tableplace-263)', () => {
+	const RULES = 'card:seat0:main-AS';
+	const loose = (
+		placement: Partial<NonNullable<Scenario['placements']>[number]> = {}
+	): Scenario => ({
+		name: 'loose',
+		createdAt: 0,
+		state: {},
+		packs: [{ id: 'standard-52', source: 'builtin' }],
+		placements: [
+			{
+				kind: 'deck',
+				pack: 'standard-52',
+				content: 'main',
+				seat: 0,
+				order: ['AS'],
+				position: [3, 0.4, -2],
+				isFaceUp: true,
+				loose: true,
+				...placement
+			}
+		]
+	});
+	/** card ids of a composed table, bottom → top by resting height */
+	const bottomToTop = (cards: GameDTO['cards'] | undefined) =>
+		Object.entries(cards ?? {})
+			.sort(([, a], [, b]) => (a.position?.[1] ?? 0) - (b.position?.[1] ?? 0))
+			.map(([id]) => id);
+
+	it('lays a one-card deck down as exactly one card, and no deck', () => {
+		const composed = composeScenario(loose(), PACKS);
+		expect(composed.decks).toEqual({});
+		expect(composed.cards).toEqual({
+			[RULES]: {
+				faceImageUrl: 'gen:std52/AS',
+				backImageUrl: 'gen:std52/back',
+				name: 'Ace of Spades',
+				position: [3, CARD_REST_Y, -2],
+				rotation: [0, 0, 0]
+			}
+		});
+		// the seat it belongs to still gets its placeholder, so it can be claimed
+		expect(Object.keys(composed.players ?? {})).toEqual(['seat0']);
+	});
+
+	it('applies the pile’s facing, yaw and lock to the card', () => {
+		const facedown = composeScenario(loose({ isFaceUp: false }), PACKS).cards?.[RULES];
+		expect(facedown?.rotation).toEqual([180, 0, 0]);
+		// deck yaw is radians on the pile; a card's is degrees, applied as -z
+		const turned = composeScenario(loose({ rotation: [0, Math.PI / 2, 0] }), PACKS).cards?.[RULES];
+		expect(turned?.rotation).toEqual([0, 0, -90]);
+		expect(composeScenario(loose({ locked: true }), PACKS).cards?.[RULES]?.locked).toBe(true);
+		expect(composeScenario(loose(), PACKS).cards?.[RULES]).not.toHaveProperty('locked');
+	});
+
+	it('stacks a three-card deck at one XZ, in pile order', () => {
+		const order = ['7H', 'AS', '2C'];
+		const ids = order.map((code) => `card:seat0:main-${code}`);
+		// a facedown pile's top card is the LAST of its array
+		const facedown = composeScenario(loose({ order, isFaceUp: false }), PACKS);
+		expect(facedown.decks).toEqual({});
+		expect(bottomToTop(facedown.cards)).toEqual(ids);
+		expect(Object.values(facedown.cards ?? {}).map((card) => card.position)).toEqual([
+			[3, CARD_REST_Y, -2],
+			[3, CARD_REST_Y + CARD_THICKNESS, -2],
+			[3, CARD_REST_Y + 2 * CARD_THICKNESS, -2]
+		]);
+		// a face-up pile's is the FIRST
+		const faceUp = composeScenario(loose({ order, isFaceUp: true }), PACKS);
+		expect(bottomToTop(faceUp.cards)).toEqual([...ids].reverse());
+	});
+
+	it('lets shuffleOnLoad decide the stacking order', () => {
+		const order = ['7H', 'AS', '2C'];
+		const shuffleWith = vi.fn(<T>(cards: T[]) => [...cards].reverse()) as ShuffleFn;
+		const composed = composeScenario(
+			loose({ order, isFaceUp: false, shuffleOnLoad: true }),
+			PACKS,
+			{ shuffleWith }
+		);
+		expect(shuffleWith).toHaveBeenCalledTimes(1);
+		expect(bottomToTop(composed.cards)).toEqual(
+			[...order].reverse().map((code) => `card:seat0:main-${code}`)
+		);
+	});
+
+	it('keeps each card’s own orientation and the deck’s back', () => {
+		const wide: GamePackDef = {
+			id: 'wide',
+			name: 'Wide',
+			scope: 'player',
+			decks: [
+				{
+					slot: 'ref',
+					name: 'Reference',
+					back: 'https://example.com/back.png',
+					cards: [
+						{ code: 'rules', face: 'https://example.com/rules.png', orientation: 'landscape' },
+						{ code: 'turn', face: 'https://example.com/turn.png' }
+					]
+				}
+			]
+		};
+		const composed = composeScenario(
+			loose({ pack: 'wide', content: 'ref', order: undefined }),
+			new Map([['wide', wide]])
+		);
+		expect(composed.cards?.['card:seat0:ref-rules']).toMatchObject({
+			orientation: 'landscape',
+			backImageUrl: 'https://example.com/back.png'
+		});
+		expect(composed.cards?.['card:seat0:ref-turn']).not.toHaveProperty('orientation');
+		expect(composed.cards?.['card:seat0:ref-turn']?.backImageUrl).toBe(
+			'https://example.com/back.png'
+		);
+	});
+
+	it('composes nothing for a deck with no cards, without complaint', () => {
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			const empty: GamePackDef = {
+				id: 'empty',
+				name: 'Empty',
+				scope: 'player',
+				decks: [{ slot: 'none', name: 'None', back: 'gen:std52/back', cards: [] }]
+			};
+			const composed = composeScenario(
+				loose({ pack: 'empty', content: 'none', order: undefined }),
+				new Map([['empty', empty]])
+			);
+			expect(composed.cards).toEqual({});
+			expect(composed.decks).toEqual({});
+			expect(error).not.toHaveBeenCalled();
+		} finally {
+			error.mockRestore();
+		}
+	});
+
+	it('refuses a deck past the ungroup limit, naming the limit', () => {
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			// all 52, where Shift+G stops at UNGROUP_MAX_CARDS
+			const composed = composeScenario(loose({ order: undefined }), PACKS);
+			expect(composed.cards).toEqual({});
+			expect(composed.decks).toEqual({});
+			expect(error).toHaveBeenCalledTimes(1);
+			expect(error).toHaveBeenLastCalledWith(
+				`[compose] standard-52/main: 52 cards is too many to place loose — a loose deck placement is capped at ${UNGROUP_MAX_CARDS}`
+			);
+			// exactly the limit still lands
+			const atLimit = STANDARD_52.decks[0].cards.slice(0, UNGROUP_MAX_CARDS).map((c) => c.code);
+			expect(
+				Object.keys(composeScenario(loose({ order: atLimit }), PACKS).cards ?? {})
+			).toHaveLength(UNGROUP_MAX_CARDS);
+			expect(error).toHaveBeenCalledTimes(1);
+		} finally {
+			error.mockRestore();
+		}
+	});
+
+	it('changes nothing when absent or false', () => {
+		const pile = composeScenario(loose({ loose: undefined }), PACKS);
+		expect(composeScenario(loose({ loose: false }), PACKS)).toEqual(pile);
+		expect(pile.cards).toEqual({});
+		expect(Object.keys(pile.decks ?? {})).toEqual(['deck:seat0:main']);
+	});
+
+	it('is what Shift+G leaves of the same placement laid down as a pile', async () => {
+		const order = ['7H', 'AS', '2C'];
+		for (const isFaceUp of [false, true]) {
+			const placement = { order, isFaceUp, rotation: [0, Math.PI, 0] as [number, number, number] };
+			emptyTable();
+			// the pile belongs to whoever ungroups it
+			localStorage.setItem('myPlayerId', 'seat0');
+			await applyScenario(loose({ ...placement, loose: false }));
+			expect(gameActions.ungroupDeck('deck:seat0:main').ok).toBe(true);
+			const ungrouped = get(gameStore);
+
+			const composed = composeScenario(loose(placement), PACKS);
+			expect(composed.cards).toEqual(ungrouped.cards);
+			expect(composed.decks).toEqual(ungrouped.decks);
+		}
+		localStorage.removeItem('myPlayerId');
+	});
+
+	it('reaches the store through applyScenario as cards, never as a deck', async () => {
+		emptyTable();
+		await applyScenario(loose());
+		const inStore = get(gameStore);
+		const headless = composeScenario(loose(), PACKS);
+		expect(inStore.cards).toEqual(headless.cards);
+		expect(inStore.decks).toEqual({});
 	});
 });
 

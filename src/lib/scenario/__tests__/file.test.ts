@@ -35,6 +35,55 @@ describe('tbps round-trip', () => {
 	});
 });
 
+describe('a deck placement’s `loose` (tableplace-263)', () => {
+	const withPlacement = (placement: Record<string, unknown>) =>
+		JSON.stringify({
+			tbps: 2,
+			name: 'loose',
+			packs: [{ id: 'standard-52', source: 'builtin' }],
+			placements: [{ pack: 'standard-52', content: '0', ...placement }]
+		});
+	const deck = (loose?: unknown) =>
+		withPlacement({
+			kind: 'deck',
+			content: 'main',
+			seat: 0,
+			...(loose !== undefined ? { loose } : {})
+		});
+
+	it('round-trips through export → parse, true and false alike', () => {
+		for (const loose of [true, false]) {
+			const parsed = parseScenarioFile(deck(loose));
+			expect(parsed.placements?.[0].loose).toBe(loose);
+			const written = serializeScenarioFile(parsed);
+			expect(JSON.parse(written).placements[0].loose).toBe(loose);
+			expect(parseScenarioFile(written)).toEqual(parsed);
+		}
+	});
+
+	it('leaves a placement without the field untouched — no key invented on read', () => {
+		expect(parseScenarioFile(deck()).placements?.[0]).not.toHaveProperty('loose');
+	});
+
+	it('is refused on a piece and on an overlay', () => {
+		expect(() => parseScenarioFile(withPlacement({ kind: 'piece', seat: 0, loose: true }))).toThrow(
+			"placements[0].loose is for deck placements only — a piece can't be placed loose"
+		);
+		expect(() => parseScenarioFile(withPlacement({ kind: 'overlay', loose: true }))).toThrow(
+			"placements[0].loose is for deck placements only — an overlay can't be placed loose"
+		);
+		// `false` asks for nothing, so it is neither refused nor kept
+		const piece = parseScenarioFile(withPlacement({ kind: 'piece', seat: 0, loose: false }));
+		expect(piece.placements?.[0]).not.toHaveProperty('loose');
+	});
+
+	it('must be a boolean — a string is not quietly read as true', () => {
+		expect(() => parseScenarioFile(deck('false'))).toThrow(
+			'placements[0].loose must be true or false'
+		);
+	});
+});
+
 describe('legacy scenario-<name>.json fallback (v0)', () => {
 	it('accepts files without a tbps field', () => {
 		const legacy = { name: 'old', createdAt: 123, state: { cards: {}, decks: {}, players: {} } };

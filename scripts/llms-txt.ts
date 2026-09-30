@@ -28,6 +28,7 @@ import {
 	TABLE_TOP_Y,
 	EDGE_MARGIN
 } from '../src/lib/utils/constants-table';
+import { UNGROUP_MAX_CARDS } from '../src/lib/utils/transforms/ungroup';
 import {
 	PIECE_THICKNESS,
 	PIECE_REST_Y,
@@ -69,6 +70,11 @@ const CONSTANTS: [name: string, value: number | string, note: string][] = [
 	['CARD_THICKNESS', CARD_THICKNESS, 'card size along y'],
 	['CARD_REST_Y', CARD_REST_Y, 'y of a single card lying on the table'],
 	['CARD_STACK_RADIUS', CARD_STACK_RADIUS, 'cards closer than this in xz count as one stack'],
+	[
+		'UNGROUP_MAX_CARDS',
+		UNGROUP_MAX_CARDS,
+		'most cards one deck spreads into loose cards — `Shift+G`, and a `loose` deck placement'
+	],
 	['DECK_HEIGHT_PER_CARD', DECK_HEIGHT_PER_CARD, 'a deck grows this tall per card…'],
 	['DECK_MIN_HEIGHT', DECK_MIN_HEIGHT, '…clamped to this floor…'],
 	['DECK_MAX_HEIGHT', DECK_MAX_HEIGHT, '…and this ceiling. Deck y of 0.4 is a safe default.'],

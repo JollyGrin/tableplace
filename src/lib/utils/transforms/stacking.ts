@@ -133,22 +133,8 @@ export function collectStackGroup(
 	};
 }
 
-/**
- * Re-order a bottom→top stack into a deck's `cards` array.
- *
- * The deck ordering convention (see `actions/deck.ts` drawFromTop): a
- * facedown deck's top card is the LAST element, a face-up pile's is the
- * FIRST. Either way the card that was on top of the loose stack must be the
- * card the deck draws first.
- *
- * A reverse is its own inverse, so this maps both ways: feed it a deck's
- * `cards` and it hands back the bottom→top order to spread them out in
- * (`ungroupDeck`). Generic on the element so the ungroup can re-order the
- * `CardInDeck` objects, not just their ids.
- */
-export function orderForDeck<T>(items: T[], isFaceUp: boolean): T[] {
-	return isFaceUp ? [...items].reverse() : [...items];
-}
+// the deck ordering convention lives with the ungroup it is the inverse of
+export { orderForDeck } from './ungroup';
 
 /**
  * Screen-down offset for the `index`-th member (bottom → top) of a pile of

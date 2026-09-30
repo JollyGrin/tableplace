@@ -9,10 +9,12 @@
 
 import { COUNTER_MAX_DEFAULT, PIECE_REST_Y } from '../utils/constants-pieces';
 import { counterRange, counterValueRefusal } from '../primitives/counter-range';
+import { UNGROUP_MAX_CARDS, ungroupedCards } from '../utils/transforms/ungroup';
 import { composePiece, type Vec3 } from './piece';
 import type { GamePackDef, PackDeckDef, PackPieceDef } from '../packs/types';
 import type {
 	BagItem,
+	CardDTO,
 	CardInDeck,
 	DeckDTO,
 	OverlayDTO,
@@ -34,7 +36,8 @@ export function placeholderSeat(ownerId: string): number | undefined {
 
 /**
  * The id a pack card is instantiated under, wherever it is instantiated: in a
- * pile (`composePackDeck`) or laid out loose (`spawnPackDeckSpread`). One
+ * pile (`composePackDeck`) or laid out loose (`composePackDeckLoose`,
+ * `spawnPackDeckSpread`). One
  * function because /create reads the grammar BACKWARDS — it turns the card its
  * cursors point at into the id to mark on the table (#109) — and a second copy
  * of the format would silently stop marking anything the day either moved.
@@ -163,6 +166,38 @@ export function composePackDeck(
 			...((opts.locked ?? deck.locked) ? { locked: true } : {})
 		}
 	};
+}
+
+/**
+ * Instantiate one of a pack's decks as loose cards instead of a pile — a
+ * scenario placement's `loose: true`. The result is what composing the pile
+ * and pressing `Shift+G` on it leaves on the table, by construction: the pile
+ * is composed (so order, shuffle, facing, position, yaw and lock all mean what
+ * they mean for a pile) and then spread by the hotkey's own `ungroupedCards`.
+ * No pile is ever written, and each card keeps the id it had inside it.
+ *
+ * A loose card carries no `packOrigin` — it is a card like any other, which is
+ * also how a later save sees it. An empty deck composes nothing. A deck past
+ * `UNGROUP_MAX_CARDS` is refused — undefined, after saying so — by the same
+ * rule that refuses the hotkey.
+ */
+export function composePackDeckLoose(
+	pack: GamePackDef,
+	deck: PackDeckDef,
+	opts: ComposeDeckOptions
+): Record<string, CardDTO> | undefined {
+	const { deck: pile } = composePackDeck(pack, deck, opts);
+	const count = pile.cards?.length ?? 0;
+	if (count > UNGROUP_MAX_CARDS) {
+		console.error(
+			`[compose] ${pack.id}/${deck.slot}: ${count} cards is too many to place loose — ` +
+				`a loose deck placement is capped at ${UNGROUP_MAX_CARDS}`
+		);
+		return undefined;
+	}
+	const cards: Record<string, CardDTO> = {};
+	for (const { from, card } of ungroupedCards(pile)) cards[from.id] = card;
+	return cards;
 }
 
 /**

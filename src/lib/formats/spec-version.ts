@@ -67,6 +67,12 @@ export const PACK_SPEC_VERSION = '1.10.0';
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
  *
+ * 0.1.21 — deck placements can carry `loose` (boolean): the deck's cards
+ * arrive as loose cards on the felt instead of as a pile — what `Shift+G` on
+ * the placed pile would leave, with no pile ever written (tableplace-263).
+ * Refused on a piece or overlay placement. One optional field — additive, so
+ * PATCH.
+ *
  * 0.1.20 — snap points can carry `outLinks` (one-way links: ids of the points
  * this one leads to, which don't reach back through that edge —
  * tableplace-255), both in the top-level `snapPoints` array and in
@@ -137,7 +143,7 @@ export const PACK_SPEC_VERSION = '1.10.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.20';
+export const SCENARIO_SPEC_VERSION = '0.1.21';
 
 export type Semver = { major: number; minor: number; patch: number };
 
