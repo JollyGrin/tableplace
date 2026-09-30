@@ -9,6 +9,7 @@
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { gameActions } from '$lib/store/game/actions';
 	import { HAND_CARD_H, HAND_CARD_W, type FanSlot } from '$lib/utils/hand';
+	import { driveSpring } from '$lib/utils/frame-stall.svelte';
 	import { FLIGHT_MS, getTableCamera, prefersReducedMotion, takeFlight } from './drawFlight';
 
 	/**
@@ -21,11 +22,14 @@
 	let {
 		id,
 		pose,
-		landscape = false
+		landscape = false,
+		viewport
 	}: {
 		id: string;
 		pose: FanSlot & { scale: number; z: number };
 		landscape?: boolean;
+		/** the viewport's size: when it changes the card jumps to its new slot */
+		viewport: string;
 	} = $props();
 
 	const myPlayerId = $derived(gameActions?.getMe()?.id ?? '');
@@ -51,12 +55,18 @@
 		SPRING
 	);
 
-	// writes only the springs' targets, which nothing here reads back
+	// Writes only the springs' targets, which nothing here reads back. Through
+	// driveSpring, so a starved frame loop draws the card where it can be
+	// pointed at; and a resize is not a gesture, so the fan re-lays out at
+	// once rather than sliding in from the old viewport's slots (#244).
+	let laidOutFor = untrack(() => viewport);
 	$effect(() => {
-		cardX.target = pose.x;
-		cardY.target = pose.y;
-		cardAngle.target = pose.angle;
-		cardScale.target = pose.scale;
+		const resized = viewport !== laidOutFor;
+		laidOutFor = viewport;
+		driveSpring(cardX, pose.x, resized);
+		driveSpring(cardY, pose.y, resized);
+		driveSpring(cardAngle, pose.angle, resized);
+		driveSpring(cardScale, pose.scale, resized);
 	});
 
 	// the art is portrait in the texture: a landscape card's mesh lies on its side
