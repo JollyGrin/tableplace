@@ -4384,12 +4384,13 @@ export const SPECS: Spec[] = [
 					);
 					await page.bringToFront();
 					await pressL();
+					// `eventually` hands back the last probe, and here success is `false`
 					ok(
-						await eventually(
+						!(await eventually(
 							() => lockedOn(table),
 							(on) => !on,
 							8000
-						),
+						)),
 						`a second L did not unlock the token — under the pointer: ${JSON.stringify(
 							await page.evaluate(() => {
 								const game = window.__tableplace!.state();
@@ -4405,11 +4406,11 @@ export const SPECS: Spec[] = [
 						)}`
 					);
 					ok(
-						await eventually(
+						!(await eventually(
 							() => lockedOn(remote),
 							(on) => !on,
 							8000
-						),
+						)),
 						'the second client never saw the unlock'
 					);
 					assertClean(remote, 'on the second client after lock and unlock');
