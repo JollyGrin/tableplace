@@ -30,7 +30,10 @@ describe('tbpp round-trip', () => {
 				{ kind: 'pawn', name: 'Walker', reach: 2, position: [4, 4] },
 				// a counter's floor (tableplace-253), negative ones included
 				{ kind: 'counter', name: 'Dial', minValue: 3, maxValue: 17, position: [5, 5] },
-				{ kind: 'counter', name: 'Score', minValue: -10, maxValue: 10, position: [6, 6] }
+				{ kind: 'counter', name: 'Score', minValue: -10, maxValue: 10, position: [6, 6] },
+				// a token's outline (tableplace-254); an explicit disc is kept as written
+				{ kind: 'token', name: 'Plaque', shape: 'square', radius: 1, position: [7, 7] },
+				{ kind: 'token', name: 'Chip', shape: 'disc', position: [8, 8] }
 			],
 			overlays: [{ imageUrl: 'https://x/map.webp', ratio: 1.6, scale: 10 }],
 			source: 'tts'
@@ -95,6 +98,7 @@ describe('tbpp round-trip', () => {
 					contents: [
 						{ kind: 'token', name: 'Ember', color: '#f97316', imageUrl: 'https://x/e.png' },
 						{ kind: 'pawn', name: 'Runner', radius: 0.3 },
+						{ kind: 'token', name: 'Plaque', shape: 'square', imageUrl: 'https://x/p.png' },
 						{ kind: 'counter', name: 'Dial', maxValue: 5 },
 						{ kind: 'counter', name: 'Round', minValue: 1, maxValue: 12 },
 						{
@@ -110,6 +114,27 @@ describe('tbpp round-trip', () => {
 			]
 		};
 		expect(parsePackFile(serializePackFile(pack))).toEqual(pack);
+	});
+
+	it('refuses a shape that is not a token shape, on a piece and in a bag', () => {
+		const pack = (piece: Record<string, unknown>) =>
+			JSON.stringify({ tbpp: 1, id: 'p', name: 'P', scope: 'table', decks: [], pieces: [piece] });
+		const token = { kind: 'token', name: 'Plaque', position: [0, 0] };
+
+		expect(() => parsePackFile(pack({ ...token, shape: 'hex' }))).toThrow(
+			/pieces\[0\]\.shape must be one of disc, square/
+		);
+		expect(() => parsePackFile(pack({ ...token, shape: true }))).toThrow(/shape must be one of/);
+		// no shape is a disc, and no field is invented for it
+		expect(parsePackFile(pack(token)).pieces?.[0]).not.toHaveProperty('shape');
+
+		const bag = {
+			kind: 'bag',
+			name: 'Bag',
+			position: [0, 0],
+			contents: [{ kind: 'token', name: 'Plaque', shape: 'round' }]
+		};
+		expect(() => parsePackFile(pack(bag))).toThrow(/contents\[0\]\.shape must be one of/);
 	});
 
 	it('refuses a counter minValue above its maxValue, on a piece and in a bag', () => {

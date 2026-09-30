@@ -259,6 +259,26 @@ describe('CreatePane', () => {
 		expect(pieces[0]).toMatchObject({ kind: 'counter', value: 20, maxValue: 20 });
 	});
 
+	it('authors a square token: the Shape control is token-only and reaches the preview', async () => {
+		const container = await startNew();
+		button(container, 'Add token')!.click(); // the kind list defaults to Token
+		await untilPreviewed(() => expect(Object.values(get(gameStore).pieces ?? {})).toHaveLength(1));
+
+		expect(labels(container)).toContain('Shape');
+		// a fresh token is a disc, and a disc carries no field
+		expect(Object.values(get(gameStore).pieces ?? {})[0]).not.toHaveProperty('shape');
+
+		choose(listWith(container, 'Square'), 'Square');
+		await untilPreviewed(() =>
+			expect(Object.values(get(gameStore).pieces ?? {})[0]).toMatchObject({
+				kind: 'token',
+				shape: 'square'
+			})
+		);
+		// the pane survived the edit (see the tweakpane note on the bag controls)
+		expect(labels(container)).toContain('Shape');
+	});
+
 	it('authors a multi-state token and previews the selected state', async () => {
 		const container = await startNew();
 		button(container, 'Add token')!.click(); // the kind list defaults to Token

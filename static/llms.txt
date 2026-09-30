@@ -40,7 +40,7 @@ Every file carries an in-band discriminator at the top level: `"tbpp": 1` or `"t
 
 ### 2.1 Spec versions
 
-Current: **pack `1.9.0`**, **scenario `0.1.18`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
+Current: **pack `1.10.0`**, **scenario `0.1.19`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
 
 Two version fields exist and they answer different questions:
 
@@ -183,13 +183,13 @@ The literal prefix `model:` followed by `<kit>/<name>`, resolved through the fir
 
 ### 6.1 Fields
 
-- **`specVersion`** — the pack spec you generated against (§2.1). Currently `1.9.0`.
+- **`specVersion`** — the pack spec you generated against (§2.1). Currently `1.10.0`.
 - **`id`** — stable identity for the pack, e.g. `ember-duel`. See §8 on collisions.
 - **`name`** — human-readable title.
 - **`scope`** — `"table"` or `"player"`. `table` is the shared game loaded once per lobby by the host (board, communal decks). `player` is what one participant brings and is spawned per seat — a deck-builder export is a player pack. When in doubt for a card game, use `player`.
 - **`decks[]`** — `slot` (stable id within the pack), `name`, `back` (a face ref), optional `isFaceUp`, optional `locked` (see below), and `cards[]`.
   - **`cards[]`** — `code` (stable id within the deck), optional `name` (carried onto the spawned card and shown as the caption of the zoomed hover preview, only while the card is face up), `face` (a face ref), and optional `orientation` — `"portrait"` (default) or `"landscape"`. A landscape card rests turned 90° everywhere it renders (board, hand, preview) while its art stays portrait in the image; use it for cards that are played sideways (the analog of Tabletop Simulator's `SidewaysCard`).
-- **`pieces[]`** _(optional)_ — `kind` (`"token"`, `"pawn"`, `"counter"`, `"die"`, `"bag"` or `"model"`), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `maxValue` and `minValue` (counters: it spawns full at `maxValue` — `COUNTER_MAX_DEFAULT` when omitted — and its value clamps to `[minValue, maxValue]`; `minValue` defaults to 0, may be negative, and must not be above `maxValue` — a dial that reads 3–17 is `"minValue": 3, "maxValue": 17`, and its rim arc is empty at 3 and full at 17), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), optional `reach` (a whole number ≥ 0: how many snap-point links the piece usually travels — advisory reach rings, §7.2), optional `locked` (see below), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
+- **`pieces[]`** _(optional)_ — `kind` (`"token"`, `"pawn"`, `"counter"`, `"die"`, `"bag"` or `"model"`), `name`, optional `color` (hex string, used when there is no image), optional `imageUrl` (a face ref), optional `states` and `state` (§6.2), optional `radius`, optional `shape` (tokens only: `"disc"` (the default) or `"square"` — a square token is a flat tile whose half-width is `radius`, with `imageUrl` covering its whole top face uncropped, corners included; an image that is not 1:1 makes it a rectangle of that aspect, `2 × radius` wide; the rim and base keep `color`; it is picked and dropped by its own bounds, not a circle's), optional `maxValue` and `minValue` (counters: it spawns full at `maxValue` — `COUNTER_MAX_DEFAULT` when omitted — and its value clamps to `[minValue, maxValue]`; `minValue` defaults to 0, may be negative, and must not be above `maxValue` — a dial that reads 3–17 is `"minValue": 3, "maxValue": 17`, and its rim arc is empty at 3 and full at 17), optional `snap` (default `true`; `false` opts the piece out of snap points and grids — it drops as if Alt were held), optional `reach` (a whole number ≥ 0: how many snap-point links the piece usually travels — advisory reach rings, §7.2), optional `locked` (see below), `position` as `[x, z]`, and optional `rotation` (table yaw in **degrees**, default 0). A bag adds the three fields in §6.3; a model carries its catalog ref in **`model`** (§5.4).
 - **`overlays[]`** _(optional)_ — board/map images: `imageUrl` (a face ref), `ratio` (image width ÷ height), `scale` (world size along the long axis), optional `locked`.
 - **`locked`** _(optional, default `false`, on `decks[]`, `pieces[]` and `overlays[]`)_ — spawn pinned in place: it can't be dragged, flipped, turned or grouped until a player presses `L` on it. What it does in place still works (a locked deck deals, a locked counter counts, a locked die rolls). Use it for boards, tracks and reference cards that should not get knocked around. Tabletop Simulator's `Locked` maps onto it one to one.
 - **`source`** _(optional)_ — provenance stamp written by converters; the only value is `"tts"`. Omit it in hand-authored packs.
@@ -242,7 +242,7 @@ A piece of `kind: "bag"` is a container: a pouch holding a pool nobody can look 
 }
 ```
 
-- **`contents`** — what the bag holds, in insertion order. Each entry is either a **piece item** — `kind` `"token"`, `"pawn"` or `"counter"`, plus `name` and the optional `color` / `imageUrl` / `radius` / `maxValue` / `minValue`; there is no `position`, because the draw decides where it lands — or a **card item**: `kind: "card"` plus `code`, optional `name`, `face` (a face ref, §5), optional `back` and optional `orientation` (§6.1).
+- **`contents`** — what the bag holds, in insertion order. Each entry is either a **piece item** — `kind` `"token"`, `"pawn"` or `"counter"`, plus `name` and the optional `color` / `imageUrl` / `radius` / `shape` / `maxValue` / `minValue`; there is no `position`, because the draw decides where it lands — or a **card item**: `kind: "card"` plus `code`, optional `name`, `face` (a face ref, §5), optional `back` and optional `orientation` (§6.1).
 - **`drawMode`** — `"random"` (the default: a blind draw), `"lifo"` (last in, first out — a stack) or `"fifo"` (a queue).
 - **`infinite`** — `true` makes each draw **clone** the item rather than remove it, so the bag never empties. Its badge reads `∞`.
 - `code` must be **unique within the bag**, like a deck's card codes: the drawn card's table id is built from it.
@@ -393,6 +393,12 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 								"description": "world radius of the piece footprint (a die's circumradius)",
 								"type": "number",
 								"title": "radius"
+							},
+							"shape": {
+								"description": "tokens only: the token's outline (default `'disc'`). `'square'` is a flat\ntile whose half-width is `radius`, as thick as a disc; the image covers\nits top uncropped, so an image that is not 1:1 makes it a rectangle of\nthat aspect (width stays `2 × radius`). The rim and base keep `color`.",
+								"enum": ["disc", "square"],
+								"type": "string",
+								"title": "shape"
 							},
 							"maxValue": {
 								"description": "counters start at this value",
@@ -572,6 +578,12 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 							"type": "number",
 							"title": "radius"
 						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
+						},
 						"maxValue": {
 							"description": "counters draw at this value",
 							"type": "number",
@@ -625,9 +637,9 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "1.9.0",
-	"x-generated-at": "2026-09-30T08:59:37.540Z",
-	"x-tableplace-source-sha": "6b8e0fa28227484e42c787f9100bf772844374cc-dirty"
+	"x-tableplace-spec-version": "1.10.0",
+	"x-generated-at": "2026-09-30T09:59:25.483Z",
+	"x-tableplace-source-sha": "f0a440405a4798f2e075eb640f7b9947ce47c5f5-dirty"
 }
 ```
 
@@ -639,7 +651,7 @@ A complete, valid pack. Save as `ember-duel.tbpp.json` and import it from the ta
 {
 	"$schema": "https://table.place/pack.schema.json",
 	"tbpp": 1,
-	"specVersion": "1.9.0",
+	"specVersion": "1.10.0",
 	"id": "ember-duel",
 	"name": "Ember Duel",
 	"scope": "player",
@@ -769,7 +781,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
 
 ### 7.1 Fields
 
-- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.18`.
+- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.19`.
 - **`name`**, **`createdAt`** — title and a Unix epoch timestamp in milliseconds.
 - **`packs[]`** — `{ id, source? }` for every pack the scenario draws from. `source` is `"builtin"` for packs shipped with the app (currently only `standard-52`), `"local"` for a pack held in the reader's own browser-local pack library, or an `https://` URL a `.tbpp.json` can be fetched from. A remote pack goes through the same validation as a local import. A scenario meant to travel to other people must use `"builtin"` or a URL: `"local"` resolves only on the machine that has the pack, and fails loudly (naming the pack id) anywhere else.
 - **`placements[]`** — one entry per spawned thing:
@@ -1648,6 +1660,12 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 					"type": "number",
 					"title": "radius"
 				},
+				"shape": {
+					"description": "Tokens only (tableplace-254): `'square'` draws a flat tile whose\nhalf-width is `radius` — a rectangle of the image's aspect when that is\nnot 1:1 — with the image uncropped on top. Absent = `'disc'`.",
+					"enum": ["disc", "square"],
+					"type": "string",
+					"title": "shape"
+				},
 				"model": {
 					"description": "`kind: 'model'` only — a `model:<kit>/<name>` catalog ref (tableplace-135),\nresolved through the static manifest exactly the way face refs resolve\nthrough their schemes: the tiny ref string is all that syncs, never\ngeometry. An unresolvable ref renders as a placeholder, not an error.",
 					"type": "string",
@@ -1769,6 +1787,12 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 						"radius": {
 							"type": "number",
 							"title": "radius"
+						},
+						"shape": {
+							"description": "tokens only: `'square'` draws a tile instead of a disc (default `'disc'`)",
+							"enum": ["disc", "square"],
+							"type": "string",
+							"title": "shape"
 						},
 						"maxValue": {
 							"type": "number",
@@ -1902,9 +1926,9 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.18",
-	"x-generated-at": "2026-09-30T08:59:37.540Z",
-	"x-tableplace-source-sha": "6b8e0fa28227484e42c787f9100bf772844374cc-dirty"
+	"x-tableplace-spec-version": "0.1.19",
+	"x-generated-at": "2026-09-30T09:59:25.483Z",
+	"x-tableplace-source-sha": "f0a440405a4798f2e075eb640f7b9947ce47c5f5-dirty"
 }
 ```
 
@@ -1916,7 +1940,7 @@ Two packs — one builtin, one fetched from `https://example.com/packs/ember-due
 {
 	"$schema": "https://table.place/scenario.schema.json",
 	"tbps": 2,
-	"specVersion": "0.1.18",
+	"specVersion": "0.1.19",
 	"name": "ember-duel-opening",
 	"createdAt": 1700000000000,
 	"packs": [

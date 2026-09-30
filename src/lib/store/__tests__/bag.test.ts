@@ -191,6 +191,51 @@ describe('returnToBag', () => {
 		]);
 	});
 
+	it('a square token goes in square and comes back out square (tableplace-254)', () => {
+		seedBag({ contents: [], drawMode: 'lifo' });
+		const tile = gameActions.addPiece('token', {
+			ownerId: OWNER,
+			name: 'Tile',
+			imageUrl: 'https://example.com/tile.png',
+			shape: 'square',
+			radius: 1
+		});
+		expect(get(gameStore).pieces?.[tile]?.shape).toBe('square');
+
+		expect(gameActions.returnToBag(BAG, tile)).toBe(true);
+		expect(contents()).toEqual([
+			{
+				kind: 'token',
+				name: 'Tile',
+				imageUrl: 'https://example.com/tile.png',
+				radius: 1,
+				shape: 'square'
+			}
+		]);
+
+		const drawn = gameActions.drawFromBag(BAG);
+		expect(get(gameStore).pieces?.[drawn?.id ?? '']).toMatchObject({
+			kind: 'token',
+			name: 'Tile',
+			imageUrl: 'https://example.com/tile.png',
+			radius: 1,
+			shape: 'square'
+		});
+	});
+
+	it('never gives a shape to a kind that has none, going in or coming out', () => {
+		// a pawn that a stale client sent with `shape` on it
+		seedBag({ contents: [{ kind: 'counter', name: 'Dial', maxValue: 5, shape: 'square' }] });
+		const drawn = gameActions.drawFromBag(BAG);
+		expect(get(gameStore).pieces?.[drawn?.id ?? '']).not.toHaveProperty('shape');
+
+		gameStore.updateState({
+			pieces: { 'piece:seat0:pawn-0': { kind: 'pawn', name: 'Pawn', shape: 'square' } }
+		});
+		expect(gameActions.returnToBag(BAG, 'piece:seat0:pawn-0')).toBe(true);
+		expect(contents().at(-1)).not.toHaveProperty('shape');
+	});
+
 	it('deletes the entity and grows the bag in ONE patch', () => {
 		const token = seedWithToken();
 		const patches: unknown[] = [];

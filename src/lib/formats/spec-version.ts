@@ -19,6 +19,13 @@
 /**
  * Bump on any change to the pack schema. See docs/packs.md § Spec versioning.
  *
+ * 1.10.0 — tokens (pieces and bag piece items) can carry `shape`: `'disc'`
+ * (the default) or `'square'`, a flat tile whose half-width is `radius` and
+ * whose image covers the top face uncropped — a rectangle of the image's
+ * aspect when that is not 1:1 (tableplace-254). The TTS importer maps a
+ * `Custom_Tile` of type Box or Rounded onto it. Additive: every earlier 1.x
+ * pack is still valid.
+ *
  * 1.9.0 — counters (pieces and bag piece items) can carry `minValue`, the
  * lowest value the counter can show (default 0): the value clamps to
  * `[minValue, maxValue]` and the rim arc fills over that range
@@ -46,7 +53,7 @@
  * 1.3.0 — added the `bag` piece kind (`contents`/`drawMode`/`infinite`),
  * additive: every earlier 1.x pack is still valid.
  */
-export const PACK_SPEC_VERSION = '1.9.0';
+export const PACK_SPEC_VERSION = '1.10.0';
 
 /**
  * The scenario spec is deliberately 0.x: it is unstable and carries no
@@ -59,6 +66,11 @@ export const PACK_SPEC_VERSION = '1.9.0';
  * build then refuses files it could have read perfectly well. (The general
  * "additive → minor" convention in docs/packs.md § Release convention is the
  * 1.x rule; it inverts under 0.x.)
+ *
+ * 0.1.19 — `state.pieces` (and bag piece items) can carry `shape`, a token's
+ * outline (`'disc'` | `'square'`, tableplace-254), because the schema is
+ * generated from `Partial<GameDTO>`. Any other value is refused by the parser.
+ * One optional field — additive, so PATCH.
  *
  * 0.1.18 — `state.pieces` (and bag piece items) can carry `minValue`, a
  * counter's floor (tableplace-253), because the schema is generated from
@@ -120,7 +132,7 @@ export const PACK_SPEC_VERSION = '1.9.0';
  * 0.1.6 — `state.pieces` can carry the bag fields (this schema is generated
  * from `Partial<GameDTO>`), additive.
  */
-export const SCENARIO_SPEC_VERSION = '0.1.18';
+export const SCENARIO_SPEC_VERSION = '0.1.19';
 
 export type Semver = { major: number; minor: number; patch: number };
 

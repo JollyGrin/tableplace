@@ -229,6 +229,7 @@ export function composePackPiece(
 		// the placement's choice wins over the pack's own default
 		state: opts.state ?? def.state,
 		radius: def.radius,
+		shape: def.shape,
 		maxValue: def.maxValue,
 		minValue: def.minValue,
 		sides: def.sides,

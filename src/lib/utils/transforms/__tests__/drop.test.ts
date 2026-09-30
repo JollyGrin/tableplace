@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DEG2RAD } from 'three/src/math/MathUtils.js';
 import { clampToTable, resolveDrop } from '../drop';
-import type { GameDTO } from '$lib/store/game/types';
+import type { GameDTO, PieceDTO } from '$lib/store/game/types';
 import {
 	CARD_WIDTH,
 	CARD_HEIGHT,
@@ -114,6 +114,33 @@ describe('resolveDrop', () => {
 		});
 		// a token's origin is half a disc up; its footprint belongs on the felt
 		expect(drop?.footprintY).toBe(TABLE_TOP_Y);
+	});
+
+	it('gives a square token the rectangle it is, not a circle round it', () => {
+		const tile: Partial<PieceDTO> = {
+			position: [0, 1.2, 0],
+			kind: 'token',
+			shape: 'square',
+			radius: 1.25
+		};
+		const s = state({ pieces: { 'piece:1': tile } });
+		expect(resolveDrop(s, 'piece:1', { x: 2, z: 2 })?.footprint).toEqual({
+			shape: 'rect',
+			w: 2.5,
+			h: 2.5
+		});
+		// the preview hands in the loaded image's aspect: twice as wide as deep
+		expect(resolveDrop(s, 'piece:1', { x: 2, z: 2 }, {}, { faceAspect: 2 })?.footprint).toEqual({
+			shape: 'rect',
+			w: 2.5,
+			h: 1.25
+		});
+		// an aspect never reshapes a disc
+		const disc = state({ pieces: { 'piece:1': { ...tile, shape: undefined } } });
+		expect(resolveDrop(disc, 'piece:1', { x: 2, z: 2 }, {}, { faceAspect: 2 })?.footprint).toEqual({
+			shape: 'circle',
+			r: 1.25
+		});
 	});
 
 	it('defaults a piece without a radius', () => {

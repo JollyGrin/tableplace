@@ -7,7 +7,7 @@
 // relative, not `$lib`: these types are a schema-generation root
 // (scripts/build-schemas.ts), and that program is compiled without the
 // SvelteKit path aliases
-import type { DieSides } from '../store/game/types';
+import type { DieSides, TokenShape } from '../store/game/types';
 
 /**
  * Which way a card rests when squared up. `'landscape'` cards (e.g. Sorcery
@@ -60,6 +60,8 @@ export type PackBagPieceItem = {
 	color?: string;
 	imageUrl?: string;
 	radius?: number;
+	/** tokens only: `'square'` draws a tile instead of a disc (default `'disc'`) */
+	shape?: TokenShape;
 	/** counters draw at this value */
 	maxValue?: number;
 	/** counters only: the lowest value it can show (default 0) */
@@ -121,6 +123,13 @@ export type PackPieceDef = {
 	state?: number;
 	/** world radius of the piece footprint (a die's circumradius) */
 	radius?: number;
+	/**
+	 * tokens only: the token's outline (default `'disc'`). `'square'` is a flat
+	 * tile whose half-width is `radius`, as thick as a disc; the image covers
+	 * its top uncropped, so an image that is not 1:1 makes it a rectangle of
+	 * that aspect (width stays `2 × radius`). The rim and base keep `color`.
+	 */
+	shape?: TokenShape;
 	/** counters start at this value */
 	maxValue?: number;
 	/**
