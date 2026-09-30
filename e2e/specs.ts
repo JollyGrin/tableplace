@@ -759,7 +759,7 @@ export const SPECS: Spec[] = [
 					}
 					const stuck = await table.positionOf(id);
 					throw new Error(
-						`${label} (${id}) never arrived at (${x}, ${z}) after 3 drags: ${JSON.stringify(stuck)}`
+						`${label} (${id}) never arrived at (${x}, ${z}) after the drag and 3 retries: ${JSON.stringify(stuck)}`
 					);
 				};
 
@@ -948,7 +948,7 @@ export const SPECS: Spec[] = [
 					}
 					const stuck = await table.positionOf(id);
 					throw new Error(
-						`${label} (${id}) never arrived at (${x}, ${z}) after 3 drags: ${JSON.stringify(stuck)}`
+						`${label} (${id}) never arrived at (${x}, ${z}) after the drag and 3 retries: ${JSON.stringify(stuck)}`
 					);
 				};
 
@@ -1044,17 +1044,28 @@ export const SPECS: Spec[] = [
 					);
 				};
 
-				/** as `model surface`: what is retried is pointer delivery, not the property under test */
+				/**
+				 * As `model surface`: what is retried is pointer delivery, not the
+				 * property under test — so it only drags again when the drag the
+				 * caller already made did NOT arrive (tableplace-245). Re-dragging an
+				 * entity that is already there is no drag at all: `dragTo` aims a
+				 * few pixels below its own pixel, and under these stalls those
+				 * ~5px steps land seconds apart by event time — a press held still
+				 * past the wheel's hold, then a flick. The wheel opens, as it
+				 * should, and the release fires whatever wedge sits below: a turn
+				 * on the three-wedge token wheel, Lock once Ping made it four
+				 * (#198), after which every drag is refused.
+				 */
 				const dragToArrives = async (id: string, x: number, z: number, label: string) => {
-					for (let attempt = 0; attempt < 3; attempt++) {
-						await table.dragTo(id, x, z);
+					for (let attempt = 0; attempt <= 3; attempt++) {
 						await table.settle(900);
 						const position = await table.positionOf(id);
 						if (position && Math.hypot(position[0] - x, position[2] - z) < 1.0) return position;
+						if (attempt < 3) await table.dragTo(id, x, z);
 					}
 					const stuck = await table.positionOf(id);
 					throw new Error(
-						`${label} (${id}) never arrived at (${x}, ${z}) after 3 drags: ${JSON.stringify(stuck)}`
+						`${label} (${id}) never arrived at (${x}, ${z}) after the drag and 3 retries: ${JSON.stringify(stuck)}`
 					);
 				};
 
