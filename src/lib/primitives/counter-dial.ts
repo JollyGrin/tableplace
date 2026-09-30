@@ -76,9 +76,11 @@ export function drawCounterDial(context: CanvasRenderingContext2D, size: number,
 	};
 
 	// rim track, then the plate the text sits on. Over an image the plate is a
-	// scrim, so the art still shows round the numerals.
+	// light wash and the text carries its own halo instead: a plate opaque
+	// enough to read on by itself hides the art (tableplace-246 — at 0.72 an
+	// image counter drew as a grey disc).
 	disc(127, face.overImage ? 'rgba(22,19,15,0.55)' : '#16130f');
-	disc(106, face.overImage ? 'rgba(251,248,238,0.72)' : '#fbf8ee');
+	disc(106, face.overImage ? 'rgba(251,248,238,0.25)' : '#fbf8ee');
 
 	const fraction = dialFraction(face.value, face.maxValue);
 	if (fraction != null && fraction > 0) {
@@ -90,25 +92,34 @@ export function drawCounterDial(context: CanvasRenderingContext2D, size: number,
 		context.stroke();
 	}
 
-	context.fillStyle = '#1f2a22';
 	context.textAlign = 'center';
 	context.textBaseline = 'middle';
+	context.lineJoin = 'round';
+	/** over an image, a cream halo keeps each glyph legible on any art */
+	const print = (text: string, y: number, fill: string) => {
+		if (face.overImage) {
+			context.strokeStyle = 'rgba(251,248,238,0.9)';
+			context.lineWidth = 8 * u;
+			context.strokeText(text, c, y);
+		}
+		context.fillStyle = fill;
+		context.fillText(text, c, y);
+	};
 
 	const hasMax = fraction != null;
 	const name = face.name.trim().toUpperCase();
 	if (name) {
 		fitFont(context, name, '700', SANS, 30 * u, 150 * u);
-		context.fillText(name, c, (hasMax ? 72 : 78) * u);
+		print(name, (hasMax ? 72 : 78) * u, '#1f2a22');
 	}
 
 	const value = String(face.value);
 	fitFont(context, value, '700', SANS, (hasMax ? 104 : 116) * u, 170 * u);
-	context.fillText(value, c, (name ? (hasMax ? 140 : 150) : 128) * u);
+	print(value, (name ? (hasMax ? 140 : 150) : 128) * u, '#1f2a22');
 
 	if (hasMax) {
 		const of = `of ${face.maxValue}`;
-		context.fillStyle = '#47604f';
 		fitFont(context, of, '600', SANS, 26 * u, 120 * u);
-		context.fillText(of, c, 202 * u);
+		print(of, 202 * u, '#47604f');
 	}
 }
