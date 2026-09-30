@@ -14,7 +14,7 @@
  * looks identical to a frozen table.
  */
 
-import type { Browser } from 'puppeteer-core';
+import type { Browser, BrowserContext } from 'puppeteer-core';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -6994,5 +6994,267 @@ export const SPECS: Spec[] = [
 				);
 				assertClean(table, 'with a loose placement on the table');
 			})
+	},
+	{
+		/**
+		 * tableplace-262: a table built from an Unbrewed deck drew the opponent
+		 * seat's cards as blanks. A TTS `UniqueBack: false` deck's back is one
+		 * whole image, so it travels as a plain `https:` URL, and the host it
+		 * lives on (the-unmatched.club's R2) sends no CORS headers — fine in an
+		 * `<img>`, unreadable to WebGL. Sheet refs always went through the CORS
+		 * proxy; a plain URL went to the texture loader as it was. The opponent's
+		 * cards are the face-down ones, so theirs is the art that went missing.
+		 *
+		 * So: art on an origin that sends NO `access-control-allow-origin`, a
+		 * local stand-in for the proxy that adds it (`localStorage.corsproxy`),
+		 * a host that lays out seat 1's decks the way an applied scenario does,
+		 * and a guest in a fresh browser context — nothing cached — joining on
+		 * the `?seat=1` invite. Only the drawn pixel says the art landed.
+		 *
+		 * The third deck is the other half of the ticket: its one proxy request
+		 * fails for the guest, and the art has to arrive anyway, on the retry.
+		 */
+		name: 'opponent art: a guest on ?seat=1 draws plain-URL card art from a host without CORS',
+		run: async (context) => {
+			const lobby = nextLobby('opponent-art');
+			const hits = { art: [] as string[], proxy: [] as string[] };
+			/** how many more proxy requests for the flaky sheet to refuse */
+			let refuseFlaky = 0;
+			let art: Record<string, string> = {};
+
+			// no CORS headers at all: what the-unmatched.club's R2 answers
+			const artHost = createServer((request, response) => {
+				const name = (request.url ?? '').replace(/^\/|\.png$/g, '');
+				hits.art.push(name);
+				const body = art[name];
+				response.writeHead(body ? 200 : 404, { 'content-type': 'image/png' });
+				response.end(body ? Buffer.from(body, 'base64') : undefined);
+			});
+			// the pass-through proxy: the same bytes, with the header WebGL needs
+			const proxyHost = createServer((request, response) => {
+				const target = new URL(request.url ?? '/', 'http://proxy').searchParams.get('url') ?? '';
+				const name = target.replace(/^.*\/|\.png$/g, '');
+				hits.proxy.push(name);
+				if (name === 'flaky' && refuseFlaky > 0) {
+					refuseFlaky--;
+					response.writeHead(503, { 'access-control-allow-origin': '*' });
+					return void response.end();
+				}
+				const body = art[name];
+				response.writeHead(body ? 200 : 404, {
+					'access-control-allow-origin': '*',
+					'content-type': 'image/png'
+				});
+				response.end(body ? Buffer.from(body, 'base64') : undefined);
+			});
+			await Promise.all(
+				[artHost, proxyHost].map(
+					(server) => new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+				)
+			);
+			const ART = `http://127.0.0.1:${(artHost.address() as AddressInfo).port}/`;
+			const PROXY = `http://127.0.0.1:${(proxyHost.address() as AddressInfo).port}/?url=`;
+			const storage = { corsproxy: PROXY };
+			const proxied = (url: string) => PROXY + encodeURIComponent(url);
+
+			/**
+			 * A blocked cross-origin image is loud in the console, and here it is
+			 * the premise rather than a fault: the direct attempt at the art host,
+			 * and the one proxy request this spec refuses. Nothing else is excused.
+			 */
+			const expected = (text: string) =>
+				text.includes(ART) ||
+				text.includes(PROXY) ||
+				/^Failed to load resource: (net::ERR_FAILED|the server responded with a status of 503)/.test(
+					text
+				);
+			const assertOnlyExpected = (table: Table, when: string) => {
+				const problems = table.appProblems().filter((problem) => !expected(problem.text));
+				ok(
+					problems.length === 0,
+					`console was not clean ${when}:\n${problems.map((p) => `  [${p.kind}] ${p.text}`).join('\n')}`
+				);
+			};
+
+			const isRed = ([r, g, b]: number[]) => r! > g! + 60 && r! > b! + 60;
+			const isGreen = ([r, g, b]: number[]) => g! > r! + 60 && g! > b! + 60;
+			const isMagenta = ([r, g, b]: number[]) => r! > g! + 60 && b! > g! + 60;
+			const DECKS = {
+				back: { at: [-3, 0.4, 0], colour: 'red', matches: isRed },
+				face: { at: [0, 0.4, 0], colour: 'green', matches: isGreen },
+				flaky: { at: [3, 0.4, 0], colour: 'magenta', matches: isMagenta }
+			} as const;
+			/** a grid over the pile's top card, inside its edges whichever seat looks at it */
+			const TOP_POINTS = [-0.4, 0, 0.4].flatMap((dx) => [-0.55, 0, 0.55].map((dz) => [dx, dz]));
+			const assertDrawn = async (table: Table, who: string, deck: keyof typeof DECKS) => {
+				const { at, colour, matches } = DECKS[deck];
+				const drawn = await eventually(
+					async () => {
+						const points = await table.page.evaluate(
+							(x, y, z, offsets) =>
+								offsets.map(([dx, dz]) =>
+									window.__tableplace!.project([x + dx!, y + 0.1, z + dz!])
+								),
+							at[0],
+							at[1],
+							at[2],
+							TOP_POINTS
+						);
+						ok(points.every(Boolean), `the ${deck} deck projects off ${who}'s screen`);
+						const samples = await table.pixels(points as { x: number; y: number }[]);
+						return samples.filter((sample) => sample.onCanvas);
+					},
+					(samples) => samples.filter((sample) => matches(sample.rgb)).length >= 6,
+					// the flaky sheet only lands after the resolver's first retry delay
+					15_000
+				);
+				ok(
+					drawn.length >= 6,
+					`${who}'s view of the ${deck} deck is covered by a HUD pane — only ${drawn.length} of 9 samples reach the canvas`
+				);
+				ok(
+					drawn.filter((sample) => matches(sample.rgb)).length >= 6,
+					`${who} does not see the ${deck} deck's ${colour} art — its top draws ` +
+						`${JSON.stringify(drawn.map((sample) => sample.rgb))} (a placeholder, or nothing at all: the bug)`
+				);
+			};
+			const textureSources = (table: Table) =>
+				table.page.evaluate(() => window.__tableplace!.textures().maps.map((map) => map.src));
+
+			let table: Table | undefined;
+			let elsewhere: BrowserContext | undefined;
+			let guest: Table | undefined;
+			try {
+				table = await openTable(context.browser, context.servers, lobby, '', storage);
+				art = await table.page.evaluate(() => {
+					const draw = (fill: string) => {
+						const canvas = document.createElement('canvas');
+						canvas.width = 420;
+						canvas.height = 600;
+						const context = canvas.getContext('2d')!;
+						context.fillStyle = fill;
+						context.fillRect(0, 0, 420, 600);
+						return canvas.toDataURL('image/png').split(',')[1]!;
+					};
+					return {
+						cover: draw('rgb(225, 35, 35)'),
+						face: draw('rgb(30, 205, 60)'),
+						flaky: draw('rgb(225, 35, 225)')
+					};
+				});
+				const cover = `${ART}cover.png`;
+				const face = `${ART}face.png`;
+				const flaky = `sheet:${JSON.stringify({ url: `${ART}flaky.png`, cols: 1, rows: 1, index: 0, back: true })}`;
+
+				// ── the host lays out seat 1's side, as applying a scenario does ──
+				await table.page.evaluate(
+					(decks, cover, face, flaky) => {
+						const bridge = window.__tableplace!;
+						bridge.seedSeat(1);
+						const cards = (slot: string, faceRef: string) =>
+							[0, 1, 2].map((i) => ({
+								id: `card:seat1:${slot}-${i}`,
+								name: `${slot} ${i}`,
+								faceImageUrl: faceRef,
+								backImageUrl: cover
+							}));
+						// face-down, under a plain-URL back: exactly the Unbrewed deck
+						bridge.actions.addDeck({
+							deckId: 'deck:seat1:back',
+							cards: cards('back', face),
+							deckBackImageUrl: cover,
+							position: decks.back.at
+						} as never);
+						// face-up: a plain-URL FACE is on show
+						bridge.actions.addDeck({
+							deckId: 'deck:seat1:face',
+							cards: cards('face', face),
+							deckBackImageUrl: cover,
+							isFaceUp: true,
+							position: decks.face.at
+						} as never);
+						bridge.actions.addDeck({
+							deckId: 'deck:seat1:flaky',
+							cards: cards('flaky', 'gen:std52/AS'),
+							deckBackImageUrl: flaky,
+							position: decks.flaky.at
+						} as never);
+					},
+					DECKS,
+					cover,
+					face,
+					flaky
+				);
+				await table.settle(1500);
+				await assertDrawn(table, 'the host', 'back');
+				await assertDrawn(table, 'the host', 'face');
+				await assertDrawn(table, 'the host', 'flaky');
+				ok(
+					hits.art.includes('cover') && hits.proxy.includes('cover'),
+					`the cover was never asked of the art host and then of the proxy — art: ${hits.art}, proxy: ${hits.proxy}`
+				);
+
+				// ── the guest: a fresh profile, on the seat-1 invite ─────────────
+				hits.art.length = 0;
+				hits.proxy.length = 0;
+				refuseFlaky = 1;
+				elsewhere = await context.browser.createBrowserContext();
+				guest = await openTable(elsewhere, context.servers, lobby, '&seat=1', storage);
+				const claimed = await eventually(
+					() =>
+						guest!.page.evaluate(() => {
+							const bridge = window.__tableplace!;
+							const me = bridge.actions.getMyId() ?? '';
+							const state = bridge.state();
+							return {
+								seat: state?.players?.[me]?.seat,
+								mine: Object.keys(state?.decks ?? {}).filter((id) => id.startsWith(`deck:${me}:`))
+									.length
+							};
+						}),
+					(seen) => seen.seat === 1 && seen.mine === 3,
+					25_000
+				);
+				ok(
+					claimed.seat === 1 && claimed.mine === 3,
+					`the guest never claimed seat 1 and its three decks: ${JSON.stringify(claimed)}`
+				);
+
+				await assertDrawn(guest, 'the guest', 'back');
+				await assertDrawn(guest, 'the guest', 'face');
+				const sources = await textureSources(guest);
+				for (const url of [cover, face]) {
+					ok(
+						sources.includes(proxied(url)),
+						`the guest's ${url} texture did not come through the proxy — it draws ${JSON.stringify(sources.map((src) => src.slice(0, 80)))}`
+					);
+				}
+
+				// a failed slice is not final: refused once, drawn on the retry
+				await assertDrawn(guest, 'the guest', 'flaky');
+				ok(
+					refuseFlaky === 0 && hits.proxy.filter((name) => name === 'flaky').length >= 2,
+					`the flaky sheet was not refused once and then fetched again — proxy saw ${JSON.stringify(hits.proxy)}`
+				);
+
+				// and the claimed decks are still the guest's to move
+				const mine = await guest.page.evaluate(() => {
+					const bridge = window.__tableplace!;
+					return `deck:${bridge.actions.getMyId()}:face`;
+				});
+				await assertDraggable(guest, mine, "the guest's face-up deck", { dx: 0, dy: -120 });
+				assertOnlyExpected(guest, 'on the guest, drawing art from a host without CORS');
+				await guest.snap('opponent-art-guest');
+
+				await table.page.bringToFront();
+				assertOnlyExpected(table, 'on the host, drawing art from a host without CORS');
+			} finally {
+				await guest?.close();
+				await elsewhere?.close();
+				await table?.close();
+				artHost.close();
+				proxyHost.close();
+			}
+		}
 	}
 ];

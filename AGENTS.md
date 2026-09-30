@@ -153,15 +153,22 @@ must, in the same change, also update:
   root — moving them breaks the suite.
 - Runtime configuration is localStorage, not env vars: `serverurl` (host without
   scheme; `ws://` vs `wss://` is chosen automatically, path `/ws`), `myPlayerId`,
-  `scenarios:v1`. `/play` also accepts `?lobby=`, `?server=`, `?seat=` query
+  `scenarios:v1`, `corsproxy` (prefix the image URL is appended to,
+  URL-encoded; overrides the default CORS proxy below). `/play` also accepts `?lobby=`, `?server=`, `?seat=` query
   params. An empty/absent `serverurl` falls back to the public lobby relay
   `lobby.table.place` (`connection.ts`) — *not* `api.table.place`, which is
   reserved for the HTTP lobby-provisioning API. Precedence, widest to narrowest:
   `?server=` → `localStorage.serverurl` → that default.
 - Sprite-sheet slicing needs canvas pixel access, so it retries through a
-  hardcoded third-party CORS proxy (`https://corsproxy.innkeeper1.workers.dev/?url=`)
-  when a host sends no CORS headers, and caches sliced cells in IndexedDB — a
-  stale cache can mask importer changes.
+  third-party CORS proxy (`https://corsproxy.innkeeper1.workers.dev/?url=`,
+  `corsProxied` in `utils/image-cors.ts`) when a host sends no CORS headers, and
+  caches sliced cells in IndexedDB — a stale cache can mask importer changes.
+- Anything that becomes a WebGL texture must resolve its ref with
+  `resolveTextureImage`, not `resolveCardImage`: a plain `https:` URL on a host
+  without CORS headers (every TTS `UniqueBack: false` deck back) loads in an
+  `<img>` but not in WebGL, and only the texture resolver probes it and falls
+  back to the proxy (tableplace-262). Art that fails to load shows its
+  placeholder and is retried on a backoff, then again on the next sync.
 - Server env vars: `PORT` overrides `-addr` (Railway); `ADMIN_TOKEN` gates
   `/view` and `/{lobby}/debug` — unset means those routes 404.
 - Game state is in-memory only on the server; restarting it drops every lobby.

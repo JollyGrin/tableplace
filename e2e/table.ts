@@ -246,7 +246,9 @@ export async function openTable(
 	servers: Servers,
 	lobby: string,
 	/** extra query string appended to the deeplink, e.g. `&debug` */
-	extraQuery = ''
+	extraQuery = '',
+	/** localStorage entries set before any script runs — the app's runtime configuration */
+	storage: Record<string, string> = {}
 ): Promise<Table> {
 	const page = await browser.newPage();
 	const problems: Problem[] = [];
@@ -283,14 +285,27 @@ export async function openTable(
 
 	// before ANY script runs: the module-level fallback in connection.ts reads
 	// localStorage at import time, and it defaults to the PUBLIC relay
-	await page.evaluateOnNewDocument((relay: string) => {
-		localStorage.setItem('serverurl', relay);
-	}, servers.relay);
+	await page.evaluateOnNewDocument(
+		(relay: string, entries: [string, string][]) => {
+			localStorage.setItem('serverurl', relay);
+			for (const [key, value] of entries) localStorage.setItem(key, value);
+		},
+		servers.relay,
+		Object.entries(storage)
+	);
 
 	const url =
 		`${servers.web}/play?lobby=${encodeURIComponent(lobby)}` +
 		`&server=${encodeURIComponent(servers.relay)}${extraQuery}`;
-	await load(page, url);
+	await load(page, url).catch((error: Error) => {
+		// a table that never came up usually said why: a stall with a console
+		// error behind it is not a slow host
+		const said = problems.filter((problem) => !ignorable(problem.text));
+		if (said.length) {
+			error.message += `\nthe page reported:\n${said.map((p) => `  [${p.kind}] ${p.text}`).join('\n')}`;
+		}
+		throw error;
+	});
 
 	const settle = (ms = 700) => sleep(ms);
 	await settle(600);

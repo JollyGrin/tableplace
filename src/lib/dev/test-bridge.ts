@@ -29,12 +29,13 @@ import { gameActions } from '$lib/store/game/actions';
 import { isWebSocketConnected } from '$lib/websocket/connection';
 import { snapGuideDimMaterial } from '$lib/drop/snap-guide-dim';
 import type { GameDTO, OverlayDTO } from '$lib/store/game/types';
-import { resolveCardImage, sheetRefCache } from '$lib/packs';
+import { resolveTextureImage, sheetRefCache } from '$lib/packs';
 import { preview as previewStore } from '$lib/HUDPreview/previewStore';
 import { huds } from './hud-registry';
 import { activePings, pingArrows, ping as sendPing } from '$lib/ping';
 import { remotePointersEnabled } from '$lib/pointers/settings';
 import { remoteCameraStore } from '$lib/store/remoteCameraStore.svelte';
+import { ensureSeatPlaceholder, type SeatIndex } from '$lib/scenario/scenario';
 
 export type ScreenPoint = { x: number; y: number };
 
@@ -208,6 +209,12 @@ export type TestBridge = {
 	 * a spec should not need a pack to test how a board draws.
 	 */
 	addOverlay: (overlay: OverlayDTO) => string;
+	/**
+	 * Put a seat's placeholder player on the table, as applying a scenario
+	 * does (tableplace-262) — what an invite's `?seat=` claims, along with
+	 * every `…:seat<n>:…` entity.
+	 */
+	seedSeat: (seat: SeatIndex) => void;
 	/**
 	 * Every ping this page has drawn since the bridge went up (tableplace-198),
 	 * oldest first — kept after the ripple fades, since a spec polls slower
@@ -513,7 +520,7 @@ export function installTestBridge(handles: SceneHandles): void {
 			return {
 				id: target.id,
 				face: target.face,
-				url: resolveCardImage(target.face, get(sheetRefCache)),
+				url: resolveTextureImage(target.face, get(sheetRefCache)),
 				caption: target.caption,
 				shown,
 				at: centre && camera ? project([centre.x, centre.y, centre.z], camera) : null,
@@ -691,6 +698,7 @@ export function installTestBridge(handles: SceneHandles): void {
 			gameStore.updateState({ overlays: { [overlay.id]: overlay } });
 			return overlay.id;
 		},
+		seedSeat: (seat) => ensureSeatPlaceholder(seat),
 		pings: () => {
 			// sample what is drawn right now before answering
 			samplePings(handles.scene());

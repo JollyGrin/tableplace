@@ -5,7 +5,7 @@
 	import { ImageMaterial } from '@threlte/extras';
 	import { Spring, Tween } from 'svelte/motion';
 	import { cubicOut } from 'svelte/easing';
-	import { resolveCardImage, sheetRefCache } from '$lib/packs';
+	import { resolveTextureImage, sheetRefCache } from '$lib/packs';
 	import { gameStore } from '$lib/store/game/gameStore.svelte';
 	import { gameActions } from '$lib/store/game/actions';
 	import { HAND_CARD_H, HAND_CARD_W, type FanSlot } from '$lib/utils/hand';
@@ -34,7 +34,9 @@
 
 	const myPlayerId = $derived(gameActions?.getMe()?.id ?? '');
 	const card = $derived($gameStore?.players?.[myPlayerId]?.tray?.[id] ?? {});
-	const trayUrl = $derived(resolveCardImage(card.faceImageUrl, $sheetRefCache));
+	const trayUrl = $derived(
+		resolveTextureImage(card.faceImageUrl, $sheetRefCache, { name: card.name })
+	);
 
 	const SPRING = { stiffness: 0.15, damping: 0.7, precision: 0.0001 };
 	// the first pose is where the card starts: no swoop in from the origin

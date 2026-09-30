@@ -7,7 +7,7 @@
 	import { tableFeatures } from '$lib/store/tableFeatures';
 	import { previewDrop } from './preview';
 	import { SNAP_DROP_COLOR } from '$lib/utils/constants-snap';
-	import { resolveCardImage, sheetRefCache } from '$lib/packs';
+	import { resolveCardImage, resolveTextureImage, sheetRefCache } from '$lib/packs';
 	import { currentPieceState } from '$lib/compose/piece';
 	import { tokenShape } from '$lib/primitives/token-shape';
 	import { imageAspect, imageAspects } from '$lib/utils/image-aspect';
@@ -86,7 +86,7 @@
 	// has to swap which image it draws.
 	const isFacedown = $derived((card?.rotation?.[0] ?? 0) === 180);
 	const ghostImage = $derived(
-		resolveCardImage(
+		resolveTextureImage(
 			(isFacedown ? (card?.backImageUrl ?? card?.faceImageUrl) : card?.faceImageUrl) ?? '',
 			$sheetRefCache
 		)

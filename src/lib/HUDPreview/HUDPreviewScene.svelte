@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { T, useThrelte } from '@threlte/core';
 	import { useViewport } from '@threlte/extras';
-	import { resolveCardImage, sheetRefCache } from '$lib/packs';
+	import { resolveTextureImage, sheetRefCache } from '$lib/packs';
 	import { cameraTransforms } from '$lib/utils/transforms/camera';
 	import LabelBadge from '$lib/LabelBadge.svelte';
 	import PieceFace from '$lib/PieceFace.svelte';
@@ -31,7 +31,7 @@
 	const CARD_W = 1.4 * 1.4;
 	const CARD_H = 2 * 1.4;
 
-	const url = $derived($preview ? resolveCardImage($preview.face, $sheetRefCache) : '');
+	const url = $derived($preview ? resolveTextureImage($preview.face, $sheetRefCache) : '');
 
 	// unscaled on-screen footprint of the art
 	const box = $derived.by((): [number, number] => {
