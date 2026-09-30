@@ -153,11 +153,12 @@ function toPlacement(
  * export is deterministic, and dropped from `state` — the top-level
  * `snapPoints` field is their only home in the file.
  *
- * The one thing that references a point is another point's `links`, and a
- * file names a point by its index (`snap:<n>`, what `composeSnapPoints` gives
- * it back on load). So links are renumbered to the exported order, and a link
- * whose target isn't exported is dropped — left as it was, a deleted point's
- * old id could alias whichever point takes its index.
+ * The one thing that references a point is another point's `links` (and its
+ * one-way `outLinks`), and a file names a point by its index (`snap:<n>`,
+ * what `composeSnapPoints` gives it back on load). So both lists are
+ * renumbered to the exported order, and a link whose target isn't exported is
+ * dropped — left as it was, a deleted point's old id could alias whichever
+ * point takes its index.
  */
 function collectSnapPoints(s: Partial<GameDTO> | undefined | null): SnapPoint[] {
 	const kept = snapPointIds(s ?? undefined).filter((id) => s?.snapPoints?.[id]?.position);
@@ -176,11 +177,13 @@ function collectSnapPoints(s: Partial<GameDTO> | undefined | null): SnapPoint[] 
 			if (point.rows !== undefined) snap.rows = point.rows;
 			if (point.yawStep !== undefined) snap.yawStep = point.yawStep;
 		}
-		const links = (point.links ?? []).flatMap((link) => {
-			const target = renumbered.get(link);
-			return target && target !== renumbered.get(id) ? [target] : [];
-		});
-		if (links.length) snap.links = [...new Set(links)];
+		for (const field of ['links', 'outLinks'] as const) {
+			const links = (point[field] ?? []).flatMap((link) => {
+				const target = renumbered.get(link);
+				return target && target !== renumbered.get(id) ? [target] : [];
+			});
+			if (links.length) snap[field] = [...new Set(links)];
+		}
 		if (point.tags?.length) snap.tags = [...point.tags];
 		return snap;
 	});

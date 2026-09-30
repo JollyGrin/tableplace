@@ -44,6 +44,7 @@
 		snapEditor,
 		setSnapDefaults,
 		setSnapLinking,
+		setSnapLinkOneWay,
 		setSnapPlacing
 	} from '$lib/store/snapEditor';
 	import {
@@ -642,6 +643,13 @@
 			value={!!$snapEditor.linking}
 			on:change={(e) => setSnapLinking(!!e.detail.value)}
 		/>
+		<!-- with draw links armed: the link runs one way, from the marker picked
+		     first to the one clicked next (drawn with an arrowhead) -->
+		<Checkbox
+			label="one-way"
+			value={!!$snapEditor.oneWay}
+			on:change={(e) => setSnapLinkOneWay(!!e.detail.value)}
+		/>
 		<Button title="Clear all links" on:click={() => gameActions.clearSnapLinks()} />
 		{#if snapIds.length > 0}
 			<TabGroup>
@@ -753,6 +761,13 @@
 							value={(point?.links ?? []).map(snapLabel).join(', ') || 'none'}
 							disabled
 						/>
+						{#if point?.outLinks?.length}
+							<Text
+								label="one-way to"
+								value={point.outLinks.map(snapLabel).join(', ')}
+								disabled
+							/>
+						{/if}
 						<Text
 							label="tags"
 							value={(point?.tags ?? []).join(', ')}

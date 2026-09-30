@@ -12,7 +12,9 @@
 	import {
 		SNAP_MARKER_COLOR,
 		SNAP_MARKER_COLOR_ACTIVE,
-		SNAP_MARKER_Y
+		SNAP_MARKER_Y,
+		SNAP_LINK_ARROW_AT,
+		SNAP_LINK_ARROW_SIZE
 	} from '$lib/utils/constants-snap';
 	import DropFootprint from './drop/DropFootprint.svelte';
 
@@ -26,9 +28,12 @@
 	 * delete; the pane has the same operations with exact numbers.
 	 *
 	 * Links (tableplace-190) draw as a line from each point to the points it
-	 * links to — once per pair. With "draw links" armed a click picks this
-	 * point instead of moving it; clicking a second point toggles the link
-	 * between them and carries the pick on, so a path is drawn click by click.
+	 * links to — once per pair. A one-way link (`outLinks`, tableplace-255)
+	 * draws the same line with an arrowhead pointing the way it runs. With
+	 * "draw links" armed a click picks this point instead of moving it;
+	 * clicking a second point toggles the link between them (one-way, picked →
+	 * clicked, with "one-way" on) and carries the pick on, so a path is drawn
+	 * click by click.
 	 *
 	 * The drag is deliberately local rather than routed through `dragStore`:
 	 * that store is the card/piece pipeline, whose every consumer assumes the
@@ -53,24 +58,33 @@
 		isMoving || isHovered || picked ? SNAP_MARKER_COLOR_ACTIVE : SNAP_MARKER_COLOR
 	);
 
-	/**
-	 * One line per linked pair: this end draws it unless the other end links
-	 * back and sorts first. `[dx, dz]` is the offset to the other point.
-	 */
 	// a link line is a picture, not a handle: clicks go through it to the felt
 	const noRaycast = () => {};
 
+	/**
+	 * One line per linked pair: this end draws it unless the other end links
+	 * back and sorts first. `[dx, dz]` is the offset to the other point. A
+	 * one-way link is drawn by the end it leaves, with an arrowhead — unless
+	 * the pair is also linked two-way, which is all there is to show.
+	 */
 	const linkLines = $derived.by(() => {
 		const points = $gameStore?.snapPoints;
-		return (point?.links ?? []).flatMap((target) => {
+		const twoWay = new Set(point?.links ?? []);
+		const line = (target: string, oneWay: boolean) => {
 			const other = points?.[target];
 			const p = other?.position;
 			if (!p || target === id) return [];
-			if (other?.links?.includes(id) && compareSnapIds(target, id) < 0) return [];
+			if (oneWay) {
+				if (twoWay.has(target) || other?.links?.includes(id)) return [];
+			} else if (other?.links?.includes(id) && compareSnapIds(target, id) < 0) return [];
 			const dx = p[0] - x;
 			const dz = p[1] - z;
-			return [{ target, dx, dz, length: Math.hypot(dx, dz) }];
-		});
+			return [{ target, oneWay, dx, dz, length: Math.hypot(dx, dz) }];
+		};
+		return [
+			...[...twoWay].flatMap((target) => line(target, false)),
+			...[...new Set(point?.outLinks ?? [])].flatMap((target) => line(target, true))
+		];
 	});
 
 	function onMove() {
@@ -99,7 +113,7 @@
 		const editor = get(snapEditor);
 		if (editor.linking) {
 			const from = editor.linkFrom;
-			if (from && from !== id) gameActions.toggleSnapLink(from, id);
+			if (from && from !== id) gameActions.toggleSnapLink(from, id, !!editor.oneWay);
 			// picking the picked point again lets go; otherwise carry the pick on
 			setSnapLinkFrom(from === id ? null : id);
 			return;
@@ -142,6 +156,24 @@
 						side={2}
 					/>
 				</T.Mesh>
+				{#if line.oneWay}
+					<!-- arrowhead, past the midpoint so a pair of opposite one-way
+					     links shows two heads rather than one diamond -->
+					<T.Mesh
+						position={[line.dx * SNAP_LINK_ARROW_AT, -line.dz * SNAP_LINK_ARROW_AT, 0.002]}
+						rotation.z={Math.atan2(-line.dz, line.dx)}
+						raycast={noRaycast}
+					>
+						<T.CircleGeometry args={[SNAP_LINK_ARROW_SIZE, 3]} />
+						<T.MeshBasicMaterial
+							color={SNAP_MARKER_COLOR}
+							transparent
+							opacity={0.8}
+							depthWrite={false}
+							side={2}
+						/>
+					</T.Mesh>
+				{/if}
 			{/each}
 			<DropFootprint shape="circle" r={radius} {color} fill={0.14} border={0.045} />
 			<!-- the point itself: the ring shows the catch radius, this shows where
