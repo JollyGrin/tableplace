@@ -4211,7 +4211,12 @@ export const SPECS: Spec[] = [
 					(text) => text.length > 0,
 					3000
 				);
-				for (const row of ['Shuffle hovered deck', 'Flip card', 'Reset camera', 'Cancel drag']) {
+				for (const row of [
+					'Shuffle hovered deck',
+					'Flip card',
+					'Seat view (reset camera)',
+					'Cancel drag'
+				]) {
 					ok(reference.includes(row), `the ? reference does not list "${row}"`);
 				}
 				await page.keyboard.press('Escape');
