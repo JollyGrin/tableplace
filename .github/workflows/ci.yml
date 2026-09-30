@@ -77,7 +77,7 @@ jobs:
           # measured 33–57 s on a 16 GB VPS, and the cold first one was the
           # slowest. The 60 s default leaves no headroom for a shared runner.
           # Second-seat loads never hit this ceiling since #243, because
-          # openTable freezes the other pages while it loads.
+          # openTable holds the other pages' frames while it loads.
           E2E_READY_MS: '120000'
 
       # One PNG per spec (e2e/table.ts `snap`): the visual-polish train's

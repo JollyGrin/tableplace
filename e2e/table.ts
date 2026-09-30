@@ -8,14 +8,7 @@
  * build.
  */
 
-import type {
-	Browser,
-	BrowserContext,
-	CDPSession,
-	ConsoleMessage,
-	HTTPRequest,
-	Page
-} from 'puppeteer-core';
+import type { Browser, BrowserContext, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core';
 import { mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -127,9 +120,9 @@ const SUITS = ['S', 'H', 'D', 'C'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
 /**
- * Freeze every other open page until the returned thaw runs. A frozen page runs
- * no tasks and no rAF. Its socket stays open, and relay messages wait in a queue
- * that the thaw delivers.
+ * Hold every other open page's `requestAnimationFrame` until the returned
+ * release runs. The page's JS, timers and sockets keep running. Only drawing
+ * stops, and the release hands every held callback to the real rAF.
  *
  * Why (#243): every page shares one GPU process, and under SwiftShader that
  * process is a CPU rasteriser. A table that is already open draws a frame on
@@ -137,32 +130,60 @@ const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
  * seat in a fresh `BrowserContext` starts with a cold shader-program cache, and
  * its synchronous compiles queue behind those frames. On a 16 GB VPS the
  * seat-1 load in that state never reached networkidle2, even with 180 s. With
- * seat 0 frozen it loaded in 34 s, and a lone fresh context took 48 s. The
- * load was blocked by the other page, so a longer timeout would not fix it.
+ * seat 0 not drawing, it loaded in 34 s, and a lone fresh context took 48 s.
+ * The load was blocked by the other page, so a longer timeout would not fix it.
+ *
+ * Not CDP's `Page.setWebLifecycleState: frozen`. Chrome treats a frozen page as
+ * one entering the Back-Forward Cache: it closes the page's sockets (the relay
+ * and vite's HMR) and logs that as a console error.
  */
-async function freezeOthers(page: Page): Promise<() => Promise<void>> {
+async function holdOthers(page: Page): Promise<() => Promise<void>> {
 	const others = (await page.browser().pages()).filter((other) => other !== page);
-	const frozen: CDPSession[] = [];
+	const held: Page[] = [];
 	for (const other of others) {
-		try {
-			const cdp = await other.createCDPSession();
-			await cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
-			frozen.push(cdp);
-		} catch {
-			// a page closing underneath us has nothing left to render
-		}
+		const holding = await other
+			.evaluate(() => {
+				const w = window as unknown as { __e2eReleaseFrames?: () => void };
+				if (w.__e2eReleaseFrames) return false;
+				const raf = window.requestAnimationFrame;
+				const caf = window.cancelAnimationFrame;
+				const queued = new Map<number, FrameRequestCallback>();
+				// negative ids never collide with the real rAF's positive ones
+				let next = 0;
+				window.requestAnimationFrame = (callback) => {
+					queued.set(--next, callback);
+					return next;
+				};
+				window.cancelAnimationFrame = (id) => {
+					if (!queued.delete(id)) caf.call(window, id);
+				};
+				w.__e2eReleaseFrames = () => {
+					window.requestAnimationFrame = raf;
+					window.cancelAnimationFrame = caf;
+					delete w.__e2eReleaseFrames;
+					for (const callback of queued.values()) raf.call(window, callback);
+					queued.clear();
+				};
+				return true;
+			})
+			// a page closing underneath us has nothing left to draw
+			.catch(() => false);
+		if (holding) held.push(other);
 	}
 	return async () => {
-		for (const cdp of frozen) {
-			await cdp.send('Page.setWebLifecycleState', { state: 'active' }).catch(() => {});
-			await cdp.detach().catch(() => {});
+		for (const other of held) {
+			await other
+				.evaluate(() =>
+					(window as unknown as { __e2eReleaseFrames?: () => void }).__e2eReleaseFrames?.()
+				)
+				.catch(() => {});
 		}
 	};
 }
 
 /**
- * Navigate to the table and wait for the bridge. Other pages stay frozen for the
- * whole load (see `freezeOthers`). If the load fails, close the page before
+ * Navigate to the table and wait for the bridge. Other pages draw nothing for the
+ * whole load (see `holdOthers`). If the load fails, close the page before
  * throwing.
  *
  * The close matters. A `goto` that times out does not stop the page: it keeps
@@ -185,7 +206,7 @@ async function load(page: Page, url: string): Promise<void> {
 	page.on('requestfinished', settle);
 	page.on('requestfailed', settle);
 
-	const thaw = await freezeOthers(page);
+	const release = await holdOthers(page);
 	const started = Date.now();
 	let phase = 'goto (networkidle2)';
 	try {
@@ -208,7 +229,7 @@ async function load(page: Page, url: string): Promise<void> {
 			{ cause: error }
 		);
 	} finally {
-		await thaw();
+		await release();
 		page.off('request', track);
 		page.off('requestfinished', settle);
 		page.off('requestfailed', settle);
