@@ -21,7 +21,13 @@ const state: Partial<GameDTO> = {
 			tray: { 'card:them:secret-ace': card, 'card:them:secret-king': card },
 			metadata: {}
 		},
-		seat2: { id: 'seat2', seat: 2, joinTimestamp: 0, tray: {}, metadata: {} }
+		seat2: {
+			id: 'seat2',
+			seat: 2,
+			joinTimestamp: 0,
+			tray: { 'card:seat2:dealt-1': card, 'card:seat2:dealt-2': card, 'card:seat2:dealt-3': card },
+			metadata: {}
+		}
 	},
 	decks: {
 		'deck:them:main': {
@@ -46,6 +52,13 @@ describe('PlayerHud', () => {
 		expect(screen.getByText('them')).toBeTruthy();
 		expect(screen.getByText('you')).toBeTruthy();
 		expect(screen.getByText('Seat 2 — open')).toBeTruthy();
+	});
+
+	it('shows a hand count on open-seat rows too', () => {
+		const { container } = render(PlayerHud);
+		const openRow = container.querySelector('[data-open-seat="true"]');
+		expect(openRow?.textContent).toContain('hand 3');
+		expect(openRow?.textContent).toContain('click to sit here');
 	});
 
 	it('shows counts only — never another player’s card ids', () => {
