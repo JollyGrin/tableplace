@@ -15,7 +15,14 @@
  */
 
 import { BUILTIN_PACKS, PACK_SOURCE_BUILTIN } from '../packs/builtin';
-import { composePackDeck, composePackOverlay, composePackPiece, type ShuffleFn } from './pack';
+import {
+	composePackDeck,
+	composePackDeckLoose,
+	composePackOverlay,
+	composePackPiece,
+	type ComposeDeckOptions,
+	type ShuffleFn
+} from './pack';
 import type { GamePackDef } from '../packs/types';
 import type { GameDTO } from '../store/game/types';
 import { validRotationStep } from '../utils/yaw';
@@ -135,7 +142,7 @@ function place(
 			console.error(`[scenario] pack '${pack.id}' has no deck '${placement.content}'`);
 			return;
 		}
-		const composed = composePackDeck(pack, deck, {
+		const options: ComposeDeckOptions = {
 			ownerId,
 			source,
 			position: placement.position,
@@ -147,7 +154,14 @@ function place(
 			shuffleOnLoad: placement.shuffleOnLoad,
 			shuffleWith,
 			locked: placement.locked
-		});
+		};
+		if (placement.loose) {
+			// the pile's cards, already ungrouped — no deck entry is ever written
+			const cards = composePackDeckLoose(pack, deck, options);
+			if (cards) Object.assign((state.cards ??= {}), cards);
+			return;
+		}
+		const composed = composePackDeck(pack, deck, options);
 		(state.decks ??= {})[composed.id] = composed.deck;
 		return;
 	}

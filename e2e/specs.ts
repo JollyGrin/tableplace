@@ -21,6 +21,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { ok, planarDistance } from './assert';
 import type { Servers } from './servers';
 import { PIECE_REST_Y, PIECE_THICKNESS } from '../src/lib/utils/constants-pieces';
+import { CARD_REST_Y } from '../src/lib/utils/constants-card-rest';
 import {
 	TABLE_HALF_X,
 	TABLE_HALF_Z,
@@ -6852,5 +6853,146 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * tableplace-263: a scenario deck placement that says `loose: true`
+		 * arrives as cards, not as a pile. The unit tests prove what the composer
+		 * writes; this proves the table a player gets from a real `.tbps.json`
+		 * dropped on /play: the rules card is drawn face up where the file put
+		 * it, the pointer hovers a card (not a deck), it drags on its own, and
+		 * `Shift+G` over it finds no pile to spread. The plain placement beside
+		 * it in the same file still arrives as a pile.
+		 */
+		name: 'scenario: a deck placed loose arrives as a card, not a one-card pile',
+		run: (context) =>
+			withTable(context, 'loose', async (table) => {
+				const page = table.page;
+				const RULES = 'card:seat0:main-AS';
+				const PILE = 'deck:seat1:main';
+				const at = LANE(0);
+				const scenario = {
+					tbps: 2,
+					name: 'loose-rules-card',
+					packs: [{ id: 'standard-52', source: 'builtin' }],
+					placements: [
+						{
+							kind: 'deck',
+							pack: 'standard-52',
+							content: 'main',
+							seat: 0,
+							order: ['AS'],
+							position: [at[0], 0.4, at[2]],
+							isFaceUp: true,
+							loose: true
+						},
+						{
+							kind: 'deck',
+							pack: 'standard-52',
+							content: 'main',
+							seat: 1,
+							order: ['KH', 'QD', 'JC'],
+							position: [LANE(2)[0], 0.4, LANE(2)[2]],
+							rotation: [0, 0, 0]
+						}
+					]
+				};
+
+				// the way a player loads one: the file, dropped on the page
+				await page.evaluate((text) => {
+					const transfer = new DataTransfer();
+					transfer.items.add(new File([text], 'loose.tbps.json', { type: 'application/json' }));
+					window.dispatchEvent(
+						new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true })
+					);
+				}, JSON.stringify(scenario));
+
+				const state = () => page.evaluate(() => window.__tableplace!.state());
+				const loaded = await eventually(state, (s) => !!s?.cards?.[RULES] && !!s?.decks?.[PILE]);
+				ok(
+					!!loaded?.cards?.[RULES],
+					`the loose placement put no card on the table: cards ${JSON.stringify(Object.keys(loaded?.cards ?? {}))}`
+				);
+				ok(
+					JSON.stringify(Object.keys(loaded?.cards ?? {})) === JSON.stringify([RULES]),
+					`expected exactly the rules card loose, found ${JSON.stringify(Object.keys(loaded?.cards ?? {}))}`
+				);
+				ok(
+					JSON.stringify(Object.keys(loaded?.decks ?? {})) === JSON.stringify([PILE]),
+					`the loose placement also left a pile: decks ${JSON.stringify(Object.keys(loaded?.decks ?? {}))}`
+				);
+				ok(
+					loaded?.decks?.[PILE]?.cards?.length === 3,
+					'the plain placement in the same file did not arrive as a three-card pile'
+				);
+				const card = loaded!.cards![RULES]!;
+				ok(
+					JSON.stringify(card.position) === JSON.stringify([at[0], CARD_REST_Y, at[2]]),
+					`the card is not at the authored position, resting on the felt: ${JSON.stringify(card.position)}`
+				);
+				ok(
+					JSON.stringify(card.rotation) === JSON.stringify([0, 0, 0]),
+					`the card is not face up and squared: ${JSON.stringify(card.rotation)}`
+				);
+				await table.settle(1500);
+
+				// drawn where the file says, as a card
+				await assertRenders(table, RULES, 'the loose card');
+				await assertRenders(table, PILE, 'the pile beside it');
+				const drawn = await table.locate(RULES);
+				const authored = await page.evaluate(
+					(world) => window.__tableplace!.project(world as [number, number, number]),
+					[at[0], CARD_REST_Y, at[2]]
+				);
+				ok(
+					drawn && authored && Math.hypot(drawn.x - authored.x, drawn.y - authored.y) < 12,
+					`the card draws at ${JSON.stringify(drawn)}, the file put it at ${JSON.stringify(authored)}`
+				);
+				await table.snap('loose-card');
+
+				// the pointer finds a card there, not a deck — so Shift+G has no pile
+				await page.mouse.move(drawn!.x, drawn!.y, { steps: 6 });
+				const hover = await eventually(
+					() => page.evaluate(() => window.__tableplace!.drag()),
+					(drag) => drag.isHovered === RULES
+				);
+				ok(
+					hover.isHovered === RULES,
+					`the pointer is over the card but isHovered is ${hover.isHovered}`
+				);
+				ok(
+					!hover.isDeckHovered,
+					`a deck is hovered where the loose card lies: ${hover.isDeckHovered}`
+				);
+				await page.keyboard.down('Shift');
+				await page.keyboard.press('KeyG');
+				await page.keyboard.up('Shift');
+				await table.settle(600);
+				const after = await state();
+				ok(
+					JSON.stringify(Object.keys(after?.cards ?? {})) === JSON.stringify([RULES]) &&
+						JSON.stringify(Object.keys(after?.decks ?? {})) === JSON.stringify([PILE]),
+					`Shift+G over the loose card changed the table: cards ${JSON.stringify(Object.keys(after?.cards ?? {}))}, decks ${JSON.stringify(Object.keys(after?.decks ?? {}))}`
+				);
+				ok(
+					JSON.stringify(after?.cards?.[RULES]?.position) === JSON.stringify(card.position),
+					'Shift+G over the loose card moved it'
+				);
+
+				// it drags alone: one card moves, nothing comes with it, the pile stays put
+				const pileBefore = await table.positionOf(PILE);
+				await assertDraggable(table, RULES, 'the loose card');
+				const dragged = await state();
+				ok(
+					Object.keys(dragged?.cards ?? {}).length === 1 &&
+						dragged?.decks?.[PILE]?.cards?.length === 3,
+					'dragging the loose card changed what else is on the table'
+				);
+				ok(
+					JSON.stringify(await table.positionOf(PILE)) === JSON.stringify(pileBefore),
+					'dragging the loose card moved the pile'
+				);
+				assertClean(table, 'with a loose placement on the table');
+			})
 	}
 ];

@@ -4,6 +4,7 @@ import { gameStore } from '../gameStore.svelte';
 import { get } from 'svelte/store';
 import { dragStore } from '$lib/store/dragStore.svelte';
 import { collectStackGroup, orderForDeck } from '$lib/utils/transforms/stacking';
+import { UNGROUP_MAX_CARDS, ungroupedCards } from '$lib/utils/transforms/ungroup';
 import {
 	CARD_DRAG_Y,
 	CARD_FAN_STEP,
@@ -166,12 +167,9 @@ function groupCardsIntoDeck(ids: readonly string[]) {
 	return groupIntoDeck(members, topId, cards?.[topId]?.position ?? [0, 0, 0]);
 }
 
-/**
- * Cards a single `Shift+G` will spread. A 200-card deck ungrouped would
- * carpet the felt with cards nobody asked for and no cheap way back, so past
- * this the ungroup refuses and says so (see `hotkeys/ungroup.ts`).
- */
-export const UNGROUP_MAX_CARDS = 40;
+// the cap lives with the definition of "ungrouped" — the scenario composer
+// holds a `loose` placement to the same one
+export { UNGROUP_MAX_CARDS };
 
 export type UngroupResult =
 	| { ok: true; deckId: string; cardIds: string[] }
@@ -236,38 +234,18 @@ function ungroupDeck(deckId?: string): UngroupResult {
 	const refusal = ungroupRefusal(id, gameActions.getMe()?.id);
 	const deck = id ? get(gameStore)?.decks?.[id] : undefined;
 	if (refusal || !id || !deck) return refusal ?? { ok: false, reason: 'no-deck' };
-	const deckCards = deck.cards ?? [];
-
-	const isFaceUp = deck.isFaceUp ?? false;
-	// orderForDeck is its own inverse: fed the deck's array it hands back the
-	// bottom→top order the loose stack had before `G` swallowed it
-	const bottomToTop = orderForDeck(deckCards, isFaceUp);
-
-	const [x = 0, , z = 0] = deck.position ?? [];
-	// deck rotation is radians of yaw on the group; card rotation is degrees
-	// with z as the yaw Card.svelte applies as -z. Rounded so repeated
-	// group/ungroup round trips can't drift the tap angle.
-	const yaw = Math.round((-(deck.rotation?.[1] ?? 0) / DEG2RAD) * 1e6) / 1e6;
 
 	const taken = new Set(Object.keys(get(gameStore)?.cards ?? {}));
 	const cards: Record<string, GameDTO['cards'][string]> = {};
 	const cardIds: string[] = [];
 
-	bottomToTop.forEach((card, index) => {
-		const cardId = allocateCardId(card.id, `${id}:card-${index}`, taken);
+	// where and how the cards lie is `ungroupedCards`' answer — the one a
+	// scenario's `loose` placement gets too; only the ids are decided here
+	ungroupedCards(deck).forEach(({ from, card }, index) => {
+		const cardId = allocateCardId(from.id, `${id}:card-${index}`, taken);
 		taken.add(cardId);
 		cardIds.push(cardId);
-		cards[cardId] = {
-			faceImageUrl: card.faceImageUrl ?? '',
-			...(card.backImageUrl || deck.deckBackImageUrl
-				? { backImageUrl: card.backImageUrl ?? (deck.deckBackImageUrl as string) }
-				: {}),
-			...(card.name ? { name: card.name } : {}),
-			...(card.orientation ? { orientation: card.orientation } : {}),
-			position: [x, CARD_REST_Y + index * CARD_THICKNESS, z],
-			// a face-up deck spreads to face-up cards; 180 on x is facedown
-			rotation: [isFaceUp ? 0 : 180, 0, yaw]
-		};
+		cards[cardId] = card;
 	});
 
 	gameStore.updateState({ decks: { [id]: null }, cards });

@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { CARD_THICKNESS } from './constants-card-rest';
+
+// plain numbers the headless composer needs too — see constants-card-rest.ts
+export { CARD_THICKNESS, CARD_REST_Y } from './constants-card-rest';
 
 /**
  * Physical card dimensions in world units.
@@ -7,7 +11,6 @@ import * as THREE from 'three';
  */
 export const CARD_WIDTH = 1.4;
 export const CARD_HEIGHT = 2;
-export const CARD_THICKNESS = 0.03;
 
 /** Corner radius of the printed face (ImageMaterial radius prop) */
 export const CARD_CORNER_RADIUS = 0.1;
@@ -83,9 +86,6 @@ export const DECK_MAX_HEIGHT = 0.5;
 export function deckHeightForCount(count: number): number {
 	return THREE.MathUtils.clamp(count * DECK_HEIGHT_PER_CARD, DECK_MIN_HEIGHT, DECK_MAX_HEIGHT);
 }
-
-/** Resting height of a card lying directly on the table/overlay */
-export const CARD_REST_Y = 0.26;
 
 /**
  * The editor's selection mark. `/create`'s cursors say which card is being

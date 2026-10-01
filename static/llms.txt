@@ -40,7 +40,7 @@ Every file carries an in-band discriminator at the top level: `"tbpp": 1` or `"t
 
 ### 2.1 Spec versions
 
-Current: **pack `1.10.0`**, **scenario `0.1.20`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
+Current: **pack `1.10.0`**, **scenario `0.1.21`**. The scenario spec is `0.x` on purpose — under semver, `0.x` may break on every minor, which is precisely the promise being made.
 
 Two version fields exist and they answer different questions:
 
@@ -99,6 +99,7 @@ Seats sit around the short ends. Seats **0 and 2** are on the `+z` side facing `
 | `CARD_THICKNESS` | 0.03 | card size along y |
 | `CARD_REST_Y` | 0.26 | y of a single card lying on the table |
 | `CARD_STACK_RADIUS` | 1.7 | cards closer than this in xz count as one stack |
+| `UNGROUP_MAX_CARDS` | 40 | most cards one deck spreads into loose cards — `Shift+G`, and a `loose` deck placement |
 | `DECK_HEIGHT_PER_CARD` | 0.01 | a deck grows this tall per card… |
 | `DECK_MIN_HEIGHT` | 0.1 | …clamped to this floor… |
 | `DECK_MAX_HEIGHT` | 0.5 | …and this ceiling. Deck y of 0.4 is a safe default. |
@@ -638,8 +639,8 @@ A drawn card arrives **facedown**; a drawn piece arrives as an ordinary piece of
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"x-tableplace-spec-version": "1.10.0",
-	"x-generated-at": "2026-09-30T10:36:09.376Z",
-	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
+	"x-generated-at": "2026-09-30T15:13:54.556Z",
+	"x-tableplace-source-sha": "fe0d6451f3b696e567b0cb199203b2ccec526cf0-dirty"
 }
 ```
 
@@ -781,7 +782,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
 
 ### 7.1 Fields
 
-- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.20`.
+- **`specVersion`** — the scenario spec you generated against (§2.1). Currently `0.1.21`.
 - **`name`**, **`createdAt`** — title and a Unix epoch timestamp in milliseconds.
 - **`packs[]`** — `{ id, source? }` for every pack the scenario draws from. `source` is `"builtin"` for packs shipped with the app (currently only `standard-52`), `"local"` for a pack held in the reader's own browser-local pack library, or an `https://` URL a `.tbpp.json` can be fetched from. A remote pack goes through the same validation as a local import. A scenario meant to travel to other people must use `"builtin"` or a URL: `"local"` resolves only on the machine that has the pack, and fails loudly (naming the pack id) anywhere else.
 - **`placements[]`** — one entry per spawned thing:
@@ -792,6 +793,7 @@ A scenario is a saved arrangement. Version 2 **references** packs rather than co
   - **`position`** / **`rotation`** — `[x, y, z]` world coordinates and radians (§4). Omitted means the app's per-seat default.
   - **`order`** _(decks)_ — the card sequence as pack card `code`s, top of the deck first. **Order is preserved by default**, so a rigged opening or a fixed encounter deck reloads exactly as authored. It is a list of ids, never card bodies. Unknown codes are skipped with a warning.
   - **`shuffleOnLoad`** _(decks, default `false`)_ — shuffle on load instead of restoring `order`. Per placement, so one scenario can hold a stacked encounter deck and a shuffled draw deck side by side.
+  - **`loose`** _(decks, default `false`)_ — `true` lays the deck's cards down as **loose cards instead of a pile**: exactly what placing the pile and pressing `Shift+G` on it would leave, with no pile ever on the table. Use it for a card that should arrive as a card — a rules or reference card is a one-card deck placed `loose`. The cards stack at the placement's `position` (its x and z; each card rests at `CARD_REST_Y`, one `CARD_THICKNESS` above the one under it), the pile's top card on top. `isFaceUp`, `rotation`, `order`, `shuffleOnLoad` and `locked` mean what they mean for a pile, applied to each card; each card keeps the deck's `back` and its own `orientation`, and the id it would have had inside the pile. For a row of cards, send several one-card decks, each with its own `position`. An empty deck places nothing. A deck of more than `UNGROUP_MAX_CARDS` cards is refused with a message naming that limit and places nothing, and `loose: true` on a piece or overlay placement fails the file's validation.
   - **`state`** _(pieces)_ — which of the pack piece's `states` (§6.2) it starts on, as an index (default `0`). This is one piece's face; the scenario's top-level `state` field below is something else entirely.
   - **`isFaceUp`** _(decks)_, **`value`** _(counter pieces)_, **`scale`** _(overlays)_ — override the pack's defaults. A counter `value` must be inside the pack piece's `[minValue, maxValue]`; one outside it is refused with a message naming both bounds.
   - **`locked`** _(any kind)_ — place it pinned (`true`), or unpin content the pack marks locked (`false`). Omit to keep the pack's default.
@@ -973,6 +975,11 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 								"description": "decks only — reshuffle on load instead of restoring `order`. Per placement,\nso one scenario can hold a fixed encounter deck and a shuffled draw deck.",
 								"type": "boolean",
 								"title": "shuffleOnLoad"
+							},
+							"loose": {
+								"description": "decks only — lay the deck's cards down as loose cards instead of a pile:\nwhat placing the pile and pressing `Shift+G` on it leaves, with no pile\never on the table. The cards stack at the placement's XZ, the pile's top\ncard on top, and `isFaceUp`, `rotation`, `order`, `shuffleOnLoad` and\n`locked` apply to each card. How a single reference card arrives as a card\nrather than a one-card pile. Refused on a piece or overlay, and for a deck\nof more than 40 cards (`UNGROUP_MAX_CARDS`, the `Shift+G` limit). Omitted\nor `false`: a pile.",
+								"type": "boolean",
+								"title": "loose"
 							},
 							"value": {
 								"description": "counter pieces only — the count it starts on. Must sit inside the pack\npiece's `[minValue, maxValue]`; a value outside it is refused when the\nplacement meets its pack (the file alone does not know the range).",
@@ -1944,9 +1951,9 @@ They are inert data. Nothing spawns from them, they claim no ids, they are drawn
 		}
 	},
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"x-tableplace-spec-version": "0.1.20",
-	"x-generated-at": "2026-09-30T10:36:09.376Z",
-	"x-tableplace-source-sha": "439906df5e3c6f316f63dfcf4c8d130c18b77954-dirty"
+	"x-tableplace-spec-version": "0.1.21",
+	"x-generated-at": "2026-09-30T15:13:54.556Z",
+	"x-tableplace-source-sha": "fe0d6451f3b696e567b0cb199203b2ccec526cf0-dirty"
 }
 ```
 
@@ -1958,7 +1965,7 @@ Two packs — one builtin, one fetched from `https://example.com/packs/ember-due
 {
 	"$schema": "https://table.place/scenario.schema.json",
 	"tbps": 2,
-	"specVersion": "0.1.20",
+	"specVersion": "0.1.21",
 	"name": "ember-duel-opening",
 	"createdAt": 1700000000000,
 	"packs": [
