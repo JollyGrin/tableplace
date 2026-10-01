@@ -105,6 +105,9 @@
 								{@render seatBadge()}
 								<span class="min-w-0 flex-1">
 									<span class="block italic">Seat {row.seat} — open</span>
+									{#if row.handCount > 0}
+										<span class="block opacity-70">hand {row.handCount}</span>
+									{/if}
 									{#if row.decks.length > 0}
 										<span class="block opacity-70">{deckLine(row.decks)}</span>
 									{/if}
