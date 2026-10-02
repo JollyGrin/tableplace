@@ -8,6 +8,15 @@ function getCardState(cardId: string) {
 	return get(gameStore)?.cards?.[cardId];
 }
 
+/**
+ * A card action only ever edits a card that exists. updateState deep-merges, so
+ * an unknown id (a stale hover on a piece, say) would otherwise *create* an
+ * entity keyed by it — a position-less blank card, synced to everyone (#271).
+ */
+function isKnownCard(id: string) {
+	return !!get(gameStore)?.cards?.[id];
+}
+
 function removeCard(cardId: string) {
 	return gameStore.updateState({ cards: { [cardId]: null } });
 }
@@ -21,6 +30,7 @@ function flipCard(cardId?: string) {
 	const hoveredId = isHovered || isDragging;
 	let id = cardId ?? hoveredId;
 	if (!id) return console.error('No cardId provided to flip');
+	if (!isKnownCard(id)) return;
 	if (isLocked('card', id)) return; // pinned: the verb has already said so
 
 	const card = get(gameStore)?.cards?.[id];
@@ -43,6 +53,7 @@ function tapCard(isReverse?: boolean, cardId?: string) {
 	const hoveredId = isHovered || isDragging;
 	let id = cardId ?? hoveredId;
 	if (!id) return console.error('No cardId provided to flip');
+	if (!isKnownCard(id)) return;
 	if (isLocked('card', id)) return;
 
 	const card = get(gameStore)?.cards?.[id]; // grab card on table
@@ -59,6 +70,7 @@ function incrementHeight(increment: number, cardId?: string) {
 	const hoveredId = isHovered || isDragging;
 	let id = cardId ?? hoveredId;
 	if (!id) return console.error('No cardId provided to increment');
+	if (!isKnownCard(id)) return;
 	if (isLocked('card', id)) return;
 
 	const card = get(gameStore)?.cards?.[id]; // grab card on table

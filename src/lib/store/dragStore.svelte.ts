@@ -192,7 +192,16 @@ function updateIntersection(point: Vector3) {
 
 // End dragging and reset state
 function dragEnd() {
-	dragStore.update((state) => ({ ...state, isDragging: null, origin: undefined, group: [] }));
+	dragStore.update((state) => ({
+		...state,
+		isDragging: null,
+		origin: undefined,
+		group: [],
+		// dragStart() points isHovered at whatever was lifted; a piece or deck has
+		// no card-pointerenter to overwrite it, so it would outlive the drag and
+		// route card verbs at a non-card (tableplace-271)
+		isHovered: state.isHovered?.startsWith('card:') ? state.isHovered : null
+	}));
 }
 
 // Set hover state, and with it the loose stack the hovered card belongs to —
