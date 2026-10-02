@@ -6801,5 +6801,39 @@ export const SPECS: Spec[] = [
 				await table.close();
 			}
 		}
+	},
+	{
+		/**
+		 * tableplace-271: drag a token once, hover it, press F. The drag left the
+		 * piece's id in the hover slot, the verb walk offered it as a card, and
+		 * flipCard wrote a position-less blank card keyed by the piece id — shared
+		 * state, face-down at table centre. F on a bare token must do nothing.
+		 */
+		name: 'F on a token after dragging it makes no card',
+		run: (context) =>
+			withTable(context, 'f-on-token', async (table) => {
+				const token = await table.spawn('token', { position: ON_FELT(1) });
+				await table.settle();
+				await table.dragBy(token, DRAG.dx, DRAG.dy);
+				await sleep(1200);
+				const at = await table.locate(token);
+				ok(at, 'the token is not on screen after the drag');
+				await table.page.mouse.move(at!.x, at!.y, { steps: 6 });
+				await sleep(300);
+				await table.page.keyboard.press('KeyF');
+				await sleep(800);
+				const cards = await table.page.evaluate(() =>
+					Object.keys(window.__tableplace!.state()?.cards ?? {})
+				);
+				ok(cards.length === 0, `F on a token created cards: ${JSON.stringify(cards)}`);
+				const flipped = await table.page.evaluate(() =>
+					[...document.querySelectorAll('[data-journal-line]')]
+						.map((li) => li.textContent ?? '')
+						.filter((text) => /flipped/i.test(text))
+				);
+				ok(flipped.length === 0, `the journal logged a flip: ${JSON.stringify(flipped)}`);
+				await assertDraggable(table, token, 'the token (after F)');
+				assertClean(table, 'after F over a token');
+			})
 	}
 ];

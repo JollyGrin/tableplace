@@ -55,7 +55,7 @@ export function targetsUnder(
 	if (isDeckHovered && isDeckHovered !== isDragging)
 		targets.push({ kind: 'deck', id: isDeckHovered });
 	if (piece && piece !== isDragging) targets.push({ kind: 'piece', id: piece });
-	if (isHovered && isHovered !== isDragging)
+	if (isHovered?.startsWith('card:') && isHovered !== isDragging)
 		targets.push({ kind: 'card', id: isHovered, dragging: !!isDragging });
 	// a card in your hand: no verbs yet, but a key over it must still reach the
 	// table's (Space previews it — see HUDPreview/preview.ts)
