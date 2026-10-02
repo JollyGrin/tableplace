@@ -1,0 +1,609 @@
+/**
+ * tableplace-205 touch probe — NOT COMMITTED. Drives /play under Chrome touch
+ * emulation (CDP Input.dispatchTouchEvent) and prints what actually happens.
+ */
+import type { CDPSession, Page } from 'puppeteer-core';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { launchBrowser } from './browser';
+import { startServers } from './servers';
+import { openTable } from './table';
+
+type P = { x: number; y: number };
+
+const innerWidthOf = (v: { width: number }) => v.width;
+
+async function main() {
+	const which = process.argv[2] ?? 'portrait';
+	const vp =
+		which === 'landscape'
+			? { width: 844, height: 390 }
+			: which === 'tablet'
+				? { width: 820, height: 1180 }
+				: { width: 390, height: 844 };
+	const servers = await startServers();
+	const browser = await launchBrowser();
+	const out: Record<string, unknown> = { viewport: vp };
+	try {
+		const mobile = {
+			newPage: async () => {
+				const p = await browser.newPage();
+				if (process.env.NO_TOUCH !== '1')
+					await p.setViewport({ ...vp, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+				return p;
+			}
+		} as unknown as Parameters<typeof openTable>[0];
+		const table = await openTable(mobile, servers, `touch-probe-${which}-${process.pid}`);
+		const page: Page = table.page;
+		await sleep(1500);
+		const cdp: CDPSession = await page.createCDPSession();
+
+		// event log installed in page
+		await page.evaluate(() => {
+			const w = window as unknown as { __log: string[] };
+			const process_env_xy = true;
+			w.__log = [];
+			for (const type of [
+				'pointerdown',
+				'pointerup',
+				'pointercancel',
+				'contextmenu',
+				'click',
+				'dblclick',
+
+				'pointermove',
+				'lostpointercapture'
+			]) {
+				window.addEventListener(
+					type,
+					(e) => {
+						const pe = e as PointerEvent;
+						w.__log.push(
+							`${type}${pe.pointerType ? ':' + pe.pointerType : ''}${pe.button !== undefined ? ' b' + pe.button : ''}${process_env_xy && pe.clientX !== undefined ? ` @${Math.round(pe.clientX)},${Math.round(pe.clientY)} id${pe.pointerId} t${Math.round(pe.timeStamp)} now${Math.round(performance.now())}` : ''}`
+						);
+					},
+					{ capture: true }
+				);
+			}
+		});
+		const log = async () => {
+			const l = await page.evaluate(() => {
+				const w = window as unknown as { __log: string[] };
+				const copy = w.__log.slice();
+				w.__log.length = 0;
+				return copy;
+			});
+			// collapse runs
+			const r: string[] = [];
+			for (const s of l) if (r[r.length - 1] !== s) r.push(s);
+			return r;
+		};
+
+		const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', pts: P[]) =>
+			cdp.send('Input.dispatchTouchEvent', {
+				type,
+				touchPoints: pts.map((p, i) => ({ x: p.x, y: p.y, id: i, radiusX: 5, radiusY: 5 }))
+			});
+		/** one or more fingers from `from` to `to`, `steps` moves, optional hold before moving */
+		const gesture = async (from: P[], to: P[], steps = 12, holdMs = 0, stepMs = 30) => {
+			await touch('touchStart', from);
+			if (holdMs) await sleep(holdMs);
+			for (let s = 1; s <= steps; s++) {
+				const pts = from.map((f, i) => ({
+					x: f.x + ((to[i].x - f.x) * s) / steps,
+					y: f.y + ((to[i].y - f.y) * s) / steps
+				}));
+				await touch('touchMove', pts);
+				await sleep(stepMs);
+			}
+			await touch('touchEnd', []);
+		};
+		const tap = async (p: P, holdMs = 60) => {
+			await touch('touchStart', [p]);
+			await sleep(holdMs);
+			await touch('touchEnd', []);
+		};
+		const cam = () => page.evaluate(() => window.__tableplace!.camera());
+		const vv = () => page.evaluate(() => window.visualViewport?.scale ?? 1);
+		const dist = (a: number[], b: number[]) => Math.hypot(...a.map((v, i) => v - b[i]));
+		const camDelta = async (before: Awaited<ReturnType<typeof cam>>) => {
+			const after = await cam();
+			if (!before || !after) return null;
+			return {
+				moved: +dist(before.position, after.position).toFixed(3),
+				turned: +dist(before.direction, after.direction).toFixed(3),
+				distFromOrigin: [+Math.hypot(...before.position).toFixed(2), +Math.hypot(...after.position).toFixed(2)]
+			};
+		};
+
+		// ── environment ─────────────────────────────────────────────────────
+		out.env = await page.evaluate(() => {
+			const canvas = [...document.querySelectorAll('canvas')].sort((a, b) => b.width * b.height - a.width * a.height)[0];
+			const chain: string[] = [];
+			let el: Element | null = canvas;
+			while (el) {
+				chain.push(`${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').slice(0, 2).join('.') : ''}=${getComputedStyle(el).touchAction}`);
+				el = el.parentElement;
+			}
+			return {
+				maxTouchPoints: navigator.maxTouchPoints,
+				coarse: matchMedia('(pointer: coarse)').matches,
+				hoverNone: matchMedia('(hover: none)').matches,
+				ontouchstart: 'ontouchstart' in window,
+				canvases: document.querySelectorAll('canvas').length,
+				touchActionChain: chain,
+				bodyOverflow: getComputedStyle(document.body).overflow,
+				docScroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight]
+			};
+		});
+
+		// ── HUD coverage ────────────────────────────────────────────────────
+		out.hud = await page.evaluate(() => {
+			const W = innerWidth,
+				H = innerHeight;
+			let canvas = 0,
+				total = 0;
+			const covers: Record<string, number> = {};
+			for (let y = 5; y < H; y += 20)
+				for (let x = 5; x < W; x += 20) {
+					total++;
+					const e = document.elementFromPoint(x, y);
+					if (e?.tagName === 'CANVAS') canvas++;
+					else {
+						let k = e;
+						while (k && !(k.className && typeof k.className === 'string' && /tp-|tray|hud|pane|preview|hint/i.test(k.className)) && k.parentElement) k = k.parentElement;
+						const name = k ? `${k.tagName.toLowerCase()}.${String(k.className).split(' ')[0]}` : 'none';
+						covers[name] = (covers[name] ?? 0) + 1;
+					}
+				}
+			const panes = [...document.querySelectorAll('.tp-dfwv, .tp-rotv')]
+				.filter((e) => !e.parentElement?.closest('.tp-dfwv, .tp-rotv'))
+				.map((e) => {
+					const r = e.getBoundingClientRect();
+					return { cls: e.className.split(' ')[0], x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+				});
+			return { canvasFraction: +(canvas / total).toFixed(2), covers, panes };
+		});
+		await page.screenshot({ path: `e2e/screenshots/touch-${which}-empty.png` });
+
+		// ── seed: a deck, a token, a card on the felt ───────────────────────
+		const seeded = await page.evaluate(() => {
+			const b = window.__tableplace!;
+			const cards = ['AS', 'KH', 'QD', '9C', '5S', '2H'].map((code) => ({
+				id: `card:std:t-${code}`,
+				faceImageUrl: `gen:std52/${code}`,
+				backImageUrl: 'gen:std52/back'
+			}));
+			const deck = String(b.actions.addDeck({ cards, position: [-3, 0.16, 0] } as never) ?? '');
+			const card = b.actions.drawFromTop(deck, 1)[0]?.id ?? '';
+			return { deck, card };
+		});
+		const token = await table.spawn('token', { name: 'T', position: [3, 0.16, 0] });
+		await sleep(2000);
+		// move the drawn card onto the felt centre
+		const ids = { ...seeded, token };
+		out.ids = ids;
+		const at = {
+			deck: await table.locate(ids.deck),
+			card: await table.locate(ids.card),
+			token: await table.locate(ids.token)
+		};
+		out.at = at;
+		out.cover = {
+			deck: at.deck && (await table.elementAt(at.deck)),
+			card: at.card && (await table.elementAt(at.card)),
+			token: at.token && (await table.elementAt(at.token))
+		};
+		await page.screenshot({ path: `e2e/screenshots/touch-${which}-seeded.png` });
+
+		// empty felt point: find a canvas point with no hits
+		const felt = await page.evaluate(() => {
+			const b = window.__tableplace!;
+			for (let y = innerHeight * 0.35; y < innerHeight * 0.8; y += 15)
+				for (let x = innerWidth * 0.3; x < innerWidth * 0.7; x += 15) {
+					const e = document.elementFromPoint(x, y);
+					if (e?.tagName !== 'CANVAS') continue;
+					const h = b.hits({ x, y });
+					if (h.length === 1 && /table|felt/i.test(h[0])) return { x, y, h };
+					if (h.length === 0) return { x, y, h };
+				}
+			return null;
+		});
+		out.felt = felt;
+		const F = felt ?? { x: vp.width / 2, y: vp.height * 0.55 };
+		out.hitsAtFelt = await table.hits(F);
+		await log();
+
+		// relocate after camera moves
+		const loc = async () => ({
+			deck: await table.locate(ids.deck),
+			card: await table.locate(ids.card),
+			token: await table.locate(ids.token)
+		});
+		let L = await loc();
+		let c0 = await cam();
+		out.at2 = L;
+
+		if (process.env.ONLY === 'fasttap') {
+			const trayN = () => page.evaluate(() => { const b = window.__tableplace!; const me = b.actions.getMyId() ?? ''; return Object.keys(b.state()?.players?.[me]?.tray ?? {}).length; });
+			const quick = async (p: P) => { await Promise.all([touch('touchStart', [p]), sleep(60).then(() => touch('touchEnd', []))]); };
+			const rows: unknown[] = [];
+			for (let i = 0; i < 3; i++) {
+				const d = await table.locate(ids.deck);
+				const before = await trayN();
+				await quick(d!);
+				await sleep(2500);
+				const ev = await log();
+				rows.push({ what: 'deck', before, after: await trayN(), ev: ev.filter((e) => !e.startsWith('pointermove')) });
+			}
+			const c = await table.locate(ids.card);
+			await quick(c!);
+			await sleep(1500);
+			rows.push({ what: 'card', preview: await page.evaluate(() => window.__tableplace!.preview()), drag: await page.evaluate(() => window.__tableplace!.drag()), selected: await page.evaluate(() => window.__tableplace!.selected()) });
+			// double tap felt, fast
+			const c0 = await cam();
+			await quick({ x: 195, y: 330 });
+			await sleep(120);
+			await quick({ x: 195, y: 330 });
+			await sleep(2500);
+			rows.push({ what: 'doubletap', cam: await camDelta(c0), vv: await vv(), ev: (await log()).filter((e) => !e.startsWith('pointermove')) });
+			out.fastTap = rows;
+			return;
+		}
+		if (process.env.ONLY === 'fastdrag') {
+			const runs: unknown[] = [];
+			for (const key of ['token', 'card', 'token', 'card'] as const) {
+				const at0 = await table.locate(ids[key]);
+				if (!at0) continue;
+				const p0 = await table.positionOf(ids[key]);
+				const sends: Promise<unknown>[] = [touch('touchStart', [at0])];
+				for (let s2 = 1; s2 <= 14; s2++) {
+					await sleep(25);
+					sends.push(touch('touchMove', [{ x: at0.x + (40 * s2) / 14, y: at0.y + (50 * s2) / 14 }]));
+				}
+				await sleep(25);
+				sends.push(touch('touchEnd', []));
+				await Promise.all(sends);
+				await sleep(2500);
+				const ev = await log();
+				runs.push({ key, from: p0, to: await table.positionOf(ids[key]), radial: (await table.radial())?.actions ?? null, first: ev.slice(0, 2), last: ev.slice(-2) });
+				await tap({ x: 20, y: 600 });
+				await sleep(1500);
+				await log();
+			}
+			out.fastDrag = runs;
+			out.problems = table.appProblems();
+			return;
+		}
+		if (process.env.ONLY === 'hand') {
+			const big = await page.evaluate(() => {
+				const b = window.__tableplace!;
+				const cards = Array.from({ length: 12 }, (_, i) => ({ id: `card:std:h-${i}`, faceImageUrl: 'gen:std52/AS', backImageUrl: 'gen:std52/back' }));
+				return String(b.actions.addDeck({ cards, position: [0, 0.16, -3] } as never) ?? '');
+			});
+			await sleep(1500);
+			const rows: unknown[] = [];
+			for (const n of [5, 7, 9]) {
+				await page.evaluate((d, k) => { const b = window.__tableplace!; const me = b.actions.getMyId() ?? ''; const have = Object.keys(b.state()?.players?.[me]?.tray ?? {}).length; b.actions.drawToHand(d, k - have); }, big, n);
+				await sleep(2500);
+				const xs = await page.evaluate(() => { const b = window.__tableplace!; const me = b.actions.getMyId() ?? ''; return Object.keys(b.state()?.players?.[me]?.tray ?? {}).map((h) => b.locateInHand(h)).map((p) => (p ? Math.round(p.x) : null)); });
+				rows.push({ n, xs, onScreen: xs.filter((x) => x !== null && x >= 0 && x <= innerWidthOf(vp)).length });
+				await page.screenshot({ path: `e2e/screenshots/touch-${which}-hand${n}.png` });
+			}
+			out.handFit = rows;
+			return;
+		}
+		if (process.env.ONLY === 'drag') {
+			const runs: unknown[] = [];
+			const tapDeckFirst = process.env.TAPDECK === '1';
+			for (let i = 0; i < 1; i++) {
+				for (const key of ['token', 'card'] as const) {
+					if (tapDeckFirst) {
+						const d = await table.locate(ids.deck);
+						if (d) await tap(d);
+						await sleep(800);
+					}
+					const at0 = await table.locate(ids[key]);
+					if (!at0) continue;
+					const p0 = await table.positionOf(ids[key]);
+					const mid: unknown[] = [];
+					const mouse = process.env.MOUSE === '1';
+					const tA = Date.now();
+					if (mouse) { await page.mouse.move(at0.x, at0.y); await page.mouse.down(); } else
+					await touch('touchStart', [at0]);
+					const tB = Date.now();
+					for (let s2 = 1; s2 <= 14; s2++) {
+						if (s2 === 2) mid.push(`cdp touchStart ${tB - tA}ms, first move+sample ${Date.now() - tB}ms`);
+						if (mouse) await page.mouse.move(at0.x + (40 * s2) / 14, at0.y + (50 * s2) / 14); else
+						await touch('touchMove', [{ x: at0.x + (40 * s2) / 14, y: at0.y + (50 * s2) / 14 }]);
+						await sleep(30);
+						mid.push(await page.evaluate(() => { const d = window.__tableplace!.drag(); return `${d.isDragging ?? '-'}|h:${d.isHovered ?? '-'}|r:${document.querySelectorAll('[data-radial-action]').length}`; }));
+					}
+					if (mouse) await page.mouse.up(); else
+					await touch('touchEnd', []);
+					await sleep(1000);
+					runs.push({ i, key, lifted: mid, from: p0, to: await table.positionOf(ids[key]), events: await log() });
+				}
+			}
+			out.dragRuns = runs;
+			out.problems = table.appProblems();
+			return;
+		}
+
+		// T0 fresh tap on the deck
+		{
+			const before = await page.evaluate(() => {
+					const b = window.__tableplace!;
+					const me = b.actions.getMyId() ?? '';
+					return Object.keys(b.state()?.players?.[me]?.tray ?? {}).length;
+				});
+			await tap(L.deck!);
+			await sleep(1500);
+			out.T0_freshTapDeck = { before, after: await page.evaluate(() => {
+					const b = window.__tableplace!;
+					const me = b.actions.getMyId() ?? '';
+					return Object.keys(b.state()?.players?.[me]?.tray ?? {}).length;
+				}), hitsAtDeck: await table.hits(L.deck!), hitsAtCard: await table.hits(L.card!), events: await log() };
+		}
+
+		// T4 tap a card: preview? hover?
+		if (L.card) {
+			await tap(L.card);
+			await sleep(700);
+			out.T4_tapCard = {
+				preview: await page.evaluate(() => window.__tableplace!.preview()),
+				drag: await page.evaluate(() => window.__tableplace!.drag()),
+				rotation: await page.evaluate((id) => (window.__tableplace!.state()?.cards?.[id] as { rotation?: number[] })?.rotation, ids.card),
+				events: await log()
+			};
+			// tap elsewhere to clear
+			await tap(F);
+			await sleep(400);
+			await log();
+		}
+
+		// T5 long-press on the card
+		L = await loc();
+		if (L.card) {
+			await touch('touchStart', [L.card]);
+			await sleep(1200);
+			const r = await table.radial();
+			const ctx = await log();
+			await touch('touchEnd', []);
+			await sleep(500);
+			out.T5_longPressCard = { radialWhileHeld: r?.actions ?? null, radialAfterLift: (await table.radial())?.actions ?? null, events: [...ctx, ...(await log())] };
+			await tap(F);
+			await sleep(400);
+			await log();
+		}
+
+		// T5b long-press card, flick to flip wedge, lift
+		L = await loc();
+		if (L.card) {
+			const rot0 = await page.evaluate((id) => (window.__tableplace!.state()?.cards?.[id] as { rotation?: number[] })?.rotation, ids.card);
+			await touch('touchStart', [L.card]);
+			await sleep(900);
+			const r = await table.radial();
+			const w = r?.wedges.flip;
+			if (w) {
+				for (let s2 = 1; s2 <= 8; s2++) {
+					await touch('touchMove', [{ x: L.card.x + ((w.x - L.card.x) * s2) / 8, y: L.card.y + ((w.y - L.card.y) * s2) / 8 }]);
+					await sleep(30);
+				}
+			}
+			await touch('touchEnd', []);
+			await sleep(1200);
+			const rot1 = await page.evaluate((id) => (window.__tableplace!.state()?.cards?.[id] as { rotation?: number[] })?.rotation, ids.card);
+			out.T5b_flickFlip = { wedge: w ?? null, rot0, rot1, radialAfter: (await table.radial())?.actions ?? null, events: await log() };
+			await page.screenshot({ path: `e2e/screenshots/touch-${which}-after-flick.png` });
+		}
+
+		// T5c long-press card, lift, is anything sticky? then tap the flip wedge
+		L = await loc();
+		if (L.card) {
+			await touch('touchStart', [L.card]);
+			await sleep(900);
+			const r = await table.radial();
+			if (r) await page.screenshot({ path: `e2e/screenshots/touch-${which}-radial.png` });
+			await touch('touchEnd', []);
+			await sleep(400);
+			const sticky = await table.radial();
+			out.T5c_liftThenTap = { heldWedges: r?.wedges ?? null, stickyAfterLift: sticky?.actions ?? null, events: await log() };
+		}
+
+		// T6 long-press on the deck
+		L = await loc();
+		if (L.deck) {
+			const before = await page.evaluate(() => {
+				const b = window.__tableplace!;
+				const me = b.actions.getMyId() ?? '';
+				return Object.keys(b.state()?.players?.[me]?.tray ?? {}).length;
+			});
+			await touch('touchStart', [L.deck]);
+			await sleep(1200);
+			const r = await table.radial();
+			await touch('touchEnd', []);
+			await sleep(600);
+			out.T6_longPressDeck = { radialWhileHeld: r?.actions ?? null, radialAfterLift: (await table.radial())?.actions ?? null, trayBefore: before, events: await log() };
+			await tap(F);
+			await sleep(400);
+			await log();
+		}
+
+		// T7 long-press on the token
+		L = await loc();
+		if (L.token) {
+			await touch('touchStart', [L.token]);
+			await sleep(1200);
+			const r = await table.radial();
+			await touch('touchEnd', []);
+			await sleep(500);
+			out.T7_longPressToken = { radialWhileHeld: r?.actions ?? null, radialAfterLift: (await table.radial())?.actions ?? null, events: await log() };
+			await tap(F);
+			await sleep(400);
+			await log();
+		}
+
+		// T8 tap the deck: draw to hand?
+		L = await loc();
+		if (L.deck) {
+			const tray = () =>
+				page.evaluate(() => {
+					const b = window.__tableplace!;
+					const me = b.actions.getMyId() ?? '';
+					return Object.keys(b.state()?.players?.[me]?.tray ?? {});
+				});
+			const before = (await tray()).length;
+			await tap(L.deck);
+			await sleep(1500);
+			const after = await tray();
+			out.T8_tapDeck = { trayBefore: before, trayAfter: after.length, events: await log() };
+		}
+
+		// T9 one-finger drag the token
+		L = await loc();
+		if (L.token) {
+			const p0 = await table.positionOf(ids.token);
+			c0 = await cam();
+			const mid: unknown[] = [];
+			await touch('touchStart', [L.token]);
+			for (let s2 = 1; s2 <= 14; s2++) {
+				await touch('touchMove', [{ x: L.token.x - (60 * s2) / 14, y: L.token.y + (80 * s2) / 14 }]);
+				await sleep(30);
+				if (s2 === 7) mid.push(await page.evaluate(() => window.__tableplace!.drag()));
+			}
+			await touch('touchEnd', []);
+			out.T9_mid = mid;
+			await sleep(1200);
+			out.T9_dragToken = { from: p0, to: await table.positionOf(ids.token), cam: await camDelta(c0), events: await log() };
+		}
+
+		// T10 one-finger drag the card after hold 0
+		L = await loc();
+		if (L.card) {
+			const p0 = await table.positionOf(ids.card);
+			await gesture([L.card], [{ x: L.card.x + 50, y: L.card.y + 60 }], 14);
+			await sleep(1200);
+			out.T10_dragCard = { from: p0, to: await table.positionOf(ids.card), events: await log() };
+		}
+
+		// M: mouse controls on the same page
+		L = await loc();
+		{
+			const before = await page.evaluate(() => {
+					const b = window.__tableplace!;
+					const me = b.actions.getMyId() ?? '';
+					return Object.keys(b.state()?.players?.[me]?.tray ?? {}).length;
+				});
+			await page.mouse.move(L.deck!.x, L.deck!.y);
+			await sleep(100);
+			await page.mouse.down();
+			await sleep(60);
+			await page.mouse.up();
+			await sleep(1500);
+			out.M_mouseClickDeck = { before, after: await page.evaluate(() => {
+					const b = window.__tableplace!;
+					const me = b.actions.getMyId() ?? '';
+					return Object.keys(b.state()?.players?.[me]?.tray ?? {}).length;
+				}), events: await log() };
+			const p0 = await table.positionOf(ids.card);
+			L = await loc();
+			await page.mouse.move(L.card!.x, L.card!.y);
+			await sleep(100);
+			await page.mouse.down();
+			for (let s2 = 1; s2 <= 14; s2++) {
+				await page.mouse.move(L.card!.x + (50 * s2) / 14, L.card!.y + (60 * s2) / 14);
+				await sleep(30);
+			}
+			await page.mouse.up();
+			await sleep(1200);
+			out.M_mouseDragCard = { from: p0, to: await table.positionOf(ids.card), events: await log() };
+		}
+
+		// T11 hand: draw two more to hand, where does the hand draw, can it be dragged out
+		const hand = await page.evaluate((deck) => {
+			const b = window.__tableplace!;
+			b.actions.drawToHand?.(deck, 2);
+			const me = b.actions.getMyId() ?? '';
+			return Object.keys(b.state()?.players?.[me]?.tray ?? {});
+		}, ids.deck);
+		await sleep(2000);
+		const handAt = await page.evaluate((hs) => hs.map((h) => window.__tableplace!.locateInHand(h)), hand);
+		out.T11_hand = { ids: hand, at: handAt };
+		await page.screenshot({ path: `e2e/screenshots/touch-${which}-hand.png` });
+		const first = handAt.find(Boolean);
+		if (first) {
+			out.T11_hand = { ...(out.T11_hand as object), coverAtFirst: await table.elementAt(first) };
+			await gesture([first], [{ x: first.x, y: first.y - 250 }], 16);
+			await sleep(1500);
+			const left = await page.evaluate(() => {
+				const b = window.__tableplace!;
+				const me = b.actions.getMyId() ?? '';
+				return Object.keys(b.state()?.players?.[me]?.tray ?? {});
+			});
+			out.T12_handDragOut = { trayAfter: left.length, events: await log() };
+		}
+
+		// T1 one finger drag on felt
+		c0 = await cam();
+		await gesture([F], [{ x: F.x + 120, y: F.y }], 12);
+		await sleep(800);
+		out.T1_oneFingerFelt = {
+			cam: await camDelta(c0),
+			selected: await page.evaluate(() => window.__tableplace!.selected()),
+			vvScale: await vv(),
+			events: await log()
+		};
+
+		// T2 pinch out (spread) two fingers on felt
+		c0 = await cam();
+		await gesture(
+			[{ x: F.x - 30, y: F.y }, { x: F.x + 30, y: F.y }],
+			[{ x: F.x - 130, y: F.y }, { x: F.x + 130, y: F.y }],
+			12
+		);
+		await sleep(800);
+		out.T2_pinchSpread = { cam: await camDelta(c0), vvScale: await vv(), events: await log() };
+
+		// T3 two finger parallel pan
+		c0 = await cam();
+		await gesture(
+			[{ x: F.x - 40, y: F.y }, { x: F.x + 40, y: F.y }],
+			[{ x: F.x - 40, y: F.y - 120 }, { x: F.x + 40, y: F.y - 120 }],
+			12
+		);
+		await sleep(800);
+		out.T3_twoFingerPan = { cam: await camDelta(c0), vvScale: await vv(), events: await log() };
+
+		// T2b pinch in (close)
+		c0 = await cam();
+		await gesture(
+			[{ x: F.x - 130, y: F.y }, { x: F.x + 130, y: F.y }],
+			[{ x: F.x - 30, y: F.y }, { x: F.x + 30, y: F.y }],
+			12
+		);
+		await sleep(800);
+		out.T2b_pinchClose = { cam: await camDelta(c0), vvScale: await vv(), events: await log() };
+
+		// T13 double tap on felt
+		c0 = await cam();
+		await tap(F, 40);
+		await sleep(80);
+		await tap(F, 40);
+		await sleep(1500);
+		out.T13_doubleTapFelt = { cam: await camDelta(c0), vvScale: await vv(), events: await log() };
+
+		out.problems = table.appProblems();
+		out.connected = await table.connected();
+		await page.screenshot({ path: `e2e/screenshots/touch-${which}-end.png` });
+		await table.close();
+	} finally {
+		console.log(JSON.stringify(out, null, 1));
+		await browser.close();
+		await servers.stop();
+	}
+}
+
+main().then(() => process.exit(0)).catch((e) => {
+	console.error(e);
+	process.exit(1);
+});
