@@ -23,7 +23,7 @@
 	import { browser } from '$app/environment';
 	import { gameStore } from './store/game/gameStore.svelte';
 	import { gameActions } from './store/game/actions';
-	import { resolveCardImage, sheetRefCache, CARD_BACK_DEFAULT } from '$lib/packs';
+	import { resolveTextureImage, sheetRefCache, CARD_BACK_DEFAULT } from '$lib/packs';
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
 	import { Weight } from '$lib/utils/weight.svelte';
 	import { WEIGHT_CARRY_EPSILON } from '$lib/utils/constants-weight';
@@ -55,8 +55,13 @@
 	// the element, not just the array, can be missing: a pack may declare a deck
 	// with no cards (the tbpp schema allows it) and spawn it empty
 	const lastCardImage = $derived(cards?.[0]?.faceImageUrl ?? '');
+	// the texture resolver: a deck back is often a plain URL on a host without
+	// CORS headers (a TTS `UniqueBack: false` cover), which WebGL can only read
+	// through the proxy (tableplace-262)
 	const displayedImage = $derived(
-		resolveCardImage(isFaceUp ? lastCardImage : deckBackImage, $sheetRefCache)
+		isFaceUp
+			? resolveTextureImage(lastCardImage, $sheetRefCache, { name: cards?.[0]?.name })
+			: resolveTextureImage(deckBackImage, $sheetRefCache, { back: true })
 	);
 
 	// body height tracks how many cards are in the stack (clamped)
@@ -342,7 +347,9 @@
 
 		<!-- PRELOAD THE NEXT DISCARD IMAGE -->
 		{#if isFaceUp && cards.length > 1}
-			{@const preloadUrl = resolveCardImage(cards[1]?.faceImageUrl, $sheetRefCache)}
+			{@const preloadUrl = resolveTextureImage(cards[1]?.faceImageUrl, $sheetRefCache, {
+				name: cards[1]?.name
+			})}
 			{#key preloadUrl}
 				<T.Mesh>
 					<T.PlaneGeometry args={[0, 0]} />

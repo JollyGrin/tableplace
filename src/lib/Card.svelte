@@ -28,7 +28,7 @@
 	} from '$lib/utils/constants-cards';
 	import { fanOffset } from '$lib/utils/transforms/stacking';
 	import { pickCard, pickedCard } from './store/cardPick';
-	import { resolveCardImage, sheetRefCache } from '$lib/packs';
+	import { resolveTextureImage, sheetRefCache } from '$lib/packs';
 	import { driveSpring } from '$lib/utils/frame-stall.svelte';
 	import { Weight, flipHopFor, weightOn } from '$lib/utils/weight.svelte';
 	import { WEIGHT_CARRY_EPSILON } from '$lib/utils/constants-weight';
@@ -58,8 +58,14 @@
 	const isDragging = $derived(isCarried($dragStore, id));
 	const isSelected = $derived($selectedIds.includes(id));
 	const cardState = $derived($gameStore?.cards?.[id] ?? initCardState);
-	const faceImageUrl = $derived(resolveCardImage(cardState?.faceImageUrl, $sheetRefCache));
-	const backImageUrl = $derived(resolveCardImage(cardState?.backImageUrl, $sheetRefCache));
+	// the texture resolver, not resolveCardImage: a plain URL on a host without
+	// CORS headers has to reach WebGL through the proxy (tableplace-262)
+	const faceImageUrl = $derived(
+		resolveTextureImage(cardState?.faceImageUrl, $sheetRefCache, { name: cardState?.name })
+	);
+	const backImageUrl = $derived(
+		resolveTextureImage(cardState?.backImageUrl, $sheetRefCache, { back: true })
+	);
 	let isHovered = $state(false);
 	let emissiveIntensity = $state(0);
 

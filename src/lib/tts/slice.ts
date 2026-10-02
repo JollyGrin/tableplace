@@ -7,17 +7,16 @@
  * substitutes named placeholder faces.
  */
 
+import { corsProxied } from '$lib/utils/image-cors';
 import type { SheetCell } from './parse';
 
 /**
- * CORS-adding pass-through proxy (already run for unbrewed). Many hosts
- * serve images without CORS headers (the-unmatched.club's R2, pinimg) —
+ * `corsProxied` is a CORS-adding pass-through proxy (already run for
+ * unbrewed). Many hosts serve images without CORS headers (the-unmatched.club's R2, pinimg) —
  * fine for plain <img> display, but slicing/WebGL requires pixel access.
  * Direct load is always tried first: Steam's CDN and imgur serve open
  * CORS and need no proxy.
  */
-const CORS_PROXY = 'https://corsproxy.innkeeper1.workers.dev/?url=';
-
 const imageCache = new Map<string, Promise<HTMLImageElement | null>>();
 
 function loadImageFrom(url: string): Promise<HTMLImageElement | null> {
@@ -33,9 +32,14 @@ function loadImageFrom(url: string): Promise<HTMLImageElement | null> {
 function loadImage(url: string): Promise<HTMLImageElement | null> {
 	const cached = imageCache.get(url);
 	if (cached) return cached;
-	const promise = loadImageFrom(url).then(
-		(img) => img ?? loadImageFrom(CORS_PROXY + encodeURIComponent(url))
-	);
+	const promise = loadImageFrom(url)
+		.then((img) => img ?? loadImageFrom(corsProxied(url)))
+		.then((img) => {
+			// only a loaded sheet is kept: a failed one is fetched again by the
+			// next slice, which is what lets a retry succeed (tableplace-262)
+			if (!img) imageCache.delete(url);
+			return img;
+		});
 	imageCache.set(url, promise);
 	return promise;
 }
