@@ -33,8 +33,10 @@
 
 	/**
 	 * Lift-time snap guides (tableplace-188): while an entity that snaps is in
-	 * the air, every snap point it could land on shows a ring, a grid shows the
-	 * cells near the pointer, the one that will catch the drop is filled, and
+	 * the air, every snap point it could land on shows a ring, the point that will
+	 * catch the drop is marked (a disc, or a square frame for a grid cell), and
+	 * a grid draws no field of empty cells — pale squares read as blank cards
+	 * (tableplace-269). Also
 	 * the overlays under the points dim (see `OverlayCustom`). Alt — the no-snap
 	 * modifier — and a piece authored `snap: false` turn it all off.
 	 *
@@ -72,7 +74,7 @@
 	// primitives, so a drag's per-move store updates don't rebuild the pools
 	const capacity = $derived(snapGuideCapacity(snapPoints));
 	const pointPool = $derived(poolSize(capacity.points));
-	const cellPool = $derived(poolSize(capacity.cells));
+	const cellPool = 1; // the cell field is retired (tableplace-269); the mesh stays for the harness
 
 	/**
 	 * The points within the lifted piece's reach, or null for the ordinary
@@ -85,7 +87,6 @@
 	// a 4-segment ring is a diamond; turned 45° it is a square frame
 	const cellGeometry = new THREE.RingGeometry(0.86, 1, 4);
 	const discGeometry = new THREE.CircleGeometry(1, 48);
-	const squareGeometry = new THREE.CircleGeometry(1, 4);
 	const outline = () =>
 		new THREE.MeshBasicMaterial({
 			color: SNAP_DROP_COLOR,
@@ -169,7 +170,9 @@
 		reachCount = 0;
 		cellCount = 0;
 		bright = reachSet;
-		forEachSnapGuide(snapPoints, hit ? pointer : null, visit);
+		// no pointer → no grid cells: only the catching cell is ever drawn
+		// (tableplace-269), as a frame — a field of pale squares reads as blank cards
+		forEachSnapGuide(snapPoints, null, visit);
 		rings.count = ringCount;
 		reachRings.count = reachCount;
 		cells.count = cellCount;
@@ -250,7 +253,6 @@
 		ringGeometry.dispose();
 		cellGeometry.dispose();
 		discGeometry.dispose();
-		squareGeometry.dispose();
 		ringMaterial.dispose();
 		reachMaterial.dispose();
 		fillMaterial.dispose();
@@ -291,7 +293,7 @@
 	userData={{ snapGuide: 'target' }}
 />
 <T.Mesh
-	geometry={squareGeometry}
+	geometry={cellGeometry}
 	material={fillMaterial}
 	visible={false}
 	bind:ref={targetSquare}

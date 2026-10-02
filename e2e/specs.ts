@@ -544,8 +544,8 @@ export const SPECS: Spec[] = [
 					ok(dragging === token, `the token was never lifted (dragging: ${dragging})`);
 					ok(lifted.rings === 33, `expected 33 rings while lifted, got ${JSON.stringify(lifted)}`);
 					ok(
-						lifted.cells > 0 && lifted.cells < 9,
-						`the grid should show only the cells near the pointer, got ${lifted.cells} of 9`
+						lifted.cells === 0,
+						`the grid must not draw a field of empty cells (blank-card look), got ${lifted.cells}`
 					);
 					ok(
 						lifted.target === ids.target,
