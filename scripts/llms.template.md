@@ -16,6 +16,16 @@ Canonical URLs:
 - this document — `https://table.place/llms.txt`
 - pack schema — `{{PACK_SCHEMA_URL}}`
 - scenario schema — `{{SCENARIO_SCHEMA_URL}}`
+- **provisioning a lobby from a pack** — `https://api.table.place/llms.txt`
+
+This document ends where a valid file does. Turning one into a table your players can open is
+a different service with its own document: `POST https://api.table.place/v1/lobbies` takes packs
+plus a layout id and returns one URL per seat, with no account and nothing to host but your card
+images. Its `llms.txt` is likewise self-contained and generated from that service's own routes,
+caps and error catalogue. Read it there rather than guessing from here — this document does not
+describe the API, and the API does not accept scenarios. Note also that it places decks and
+overlays and nothing else: a pack's `pieces` never reach a table provisioned that way, so the
+piece and bag sections below do not apply if that is your route to a table.
 
 ## 1. The two formats
 
